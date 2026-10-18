@@ -2,7 +2,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause};
+use super::helpers::{build_limit_offset_clause, build_order_clause, restore_row, soft_delete_row};
 use context_core::{
     DbError, DbResult, ListResult, Project, ProjectQuery, ProjectRepository, SortOrder,
 };
@@ -88,12 +88,13 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             note_ids: vec![],
             created_at: Some(created_at),
             updated_at: Some(updated_at),
+            deleted_at: None,
         })
     }
 
     async fn get(&self, id: &str) -> DbResult<Project> {
         let row = sqlx::query(
-            "SELECT id, title, description, tags, external_refs, created_at, updated_at FROM project WHERE id = ?",
+            "SELECT id, title, description, tags, external_refs, created_at, updated_at FROM project WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -125,14 +126,15 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
                 })?;
 
         // Get task list relationships (now 1:N from task_list.project_id)
-        let task_list_ids: Vec<String> =
-            sqlx::query_scalar("SELECT id FROM task_list WHERE project_id = ?")
-                .bind(id)
-                .fetch_all(self.pool)
-                .await
-                .map_err(|e| DbError::Database {
-                    message: e.to_string(),
-                })?;
+        let task_list_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM task_list WHERE project_id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         // Get note relationships
         let note_ids: Vec<String> =
@@ -155,6 +157,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
             note_ids,
             created_at: Some(row.get("created_at")),
             updated_at: Some(row.get("updated_at")),
+            deleted_at: None,
         })
     }
 
@@ -172,6 +175,9 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         let needs_repo_join = query.repo_id.is_some();
         let needs_skill_join = query.skill_id.is_some();
         let needs_join = needs_json_each || needs_repo_join || needs_skill_join;
+
+        // Soft-deleted rows are tombstones and must never appear in list results.
+        conditions.push("deleted_at IS NULL".to_string());
 
         // Build FROM clause with necessary JOINs
         let mut from_clause = "FROM project p".to_string();
@@ -239,10 +245,10 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, description, tags, external_refs, created_at, updated_at FROM project {} {}",
-                    order_clause, limit_clause
+                    "SELECT id, title, description, tags, external_refs, created_at, updated_at FROM project {} {} {}",
+                    where_clause, order_clause, limit_clause
                 ),
-                "SELECT COUNT(*) FROM project".to_string(),
+                format!("SELECT COUNT(*) FROM project {}", where_clause),
             )
         };
 
@@ -278,6 +284,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
                     note_ids: vec![],
                     created_at: Some(row.get("created_at")),
                     updated_at: Some(row.get("updated_at")),
+                    deleted_at: None,
                 }
             })
             .collect();
@@ -304,12 +311,13 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     }
 
     async fn count(&self) -> DbResult<usize> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project")
-            .fetch_one(self.pool)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM project WHERE deleted_at IS NULL")
+                .fetch_one(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
         Ok(count as usize)
     }
 
@@ -354,20 +362,203 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
     }
 
     async fn delete(&self, id: &str) -> DbResult<()> {
-        let result = sqlx::query("DELETE FROM project WHERE id = ?")
-            .bind(id)
-            .execute(self.pool)
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let deleted = soft_delete_row(&mut tx, "project", "Project", id, true).await?;
+
+        if !deleted {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        }
+
+        // Cascade: soft-delete child task lists, then the tasks inside them.
+        sqlx::query(
+            "UPDATE task_list SET deleted_at = datetime('now'), updated_at = datetime('now')
+             WHERE project_id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        sqlx::query(
+            "UPDATE task SET deleted_at = datetime('now'), updated_at = datetime('now')
+             WHERE list_id IN (SELECT id FROM task_list WHERE project_id = ?)
+               AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Hard-delete M:N relationship rows for the project.
+        for table in ["project_repo", "project_note", "project_skill"] {
+            let sql = format!("DELETE FROM {} WHERE project_id = ?", table);
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let Some(tombstone) = restore_row(&mut tx, "project", "Project", id, true).await? else {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        };
+
+        // Cascade: restore the task lists and tasks deleted with this project.
+        sqlx::query(
+            "UPDATE task_list SET deleted_at = NULL, updated_at = datetime('now')
+             WHERE project_id = ? AND deleted_at >= ?",
+        )
+        .bind(id)
+        .bind(&tombstone)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        sqlx::query(
+            "UPDATE task SET deleted_at = NULL, updated_at = datetime('now')
+             WHERE list_id IN (SELECT id FROM task_list WHERE project_id = ? AND deleted_at IS NULL)
+               AND deleted_at >= ?",
+        )
+        .bind(id)
+        .bind(&tombstone)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn purge_deleted(&self, before: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Transition logs for tasks that belong to purged projects.
+        sqlx::query(
+            "DELETE FROM task_transition_log
+             WHERE task_id IN (
+                 SELECT t.id FROM task t
+                 JOIN task_list tl ON t.list_id = tl.id
+                 JOIN project p ON tl.project_id = p.id
+                 WHERE p.deleted_at IS NOT NULL AND p.deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Tasks inside the purged projects' task lists.
+        sqlx::query(
+            "DELETE FROM task
+             WHERE list_id IN (
+                 SELECT tl.id FROM task_list tl
+                 JOIN project p ON tl.project_id = p.id
+                 WHERE p.deleted_at IS NOT NULL AND p.deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Repo links for the purged projects' task lists.
+        sqlx::query(
+            "DELETE FROM task_list_repo
+             WHERE task_list_id IN (
+                 SELECT tl.id FROM task_list tl
+                 JOIN project p ON tl.project_id = p.id
+                 WHERE p.deleted_at IS NOT NULL AND p.deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Task lists of the purged projects.
+        sqlx::query(
+            "DELETE FROM task_list
+             WHERE project_id IN (
+                 SELECT id FROM project WHERE deleted_at IS NOT NULL AND deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // M:N relationship rows for the purged projects.
+        for table in ["project_repo", "project_note", "project_skill"] {
+            let sql = format!(
+                "DELETE FROM {} WHERE project_id IN (
+                     SELECT id FROM project WHERE deleted_at IS NOT NULL AND deleted_at < ?
+                 )",
+                table
+            );
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .bind(before)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        }
+
+        sqlx::query("DELETE FROM project WHERE deleted_at IS NOT NULL AND deleted_at < ?")
+            .bind(before)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
 
-        if result.rows_affected() == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "Project".to_string(),
-                id: id.to_string(),
-            });
-        }
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }
@@ -395,7 +586,10 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
         };
 
         let mut bind_values: Vec<String> = vec![fts_query];
-        let mut where_conditions: Vec<String> = vec!["project_fts MATCH ?".to_string()];
+        let mut where_conditions: Vec<String> = vec![
+            "project_fts MATCH ?".to_string(),
+            "p.deleted_at IS NULL".to_string(),
+        ];
 
         // Check if we need JOINs for tag filtering
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
@@ -498,6 +692,7 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
                     note_ids: vec![],
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
+                    deleted_at: None,
                 }
             })
             .collect();

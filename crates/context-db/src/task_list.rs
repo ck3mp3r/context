@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause};
+use super::helpers::{build_limit_offset_clause, build_order_clause, restore_row, soft_delete_row};
 use context_core::{
     DbError, DbResult, ListResult, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
@@ -139,6 +139,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             archived_at: task_list.archived_at.clone(),
             repo_ids: task_list.repo_ids.clone(),
             project_id: task_list.project_id.clone(),
+            deleted_at: None,
         })
     }
 
@@ -146,7 +147,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         // Get the main task_list record
         let row = sqlx::query(
             "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at
-             FROM task_list WHERE id = ?",
+             FROM task_list WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -201,6 +202,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             created_at: Some(row.get("created_at")),
             updated_at: Some(row.get("updated_at")),
             archived_at: row.get("archived_at"),
+            deleted_at: None,
         })
     }
 
@@ -215,6 +217,9 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         // Build filter conditions
         let mut conditions: Vec<String> = Vec::new();
         let mut bind_values: Vec<String> = Vec::new();
+
+        // Soft-deleted rows are tombstones and must never appear in list results.
+        conditions.push("tl.deleted_at IS NULL".to_string());
 
         if let Some(status) = &query.status {
             conditions.push("tl.status = ?".to_string());
@@ -257,7 +262,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     where_clause
                 ),
             )
-        } else if !conditions.is_empty() {
+        } else {
             (
                 format!(
                     "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at
@@ -265,15 +270,6 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     where_clause, order_clause, limit_clause
                 ),
                 format!("SELECT COUNT(*) FROM task_list tl {}", where_clause),
-            )
-        } else {
-            (
-                format!(
-                    "SELECT id, title, description, notes, tags, external_refs, status, project_id, created_at, updated_at, archived_at
-                     FROM task_list {} {}",
-                     order_clause, limit_clause
-                ),
-                "SELECT COUNT(*) FROM task_list".to_string(),
             )
         };
 
@@ -316,6 +312,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     created_at: Some(row.get("created_at")),
                     updated_at: Some(row.get("updated_at")),
                     archived_at: row.get("archived_at"),
+                    deleted_at: None,
                 }
             })
             .collect();
@@ -364,7 +361,10 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
         };
 
         let mut bind_values: Vec<String> = vec![fts_query];
-        let mut where_conditions: Vec<String> = vec!["task_list_fts MATCH ?".to_string()];
+        let mut where_conditions: Vec<String> = vec![
+            "task_list_fts MATCH ?".to_string(),
+            "tl.deleted_at IS NULL".to_string(),
+        ];
 
         // Add project filter if specified
         if let Some(ref project_id) = query.project_id {
@@ -484,6 +484,7 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                     created_at: Some(row.get("created_at")),
                     updated_at: Some(row.get("updated_at")),
                     archived_at: row.get("archived_at"),
+                    deleted_at: None,
                 }
             })
             .collect();
@@ -497,12 +498,13 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
     }
 
     async fn count(&self) -> DbResult<usize> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_list")
-            .fetch_one(self.pool)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM task_list WHERE deleted_at IS NULL")
+                .fetch_one(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
         Ok(count as usize)
     }
 
@@ -613,7 +615,28 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             message: e.to_string(),
         })?;
 
-        // Delete related task_list_repo relationships
+        let deleted = soft_delete_row(&mut tx, "task_list", "TaskList", id, true).await?;
+
+        if !deleted {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        }
+
+        // Cascade: soft-delete the tasks in this list.
+        sqlx::query(
+            "UPDATE task SET deleted_at = datetime('now'), updated_at = datetime('now')
+             WHERE list_id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Hard-delete task_list_repo relationships
         sqlx::query("DELETE FROM task_list_repo WHERE task_list_id = ?")
             .bind(id)
             .execute(&mut *tx)
@@ -622,21 +645,127 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
                 message: e.to_string(),
             })?;
 
-        // Delete the task_list record
-        let result = sqlx::query("DELETE FROM task_list WHERE id = ?")
-            .bind(id)
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Ancestor-consistency guard: never create a live task list under a
+        // soft-deleted project.
+        let project = sqlx::query(
+            "SELECT p.id, p.deleted_at FROM project p
+             WHERE p.id = (SELECT project_id FROM task_list WHERE id = ?)",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        if let Some(row) = project {
+            let deleted_at: Option<String> = row.get("deleted_at");
+            if deleted_at.is_some() {
+                let project_id: String = row.get("id");
+                return Err(DbError::Validation {
+                    message: format!(
+                        "Cannot restore task list '{}': project '{}' is soft-deleted",
+                        id, project_id
+                    ),
+                });
+            }
+        }
+
+        let Some(tombstone) = restore_row(&mut tx, "task_list", "TaskList", id, true).await? else {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        };
+
+        // Cascade: restore the tasks deleted with this list.
+        sqlx::query(
+            "UPDATE task SET deleted_at = NULL, updated_at = datetime('now')
+             WHERE list_id = ? AND deleted_at IS NOT NULL AND deleted_at >= ?",
+        )
+        .bind(id)
+        .bind(&tombstone)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn purge_deleted(&self, before: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Transition logs for tasks in the purged lists.
+        sqlx::query(
+            "DELETE FROM task_transition_log
+             WHERE task_id IN (
+                 SELECT t.id FROM task t
+                 JOIN task_list tl ON t.list_id = tl.id
+                 WHERE tl.deleted_at IS NOT NULL AND tl.deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Tasks in the purged lists.
+        sqlx::query(
+            "DELETE FROM task
+             WHERE list_id IN (
+                 SELECT id FROM task_list WHERE deleted_at IS NOT NULL AND deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Repo links for the purged lists.
+        sqlx::query(
+            "DELETE FROM task_list_repo
+             WHERE task_list_id IN (
+                 SELECT id FROM task_list WHERE deleted_at IS NOT NULL AND deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        sqlx::query("DELETE FROM task_list WHERE deleted_at IS NOT NULL AND deleted_at < ?")
+            .bind(before)
             .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
-
-        if result.rows_affected() == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "TaskList".to_string(),
-                id: id.to_string(),
-            });
-        }
 
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),

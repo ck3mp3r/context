@@ -16,6 +16,7 @@ context-core = { path = "../context-core" }
 context-skills = { path = "../context-skills" }
 chrono.workspace = true
 mockall = { version = "0.15.0", optional = true }
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 miette.workspace = true
@@ -24,3 +25,5 @@ tracing = "0.1.44"
 [dev-dependencies]
 tempfile = "3.27.0"
 context-sync = { path = ".", features = ["testing"] }
+context-db = { path = "../context-db" }
+tokio = { version = "1.53.2", features = ["full"] }

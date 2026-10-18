@@ -118,6 +118,7 @@ async fn test_get_note() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -173,6 +174,7 @@ async fn test_delete_note() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -183,8 +185,12 @@ async fn test_delete_note() {
     let result = tools.delete_note(Parameters(params)).await;
     assert!(result.is_ok());
 
-    let result = db.notes().get("note0001").await;
-    assert!(result.is_err());
+    let deleted_at: Option<String> = sqlx::query_scalar("SELECT deleted_at FROM note WHERE id = ?")
+        .bind("note0001")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert!(deleted_at.is_some(), "note should be soft-deleted");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -219,6 +225,7 @@ async fn test_edit_note() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -295,6 +302,7 @@ async fn test_list_notes_with_data() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -341,6 +349,7 @@ async fn test_list_notes_search() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -388,6 +397,7 @@ async fn test_list_notes_pagination() {
             subnote_count: None,
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
         };
         db.notes().create(&note).await.unwrap();
     }
@@ -436,6 +446,7 @@ async fn test_list_notes_tag_filter() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -482,6 +493,7 @@ async fn test_list_notes_with_project_id_filter() {
         note_ids: vec![],
         created_at: None,
         updated_at: None,
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -497,6 +509,7 @@ async fn test_list_notes_with_project_id_filter() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -543,6 +556,7 @@ async fn test_list_notes_with_parent_id_filter() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&parent).await.unwrap();
 
@@ -558,6 +572,7 @@ async fn test_list_notes_with_parent_id_filter() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&child).await.unwrap();
 
@@ -605,6 +620,7 @@ async fn test_list_notes_with_note_type_filter() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&parent).await.unwrap();
 
@@ -620,6 +636,7 @@ async fn test_list_notes_with_note_type_filter() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&child).await.unwrap();
 
@@ -663,6 +680,7 @@ async fn test_list_notes_sorting() {
             subnote_count: None,
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
         };
         db.notes().create(&note).await.unwrap();
     }
@@ -716,6 +734,7 @@ async fn test_read_note_toon_format() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -755,6 +774,7 @@ async fn test_read_note_json_format() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -795,6 +815,7 @@ async fn test_read_note_with_ranges() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -826,6 +847,7 @@ async fn test_edit_note_with_patches() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 
@@ -877,6 +899,7 @@ async fn test_edit_note_with_etag() {
         subnote_count: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.notes().create(&note).await.unwrap();
 

@@ -411,6 +411,7 @@ Test instructions
         assets: vec![],
         created_at: None,
         updated_at: None,
+        deleted_at: None,
     };
     let skill2 = Skill {
         id: "skill002".to_string(),
@@ -433,6 +434,7 @@ Test instructions
         assets: vec![],
         created_at: None,
         updated_at: None,
+        deleted_at: None,
     };
     db.skills().create(&skill1).await.unwrap();
     db.skills().create(&skill2).await.unwrap();
@@ -490,6 +492,7 @@ description: Skill 1
             assets: vec![],
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         },
         CoreSkill {
             id: "skill002".to_string(),
@@ -510,6 +513,7 @@ description: Skill 2
             assets: vec![],
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         },
         CoreSkill {
             id: "skill003".to_string(),
@@ -530,6 +534,7 @@ description: Skill 3
             assets: vec![],
             created_at: None,
             updated_at: None,
+            deleted_at: None,
         },
     ];
     write_jsonl(&temp_dir.path().join("skills.jsonl"), &skills).unwrap();

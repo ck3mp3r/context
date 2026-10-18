@@ -77,6 +77,12 @@ pub struct DeleteRepoParams {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RestoreRepoParams {
+    #[schemars(description = "Repository ID (8-character hex)")]
+    pub id: String,
+}
+
 /// Repository management tools
 ///
 /// Generic over `D: Database` for zero-cost abstraction.
@@ -193,6 +199,8 @@ impl<D: HasRepos + 'static> RepoTools<D> {
             tags: params.0.tags.unwrap_or_default(),
             project_ids: params.0.project_ids.unwrap_or_default(),
             created_at: None, // Repository generates this
+            updated_at: None, // Repository generates this
+            deleted_at: None,
         };
 
         let created = self.db.repos().create(&repo).await.map_err(map_db_error)?;
@@ -287,5 +295,36 @@ impl<D: HasRepos + 'static> RepoTools<D> {
         Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&content).unwrap(),
         )]))
+    }
+
+    /// Restore a soft-deleted repository
+    #[tool(description = "Restore a soft-deleted repository")]
+    pub async fn restore_repo(
+        &self,
+        params: Parameters<RestoreRepoParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .repos()
+            .restore(&params.0.id)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::RepoUpdated {
+            repo_id: params.0.id.clone(),
+        });
+
+        let content = json!({
+            "success": true,
+            "message": format!("Repository {} restored successfully", params.0.id)
+        });
+
+        let text = serde_json::to_string_pretty(&content).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 }

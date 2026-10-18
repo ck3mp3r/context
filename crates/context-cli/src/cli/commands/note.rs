@@ -236,3 +236,14 @@ pub async fn delete_note(api_client: &ApiClient, id: &str, force: bool) -> CliRe
         })
     }
 }
+
+/// Restore a soft-deleted note
+pub async fn restore_note(api_client: &ApiClient, id: &str) -> CliResult<String> {
+    let response = api_client
+        .post(&format!("/api/v1/notes/{}/restore", id))
+        .send()
+        .await?;
+
+    let note: Note = ApiClient::handle_response(response).await?;
+    Ok(format!("✓ Restored note: {} ({})", note.title, note.id))
+}

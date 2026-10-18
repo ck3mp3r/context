@@ -135,6 +135,7 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
         status: "success".to_string(),
         message: "Export completed".to_string(),
         data: Some(serde_json::json!({
+            "changes": summary.total(),
             "exported": {
                 "repos": summary.repos,
                 "projects": summary.projects,
@@ -223,6 +224,8 @@ pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync>(
             message: "Sync not initialized. Run init operation first.".to_string(),
             data: Some(serde_json::json!({
                 "initialized": false,
+                "last_synced_at": status.last_synced_at,
+                "schema_version": status.schema_version,
             })),
         }));
     }
@@ -230,6 +233,8 @@ pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync>(
     let data = serde_json::json!({
         "initialized": true,
         "remote_url": status.remote_url,
+        "last_synced_at": status.last_synced_at,
+        "schema_version": status.schema_version,
         "git": status.git_status.as_ref().map(|git_status| serde_json::json!({
             "clean": git_status.clean,
             "status": if git_status.clean { "No changes" } else { &git_status.status_output },

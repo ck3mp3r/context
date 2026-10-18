@@ -69,6 +69,8 @@ async fn test_export_then_import() {
         tags: vec!["test".to_string()],
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
+        deleted_at: None,
     };
     db1.repos().create(&repo).await.unwrap();
 
@@ -83,6 +85,7 @@ async fn test_export_then_import() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db1.projects().create(&project).await.unwrap();
 
@@ -123,6 +126,8 @@ async fn test_import_updates_existing() {
         tags: vec!["v1".to_string()],
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
+        deleted_at: None,
     };
     db.repos().create(&repo_v1).await.unwrap();
 
@@ -134,6 +139,8 @@ async fn test_import_updates_existing() {
         tags: vec!["v2".to_string()],                        // Changed
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
+        deleted_at: None,
     };
 
     write_jsonl(&temp_dir.path().join("repos.jsonl"), &[repo_v2]).unwrap();
@@ -176,6 +183,7 @@ async fn test_import_preserves_relationships() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db1.projects().create(&project).await.unwrap();
 
@@ -186,6 +194,8 @@ async fn test_import_preserves_relationships() {
         tags: vec![],
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
+        deleted_at: None,
     };
     db1.repos().create(&repo).await.unwrap();
 
@@ -201,6 +211,7 @@ async fn test_import_preserves_relationships() {
         subnote_count: None,
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db1.notes().create(&note).await.unwrap();
 
@@ -244,6 +255,7 @@ async fn test_import_preserves_timestamps() {
         subnote_count: None,
         created_at: Some(original_created.to_string()),
         updated_at: Some(original_updated.to_string()),
+        deleted_at: None,
     };
 
     db.notes().create(&note).await.unwrap();
@@ -270,6 +282,7 @@ async fn test_import_preserves_timestamps() {
         subnote_count: None,
         created_at: Some(original_created.to_string()),
         updated_at: Some(modified_updated.to_string()),
+        deleted_at: None,
     };
 
     // Write the modified note to JSONL (simulating external modification)
@@ -312,6 +325,7 @@ async fn test_import_preserves_project_timestamps() {
         note_ids: vec![],
         created_at: Some(original_created.to_string()),
         updated_at: Some(original_updated.to_string()),
+        deleted_at: None,
     };
 
     db.projects().create(&project).await.unwrap();
@@ -329,6 +343,7 @@ async fn test_import_preserves_project_timestamps() {
         note_ids: vec![],
         created_at: Some(original_created.to_string()),
         updated_at: Some(modified_updated.to_string()),
+        deleted_at: None,
     };
 
     write_jsonl(&temp_dir.path().join("projects.jsonl"), &[modified_project]).unwrap();
@@ -369,6 +384,7 @@ async fn test_import_preserves_task_list_timestamps() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -389,6 +405,7 @@ async fn test_import_preserves_task_list_timestamps() {
         created_at: Some(original_created.to_string()),
         updated_at: Some(original_updated.to_string()),
         archived_at: None,
+        deleted_at: None,
     };
 
     db.task_lists().create(&task_list).await.unwrap();
@@ -408,6 +425,7 @@ async fn test_import_preserves_task_list_timestamps() {
         created_at: Some(original_created.to_string()),
         updated_at: Some(modified_updated.to_string()),
         archived_at: None,
+        deleted_at: None,
     };
 
     write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
@@ -448,6 +466,7 @@ async fn test_import_skills_creates_new() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
 
     // Create a skill
@@ -472,6 +491,7 @@ Do something
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
 
     // Write to JSONL
@@ -512,6 +532,7 @@ async fn test_import_skills_updates_existing() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -537,6 +558,7 @@ Original instructions
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill_v1).await.unwrap();
 
@@ -562,6 +584,7 @@ Updated instructions
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-02T15:00:00Z".to_string()),
+        deleted_at: None,
     };
 
     // Write to JSONL
@@ -606,6 +629,7 @@ async fn test_import_skills_preserves_project_relationships() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
 
     let project2 = Project {
@@ -619,6 +643,7 @@ async fn test_import_skills_preserves_project_relationships() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
 
     // Create skill linked to multiple projects
@@ -643,6 +668,7 @@ Test instructions
         assets: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
 
     // Write to JSONL
@@ -703,6 +729,7 @@ async fn test_export_import_skills_round_trip() {
         note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
     };
     db1.projects().create(&project).await.unwrap();
 
@@ -727,6 +754,7 @@ Should survive export/import
         assets: vec![],
         created_at: Some("2024-01-01T12:00:00Z".to_string()),
         updated_at: Some("2024-01-01T15:30:00Z".to_string()),
+        deleted_at: None,
     };
     db1.skills().create(&skill).await.unwrap();
 
@@ -803,6 +831,7 @@ origin:
         assets: vec![],
         created_at: Some("2024-01-01T12:00:00Z".to_string()),
         updated_at: Some("2024-01-01T15:30:00Z".to_string()),
+        deleted_at: None,
     };
     db1.skills().create(&skill).await.unwrap();
 
@@ -903,6 +932,7 @@ Initial instructions
         assets: vec![],
         created_at: Some("2024-01-01T10:00:00Z".to_string()),
         updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&initial_skill).await.unwrap();
 
@@ -950,6 +980,7 @@ Updated instructions with changes
         assets: vec![],
         created_at: Some("2024-01-01T10:00:00Z".to_string()),
         updated_at: Some("2026-01-31T19:00:00Z".to_string()), // CHANGED
+        deleted_at: None,
     };
     std::fs::write(
         &skills_file,
@@ -1057,6 +1088,7 @@ This skill has attachments.
         assets: vec![],
         created_at: Some("2024-01-01T10:00:00Z".to_string()),
         updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        deleted_at: None,
     };
 
     let attachments = vec![
@@ -1070,6 +1102,7 @@ This skill has attachments.
             mime_type: Some("text/x-shellscript".to_string()),
             created_at: Some("2024-01-01T10:00:00Z".to_string()),
             updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            deleted_at: None,
         },
         SkillAttachment {
             id: "at005678".to_string(),
@@ -1081,6 +1114,7 @@ This skill has attachments.
             mime_type: Some("text/markdown".to_string()),
             created_at: Some("2024-01-01T10:00:00Z".to_string()),
             updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            deleted_at: None,
         },
     ];
 
@@ -1142,6 +1176,7 @@ This skill has attachments.
             mime_type: Some("text/x-shellscript".to_string()),
             created_at: Some("2024-01-01T10:00:00Z".to_string()),
             updated_at: Some("2024-01-02T10:00:00Z".to_string()),
+            deleted_at: None,
         },
         SkillAttachment {
             id: "at005678".to_string(),
@@ -1153,6 +1188,7 @@ This skill has attachments.
             mime_type: Some("text/markdown".to_string()),
             created_at: Some("2024-01-01T10:00:00Z".to_string()),
             updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            deleted_at: None,
         },
     ];
 
@@ -1197,6 +1233,7 @@ This skill has attachments.
         mime_type: Some("text/markdown".to_string()),
         created_at: Some("2024-01-01T10:00:00Z".to_string()),
         updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        deleted_at: None,
     }];
 
     write_jsonl(
@@ -1211,9 +1248,13 @@ This skill has attachments.
     .unwrap();
     import_all(&db, temp_dir.path()).await.unwrap();
 
-    // Verify script attachment deleted
-    let final_attachments = db.skills().get_attachments("sk001234").await.unwrap();
-    assert_eq!(final_attachments.len(), 1);
-    assert_eq!(final_attachments[0].filename, "README.md");
-    assert!(final_attachments.iter().all(|a| a.filename != "run.sh"));
+    // Verify script attachment is soft-deleted (excluded from the live set)
+    let live_filenames: Vec<String> = sqlx::query_scalar(
+        "SELECT filename FROM skill_attachment WHERE skill_id = ? AND deleted_at IS NULL",
+    )
+    .bind("sk001234")
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(live_filenames, vec!["README.md".to_string()]);
 }

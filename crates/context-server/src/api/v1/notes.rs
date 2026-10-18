@@ -359,6 +359,7 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
         subnote_count: None,
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
+        deleted_at: None,
     };
 
     let created_note = state.db().notes().create(&note).await.map_err(|e| {
@@ -543,6 +544,62 @@ pub async fn delete_note<D: Database, G: GitOps + Send + Sync>(
     });
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Restore a soft-deleted note
+///
+/// Clears the note's deletion tombstone and returns the restored note.
+#[utoipa::path(
+    post,
+    path = "/api/v1/notes/{id}/restore",
+    tag = "notes",
+    params(("id" = String, Path, description = "Note ID")),
+    responses(
+        (status = 200, description = "Note restored", body = NoteResponse),
+        (status = 400, description = "Restore blocked by a deleted ancestor", body = ErrorResponse),
+        (status = 404, description = "Note not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn restore_note<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<Json<NoteResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state.db().notes().restore(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Note '{}' not found", id),
+            }),
+        ),
+        DbError::Validation { message } => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: message }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::NoteUpdated {
+        note_id: id.clone(),
+    });
+
+    let restored = state.db().notes().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(NoteResponse::from(restored)))
 }
 
 // =============================================================================

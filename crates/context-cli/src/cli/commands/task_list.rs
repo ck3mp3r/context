@@ -260,6 +260,20 @@ pub async fn delete_task_list(api_client: &ApiClient, id: &str, force: bool) -> 
     }
 }
 
+/// Restore a soft-deleted task list
+pub async fn restore_task_list(api_client: &ApiClient, id: &str) -> CliResult<String> {
+    let response = api_client
+        .post(&format!("/api/v1/task-lists/{}/restore", id))
+        .send()
+        .await?;
+
+    let task_list: TaskList = ApiClient::handle_response(response).await?;
+    Ok(format!(
+        "✓ Restored task list: {} ({})",
+        task_list.title, task_list.id
+    ))
+}
+
 /// Get task statistics for a task list
 pub async fn get_task_list_stats(
     api_client: &ApiClient,

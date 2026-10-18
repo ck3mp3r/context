@@ -295,6 +295,8 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
         tags: req.tags,
         project_ids: req.project_ids,
         created_at: None, // Repository will generate this
+        updated_at: None, // Repository will generate this
+        deleted_at: None,
     };
 
     let created_repo = state.db().repos().create(&repo).await.map_err(|e| {
@@ -478,4 +480,62 @@ pub async fn delete_repo<D: Database, G: GitOps + Send + Sync>(
     });
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Restore a soft-deleted repo
+///
+/// Clears the repo's deletion tombstone and returns the restored repo.
+#[utoipa::path(
+    post,
+    path = "/api/v1/repos/{id}/restore",
+    tag = "repos",
+    params(
+        ("id" = String, Path, description = "Repo ID (8-character hex)")
+    ),
+    responses(
+        (status = 200, description = "Repo restored", body = RepoResponse),
+        (status = 400, description = "Restore blocked by a deleted ancestor", body = ErrorResponse),
+        (status = 404, description = "Repo not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn restore_repo<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<Json<RepoResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state.db().repos().restore(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Repo '{}' not found", id),
+            }),
+        ),
+        DbError::Validation { message } => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: message }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::RepoUpdated {
+        repo_id: id.clone(),
+    });
+
+    let restored = state.db().repos().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(RepoResponse::from(restored)))
 }

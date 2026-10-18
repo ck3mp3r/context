@@ -366,3 +366,14 @@ pub async fn delete_task(api_client: &ApiClient, id: &str, force: bool) -> CliRe
         })
     }
 }
+
+/// Restore a soft-deleted task
+pub async fn restore_task(api_client: &ApiClient, id: &str) -> CliResult<String> {
+    let response = api_client
+        .post(&format!("/api/v1/tasks/{}/restore", id))
+        .send()
+        .await?;
+
+    let task: Task = ApiClient::handle_response(response).await?;
+    Ok(format!("✓ Restored task: {} ({})", task.title, task.id))
+}

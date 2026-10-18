@@ -89,3 +89,60 @@ async fn test_sync_invalid_operation_error() {
         err_msg
     );
 }
+
+/// Test that the status tool reports `last_synced_at` and `schema_version`.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_sync_status_includes_last_synced_at_and_schema_version() {
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{ExitStatus, Output};
+
+    fn mock_output(code: i32, stdout: &str, stderr: &str) -> Output {
+        Output {
+            status: ExitStatus::from_raw(code),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    let db = Arc::new(setup_test_db().await);
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .returning(|_, _| Err(context_sync::GitError::GitNotFound));
+    mock_git
+        .expect_status_porcelain()
+        .returning(|_| Ok(mock_output(0, "", "")));
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    let tools = SyncTools::with_manager(db, manager);
+
+    let params = SyncParams {
+        operation: "status".to_string(),
+        remote_url: None,
+        message: None,
+        remote: None,
+    };
+
+    let result = tools.sync(Parameters(params)).await.unwrap();
+
+    let text = match &result.content[0] {
+        ContentBlock::Text(text_content) => text_content.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+
+    let json: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(json["initialized"], true);
+    assert!(
+        json.get("last_synced_at").is_some(),
+        "status must include last_synced_at, got: {}",
+        json
+    );
+    assert!(
+        json["schema_version"].as_i64().unwrap_or(0) > 0,
+        "status must include a positive schema_version, got: {}",
+        json
+    );
+}

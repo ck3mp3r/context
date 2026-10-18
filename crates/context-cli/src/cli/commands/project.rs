@@ -234,3 +234,17 @@ pub async fn delete_project(api_client: &ApiClient, id: &str, force: bool) -> Cl
         })
     }
 }
+
+/// Restore a soft-deleted project
+pub async fn restore_project(api_client: &ApiClient, id: &str) -> CliResult<String> {
+    let response = api_client
+        .post(&format!("/api/v1/projects/{}/restore", id))
+        .send()
+        .await?;
+
+    let project: Project = ApiClient::handle_response(response).await?;
+    Ok(format!(
+        "✓ Restored project: {} ({})",
+        project.title, project.id
+    ))
+}

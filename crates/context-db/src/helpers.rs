@@ -1,6 +1,169 @@
 //! Shared helper functions for SQLite repositories.
 
-use context_core::{PageSort, SortOrder};
+use context_core::{DbError, DbResult, PageSort, SortOrder};
+
+/// Soft-delete a single entity row by setting `deleted_at` to the current time.
+///
+/// When `bump_updated_at` is true the row's `updated_at` is set to the current
+/// time as well, so the tombstone flows through incremental sync. Tables
+/// without an `updated_at` column pass false.
+///
+/// Returns `Ok(true)` when this call soft-deleted the row, `Ok(false)` when the
+/// row exists but is already soft-deleted (idempotent no-op), and
+/// `Err(DbError::NotFound)` when no row with `id` exists.
+pub async fn soft_delete_row(
+    conn: &mut sqlx::SqliteConnection,
+    table: &str,
+    entity_type: &str,
+    id: &str,
+    bump_updated_at: bool,
+) -> DbResult<bool> {
+    let set_clause = if bump_updated_at {
+        "deleted_at = datetime('now'), updated_at = datetime('now')"
+    } else {
+        "deleted_at = datetime('now')"
+    };
+    let sql = format!(
+        "UPDATE {} SET {} WHERE id = ? AND deleted_at IS NULL",
+        table, set_clause
+    );
+
+    let result = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(id)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+    if result.rows_affected() > 0 {
+        return Ok(true);
+    }
+
+    let exists_sql = format!("SELECT id FROM {} WHERE id = ?", table);
+    let exists: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(exists_sql.as_str()))
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+    if exists.is_none() {
+        return Err(DbError::NotFound {
+            entity_type: entity_type.to_string(),
+            id: id.to_string(),
+        });
+    }
+
+    Ok(false)
+}
+
+/// Restore a soft-deleted entity row by clearing its `deleted_at`.
+///
+/// When `bump_updated_at` is true the row's `updated_at` is set to the current
+/// time as well, so the restore flows through incremental sync. Tables without
+/// an `updated_at` column pass false.
+///
+/// Returns `Ok(Some(tombstone))` with the row's previous `deleted_at` value when
+/// this call restored the row, `Ok(None)` when the row exists but is already
+/// live (idempotent no-op), and `Err(DbError::NotFound)` when no row with `id`
+/// exists.
+///
+/// Callers that cascade the restore to child rows must capture the tombstone
+/// before clearing it and match children with `deleted_at >= tombstone`.
+/// SQLite `datetime('now')` has one-second granularity and is evaluated per
+/// statement, so cascade children carry the same timestamp as the parent or one
+/// second later. Children soft-deleted before the parent's delete carry an
+/// earlier timestamp and stay deleted. A child soft-deleted independently within
+/// the same second as the parent's cascade is indistinguishable and is restored.
+pub async fn restore_row(
+    conn: &mut sqlx::SqliteConnection,
+    table: &str,
+    entity_type: &str,
+    id: &str,
+    bump_updated_at: bool,
+) -> DbResult<Option<String>> {
+    let select_sql = format!("SELECT deleted_at FROM {} WHERE id = ?", table);
+    let tombstone: Option<Option<String>> =
+        sqlx::query_scalar(sqlx::AssertSqlSafe(select_sql.as_str()))
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+    let Some(tombstone) = tombstone else {
+        return Err(DbError::NotFound {
+            entity_type: entity_type.to_string(),
+            id: id.to_string(),
+        });
+    };
+
+    let Some(tombstone) = tombstone else {
+        return Ok(None);
+    };
+
+    let set_clause = if bump_updated_at {
+        "deleted_at = NULL, updated_at = datetime('now')"
+    } else {
+        "deleted_at = NULL"
+    };
+    let sql = format!("UPDATE {} SET {} WHERE id = ?", table, set_clause);
+
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(id)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+    Ok(Some(tombstone))
+}
+
+/// Read the `deleted_at` tombstone marker for a row. Test-only helper.
+#[cfg(test)]
+pub async fn read_deleted_at(pool: &sqlx::SqlitePool, table: &str, id: &str) -> Option<String> {
+    use sqlx::Row;
+
+    let sql = format!("SELECT deleted_at FROM {} WHERE id = ?", table);
+    let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .expect("row should exist");
+
+    row.get("deleted_at")
+}
+
+/// Read the `updated_at` timestamp for a row. Test-only helper.
+#[cfg(test)]
+pub async fn read_updated_at(pool: &sqlx::SqlitePool, table: &str, id: &str) -> Option<String> {
+    use sqlx::Row;
+
+    let sql = format!("SELECT updated_at FROM {} WHERE id = ?", table);
+    let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .expect("row should exist");
+
+    row.get("updated_at")
+}
+
+/// Count rows in `table` matching `where_clause` with a single `?` bound to `id`.
+/// Test-only helper.
+#[cfg(test)]
+pub async fn count_rows(pool: &sqlx::SqlitePool, table: &str, where_clause: &str, id: &str) -> i64 {
+    let sql = format!("SELECT COUNT(*) FROM {} WHERE {}", table, where_clause);
+    sqlx::query_scalar(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .expect("count should succeed")
+}
 
 /// Validate and map a sort field to the actual column name.
 /// Returns None for invalid fields (falls back to default).
@@ -163,80 +326,4 @@ pub fn sanitize_fts5_query(search_term: &str) -> Option<String> {
     };
 
     Some(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sanitize_fts5_query_simple() {
-        assert_eq!(sanitize_fts5_query("rust"), Some("rust*".to_string()));
-    }
-
-    #[test]
-    fn test_sanitize_fts5_query_multiple_terms() {
-        assert_eq!(
-            sanitize_fts5_query("rust async"),
-            Some("rust* async*".to_string())
-        );
-    }
-
-    #[test]
-    fn test_sanitize_fts5_query_boolean_operators() {
-        assert_eq!(
-            sanitize_fts5_query("rust AND async"),
-            Some("rust AND async".to_string())
-        );
-        assert_eq!(
-            sanitize_fts5_query("backend OR frontend"),
-            Some("backend OR frontend".to_string())
-        );
-        assert_eq!(
-            sanitize_fts5_query("code NOT deprecated"),
-            Some("code NOT deprecated".to_string())
-        );
-    }
-
-    #[test]
-    fn test_sanitize_fts5_query_phrase() {
-        assert_eq!(
-            sanitize_fts5_query("\"exact match\""),
-            Some("\"exact match\"".to_string())
-        );
-    }
-
-    #[test]
-    fn test_sanitize_fts5_query_empty() {
-        assert_eq!(sanitize_fts5_query(""), None);
-        assert_eq!(sanitize_fts5_query("   "), None);
-        assert_eq!(sanitize_fts5_query("\t\n"), None);
-    }
-
-    #[test]
-    fn test_sanitize_fts5_query_special_chars() {
-        // Special FTS5 chars should be stripped
-        assert_eq!(
-            sanitize_fts5_query("hello@world#test"),
-            Some("hello* world* test*".to_string())
-        );
-    }
-
-    #[test]
-    fn test_sanitize_fts5_query_unbalanced_quotes() {
-        // Odd number of quotes - should remove all quotes
-        assert_eq!(
-            sanitize_fts5_query("hello \"world"),
-            Some("hello* world*".to_string())
-        );
-    }
-
-    #[test]
-    fn test_sanitize_fts5_query_unicode() {
-        // Unicode characters should be preserved
-        assert_eq!(
-            sanitize_fts5_query("Rust über"),
-            Some("Rust* über*".to_string())
-        );
-    }
 }

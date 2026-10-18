@@ -371,6 +371,7 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
         archived_at: None,
+        deleted_at: None,
     };
 
     let created_list = state.db().task_lists().create(&list).await.map_err(|e| {
@@ -582,6 +583,68 @@ pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync>(
     });
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Restore a soft-deleted task list
+///
+/// Clears the task list's deletion tombstone, restores the tasks deleted with
+/// it, and returns the restored task list.
+#[utoipa::path(
+    post,
+    path = "/api/v1/task-lists/{id}/restore",
+    tag = "task-lists",
+    params(("id" = String, Path, description = "TaskList ID")),
+    responses(
+        (status = 200, description = "TaskList restored", body = TaskListResponse),
+        (status = 400, description = "Restore blocked by a deleted project", body = ErrorResponse),
+        (status = 404, description = "TaskList not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn restore_task_list<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state
+        .db()
+        .task_lists()
+        .restore(&id)
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("TaskList '{}' not found", id),
+                }),
+            ),
+            DbError::Validation { message } => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: message }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ),
+        })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::TaskListUpdated {
+        task_list_id: id.clone(),
+    });
+
+    let restored = state.db().task_lists().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(TaskListResponse::from(restored)))
 }
 
 /// Get task statistics for a task list

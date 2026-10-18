@@ -35,6 +35,7 @@ async fn create_test_project(db: &SqliteDatabase) -> String {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
     project.id
@@ -54,6 +55,7 @@ async fn create_test_task_list(db: &SqliteDatabase, project_id: &str) -> String 
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     };
     db.task_lists().create(&task_list).await.unwrap();
     task_list.id
@@ -159,6 +161,7 @@ async fn test_get_task() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);
@@ -211,6 +214,7 @@ async fn test_update_task() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);
@@ -273,6 +277,7 @@ async fn test_delete_task() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);
@@ -285,8 +290,12 @@ async fn test_delete_task() {
     let result = tools.delete_task(Parameters(params)).await;
     assert!(result.is_ok());
 
-    let result = db.tasks().get("task0001").await;
-    assert!(result.is_err());
+    let deleted_at: Option<String> = sqlx::query_scalar("SELECT deleted_at FROM task WHERE id = ?")
+        .bind("task0001")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert!(deleted_at.is_some(), "task should be soft-deleted");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -320,6 +329,7 @@ async fn test_transition_task() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);
@@ -354,6 +364,7 @@ async fn test_transition_task_invalid() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);
@@ -385,6 +396,7 @@ async fn test_list_tasks_with_data() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);
@@ -432,6 +444,7 @@ async fn test_list_tasks_status_filter() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);
@@ -480,6 +493,7 @@ async fn test_list_tasks_pagination() {
             parent_id: None,
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
         };
         db.tasks().create(&task).await.unwrap();
     }
@@ -529,6 +543,7 @@ async fn test_list_tasks_search() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);
@@ -576,6 +591,7 @@ async fn test_create_subtask() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&parent_task).await.unwrap();
     let db = Arc::new(db);
@@ -621,6 +637,7 @@ async fn test_list_tasks_with_parent_filter() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&parent_task).await.unwrap();
     let child_task = Task {
@@ -635,6 +652,7 @@ async fn test_list_tasks_with_parent_filter() {
         parent_id: Some("parent01".to_string()),
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&child_task).await.unwrap();
     let db = Arc::new(db);
@@ -683,6 +701,7 @@ async fn test_list_tasks_type_filter() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&parent_task).await.unwrap();
     let child_task = Task {
@@ -697,6 +716,7 @@ async fn test_list_tasks_type_filter() {
         parent_id: Some("parent01".to_string()),
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&child_task).await.unwrap();
     let db = Arc::new(db);
@@ -750,6 +770,7 @@ async fn test_list_tasks_sorting() {
             parent_id: None,
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
         };
         db.tasks().create(&task).await.unwrap();
     }
@@ -804,6 +825,7 @@ async fn test_list_tasks_tag_filter() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
     let db = Arc::new(db);

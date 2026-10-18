@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
+use crate::mcp::tools::map_db_error;
 use context_core::HasSkills;
 use context_core::SkillRepository;
 
@@ -53,6 +54,12 @@ pub struct UpdateSkillParams {
         description = "New project IDs (optional). Replaces all existing project links when provided."
     )]
     pub project_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RestoreSkillParams {
+    #[schemars(description = "Skill ID (8-character hex)")]
+    pub skill_id: String,
 }
 
 #[derive(Clone)]
@@ -288,5 +295,35 @@ impl<D: HasSkills + 'static> SkillTools<D> {
         Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&updated_skill).unwrap(),
         )]))
+    }
+
+    #[tool(description = "Restore a soft-deleted skill")]
+    pub async fn restore_skill(
+        &self,
+        params: Parameters<RestoreSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .skills()
+            .restore(&params.0.skill_id)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::SkillUpdated {
+            skill_id: params.0.skill_id.clone(),
+        });
+
+        let content = json!({
+            "success": true,
+            "message": format!("Skill {} restored successfully", params.0.skill_id)
+        });
+
+        let text = serde_json::to_string_pretty(&content).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 }

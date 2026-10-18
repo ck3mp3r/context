@@ -54,6 +54,7 @@ result
 
 # Code coverage
 tarpaulin-report.*
+coverage/
 
 # Pre-commit config (legacy, replaced by lefthook)
 .pre-commit-config.yaml

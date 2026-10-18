@@ -68,23 +68,28 @@ impl<'a> SqliteTransitionLogRepository<'a> {
             message: e.to_string(),
         })?;
 
-        let mut transitions = Vec::new();
-        for row in rows {
-            let status_str: String = row.get("status");
+        rows.iter().map(row_to_transition).collect()
+    }
 
-            let status = TaskStatus::from_str(&status_str).map_err(|e| DbError::Database {
-                message: format!("Invalid status: {}", e),
-            })?;
+    /// List all transitions across all tasks, ordered by transitioned_at DESC.
+    ///
+    /// Transitions belonging to soft-deleted tasks are excluded: those tasks are
+    /// tombstones and their transition rows must not be exported (the task row
+    /// itself is exported as a tombstone, but its history is not).
+    pub async fn list_all(&self) -> DbResult<Vec<TransitionLog>> {
+        let rows = sqlx::query(
+            "SELECT id, task_id, status, transitioned_at
+             FROM task_transition_log
+             WHERE task_id NOT IN (SELECT id FROM task WHERE deleted_at IS NOT NULL)
+             ORDER BY transitioned_at DESC",
+        )
+        .fetch_all(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
-            transitions.push(TransitionLog {
-                id: row.get("id"),
-                task_id: row.get("task_id"),
-                status,
-                transitioned_at: row.get("transitioned_at"),
-            });
-        }
-
-        Ok(transitions)
+        rows.iter().map(row_to_transition).collect()
     }
 
     /// Delete all transitions for a task.
@@ -101,4 +106,19 @@ impl<'a> SqliteTransitionLogRepository<'a> {
 
         Ok(())
     }
+}
+
+/// Convert a database row to a TransitionLog model.
+fn row_to_transition(row: &sqlx::sqlite::SqliteRow) -> DbResult<TransitionLog> {
+    let status_str: String = row.get("status");
+    let status = TaskStatus::from_str(&status_str).map_err(|e| DbError::Database {
+        message: format!("Invalid status: {}", e),
+    })?;
+
+    Ok(TransitionLog {
+        id: row.get("id"),
+        task_id: row.get("task_id"),
+        status,
+        transitioned_at: row.get("transitioned_at"),
+    })
 }

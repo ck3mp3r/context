@@ -6,11 +6,11 @@ pub mod utils;
 use commands::PageParams;
 
 #[cfg(test)]
-#[path = "utils_test.rs"]
+#[path = "../../test/cli/utils.rs"]
 mod utils_test;
 
 #[cfg(test)]
-#[path = "api_client_test.rs"]
+#[path = "../../test/cli/api_client.rs"]
 mod api_client_test;
 
 use clap::{Parser, Subcommand};
@@ -202,6 +202,11 @@ enum TaskCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Restore a soft-deleted task
+    Restore {
+        /// Task ID
+        id: String,
+    },
     /// Transition one or more tasks to a new status
     Transition {
         /// Task ID(s) to transition (one or more)
@@ -321,6 +326,11 @@ enum NoteCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Restore a soft-deleted note
+    Restore {
+        /// Note ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -367,6 +377,11 @@ enum SkillCommands {
         /// Force deletion without confirmation
         #[arg(long)]
         force: bool,
+    },
+    /// Restore a soft-deleted skill
+    Restore {
+        /// Skill ID
+        id: String,
     },
     /// Import a skill from a source (local path, git repository, or archive URL)
     Import {
@@ -505,6 +520,11 @@ enum ProjectCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Restore a soft-deleted project
+    Restore {
+        /// Project ID
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -583,6 +603,11 @@ enum RepoCommands {
         /// Force deletion without confirmation
         #[arg(long)]
         force: bool,
+    },
+    /// Restore a soft-deleted repository
+    Restore {
+        /// Repository ID
+        id: String,
     },
 }
 
@@ -674,6 +699,11 @@ enum TaskListCommands {
         /// Force deletion without confirmation
         #[arg(long)]
         force: bool,
+    },
+    /// Restore a soft-deleted task list
+    Restore {
+        /// Task list ID
+        id: String,
     },
     /// Get task statistics for a task list
     Stats {
@@ -770,6 +800,10 @@ pub async fn run() -> Result<()> {
                 let output = commands::project::delete_project(&api_client, &id, force).await?;
                 println!("{}", output);
             }
+            ProjectCommands::Restore { id } => {
+                let output = commands::project::restore_project(&api_client, &id).await?;
+                println!("{}", output);
+            }
         },
         Some(Commands::Repo { command }) => match command {
             RepoCommands::List {
@@ -838,6 +872,10 @@ pub async fn run() -> Result<()> {
             }
             RepoCommands::Delete { id, force } => {
                 let output = commands::repo::delete_repo(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+            RepoCommands::Restore { id } => {
+                let output = commands::repo::restore_repo(&api_client, &id).await?;
                 println!("{}", output);
             }
         },
@@ -924,6 +962,10 @@ pub async fn run() -> Result<()> {
             }
             TaskListCommands::Delete { id, force } => {
                 let output = commands::task_list::delete_task_list(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+            TaskListCommands::Restore { id } => {
+                let output = commands::task_list::restore_task_list(&api_client, &id).await?;
                 println!("{}", output);
             }
             TaskListCommands::Stats { id, json } => {
@@ -1028,6 +1070,10 @@ pub async fn run() -> Result<()> {
                 let output = commands::task::delete_task(&api_client, &id, force).await?;
                 println!("{}", output);
             }
+            TaskCommands::Restore { id } => {
+                let output = commands::task::restore_task(&api_client, &id).await?;
+                println!("{}", output);
+            }
             TaskCommands::Transition { ids, status } => {
                 let output = commands::task::transition_task(&api_client, &ids, &status).await?;
                 println!("{}", output);
@@ -1128,6 +1174,10 @@ pub async fn run() -> Result<()> {
                 let output = commands::note::delete_note(&api_client, &id, force).await?;
                 println!("{}", output);
             }
+            NoteCommands::Restore { id } => {
+                let output = commands::note::restore_note(&api_client, &id).await?;
+                println!("{}", output);
+            }
         },
         Some(Commands::Skill { command }) => match command {
             SkillCommands::List {
@@ -1171,6 +1221,10 @@ pub async fn run() -> Result<()> {
             }
             SkillCommands::Delete { id, force } => {
                 let output = commands::skill::delete_skill(&api_client, &id, force).await?;
+                println!("{}", output);
+            }
+            SkillCommands::Restore { id } => {
+                let output = commands::skill::restore_skill(&api_client, &id).await?;
                 println!("{}", output);
             }
             SkillCommands::Import {

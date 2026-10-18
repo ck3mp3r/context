@@ -35,6 +35,7 @@ async fn create_test_project(db: &SqliteDatabase) -> String {
         note_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
     project.id
@@ -136,6 +137,7 @@ async fn test_get_task_list() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     };
     db.task_lists().create(&task_list).await.unwrap();
     let db = Arc::new(db);
@@ -188,6 +190,7 @@ async fn test_update_task_list() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     };
     db.task_lists().create(&task_list).await.unwrap();
     let db = Arc::new(db);
@@ -251,6 +254,7 @@ async fn test_delete_task_list() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     };
     db.task_lists().create(&task_list).await.unwrap();
     let db = Arc::new(db);
@@ -263,8 +267,13 @@ async fn test_delete_task_list() {
     let result = tools.delete_task_list(Parameters(params)).await;
     assert!(result.is_ok());
 
-    let result = db.task_lists().get("list0001").await;
-    assert!(result.is_err());
+    let deleted_at: Option<String> =
+        sqlx::query_scalar("SELECT deleted_at FROM task_list WHERE id = ?")
+            .bind("list0001")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert!(deleted_at.is_some(), "task list should be soft-deleted");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -298,6 +307,7 @@ async fn test_get_task_list_stats() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     };
     db.task_lists().create(&task_list).await.unwrap();
 
@@ -313,6 +323,7 @@ async fn test_get_task_list_stats() {
         parent_id: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.tasks().create(&task).await.unwrap();
 
@@ -352,6 +363,7 @@ async fn test_list_task_lists_with_data() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     };
     db.task_lists().create(&task_list).await.unwrap();
     let db = Arc::new(db);
@@ -398,6 +410,7 @@ async fn test_list_task_lists_pagination() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             archived_at: None,
+            deleted_at: None,
         };
         db.task_lists().create(&task_list).await.unwrap();
     }
@@ -445,6 +458,7 @@ async fn test_list_task_lists_search() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         archived_at: None,
+        deleted_at: None,
     };
     db.task_lists().create(&task_list).await.unwrap();
     let db = Arc::new(db);

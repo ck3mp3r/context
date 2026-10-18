@@ -17,6 +17,34 @@ pub fn current_timestamp() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
+/// Default number of days a tombstone is kept before it is purged.
+pub const DEFAULT_PURGE_RETENTION_DAYS: i64 = 30;
+
+/// Environment variable that overrides the tombstone retention period.
+pub const PURGE_RETENTION_DAYS_ENV: &str = "C5T_PURGE_RETENTION_DAYS";
+
+/// Resolve the tombstone retention period in days.
+///
+/// Reads `C5T_PURGE_RETENTION_DAYS`. A missing, unparsable, or negative value
+/// falls back to [`DEFAULT_PURGE_RETENTION_DAYS`].
+pub fn purge_retention_days() -> i64 {
+    std::env::var(PURGE_RETENTION_DAYS_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|days| *days >= 0)
+        .unwrap_or(DEFAULT_PURGE_RETENTION_DAYS)
+}
+
+/// Compute the purge cutoff timestamp: now minus `retention_days`.
+///
+/// The result uses the same SQLite format as [`current_timestamp`], so it can
+/// be compared lexicographically against a `deleted_at` column.
+pub fn purge_cutoff(retention_days: i64) -> String {
+    (Utc::now() - chrono::Duration::days(retention_days))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
 //
 // TIMESTAMP HANDLING POLICY
 //

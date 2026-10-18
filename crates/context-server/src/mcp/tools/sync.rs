@@ -228,6 +228,7 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
                 serde_json::json!({
                     "status": "success",
                     "message": "Export completed",
+                    "changes": summary.total(),
                     "exported": {
                         "repos": summary.repos,
                         "projects": summary.projects,
@@ -266,6 +267,8 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
                 if !status.initialized {
                     serde_json::json!({
                         "initialized": false,
+                        "last_synced_at": status.last_synced_at,
+                        "schema_version": status.schema_version,
                         "message": "Sync not initialized. Run 'init' operation first.",
                     })
                 } else {
@@ -275,6 +278,8 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
                             serde_json::json!({
                                 "initialized": true,
                                 "remote_url": status.remote_url,
+                                "last_synced_at": status.last_synced_at,
+                                "schema_version": status.schema_version,
                                 "git": {
                                     "clean": git_status.clean,
                                     "status": if git_status.clean { "No changes" } else { &git_status.status_output },
@@ -358,6 +363,26 @@ fn map_sync_error(err: SyncError) -> McpError {
             "io_error",
             Some(serde_json::json!({
                 "error": io_err.to_string(),
+            })),
+        ),
+        SyncError::Json(json_err) => McpError::internal_error(
+            "json_error",
+            Some(serde_json::json!({
+                "error": json_err.to_string(),
+            })),
+        ),
+        SyncError::SchemaVersionMismatch {
+            sync_version,
+            local_version,
+        } => McpError::invalid_params(
+            "schema_version_mismatch",
+            Some(serde_json::json!({
+                "error": format!(
+                    "Sync schema version {} is newer than local schema version {}; upgrade this machine before importing",
+                    sync_version, local_version
+                ),
+                "sync_version": sync_version,
+                "local_version": local_version,
             })),
         ),
     }

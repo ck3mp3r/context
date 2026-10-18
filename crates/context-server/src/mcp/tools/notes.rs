@@ -189,6 +189,12 @@ pub struct DeleteNoteParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RestoreNoteParams {
+    #[schemars(description = "Note ID (8-character hex)")]
+    pub note_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EditNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
@@ -316,6 +322,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
             subnote_count: None,
             created_at: None, // Will be set by DB
             updated_at: None, // Will be set by DB
+            deleted_at: None,
         };
 
         let created = self.db.notes().create(&note).await.map_err(map_db_error)?;
@@ -350,6 +357,36 @@ impl<D: HasNotes + 'static> NoteTools<D> {
             "Note {} deleted successfully",
             params.0.note_id
         ))]))
+    }
+
+    #[tool(description = "Restore a soft-deleted note")]
+    pub async fn restore_note(
+        &self,
+        params: Parameters<RestoreNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .notes()
+            .restore(&params.0.note_id)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::NoteUpdated {
+            note_id: params.0.note_id.clone(),
+        });
+
+        let content = json!({
+            "success": true,
+            "message": format!("Note {} restored successfully", params.0.note_id)
+        });
+
+        let text = serde_json::to_string_pretty(&content).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
     #[tool(

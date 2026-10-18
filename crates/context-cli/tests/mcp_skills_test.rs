@@ -68,6 +68,7 @@ async fn test_get_skill_rejects_name_lookup() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -101,6 +102,7 @@ async fn test_get_skill() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -141,6 +143,7 @@ async fn test_get_skill_extracts_attachments_to_cache() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
 
@@ -155,6 +158,7 @@ async fn test_get_skill_extracts_attachments_to_cache() {
         mime_type: Some("text/x-shellscript".to_string()),
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create_attachment(&attachment).await.unwrap();
 
@@ -232,6 +236,7 @@ async fn test_update_skill_only_changes_tags_and_project_ids() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -279,6 +284,7 @@ async fn test_list_skills_with_data() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -325,6 +331,7 @@ async fn test_list_skills_search() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -372,6 +379,7 @@ async fn test_list_skills_pagination() {
             assets: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
+            deleted_at: None,
         };
         db.skills().create(&skill).await.unwrap();
     }
@@ -420,6 +428,7 @@ async fn test_list_skills_tag_filter() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -467,6 +476,7 @@ async fn test_list_skills_project_filter() {
         note_ids: vec![],
         created_at: None,
         updated_at: None,
+        deleted_at: None,
     };
     db.projects().create(&project).await.unwrap();
 
@@ -482,6 +492,7 @@ async fn test_list_skills_project_filter() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -528,6 +539,7 @@ async fn test_update_skill() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -585,6 +597,7 @@ async fn test_update_skill_invalidates_cache() {
         assets: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create(&skill).await.unwrap();
 
@@ -599,6 +612,7 @@ async fn test_update_skill_invalidates_cache() {
         mime_type: Some("text/x-shellscript".to_string()),
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
     };
     db.skills().create_attachment(&attachment).await.unwrap();
 

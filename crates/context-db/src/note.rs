@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::build_limit_offset_clause;
+use super::helpers::{build_limit_offset_clause, restore_row, soft_delete_row};
 use context_core::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
 use context_core::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
 use context_core::{current_timestamp, generate_entity_id};
@@ -197,12 +197,13 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             subnote_count: None, // Not computed for single note get
             created_at: Some(created_at),
             updated_at: Some(updated_at),
+            deleted_at: None,
         })
     }
 
     async fn get(&self, id: &str) -> DbResult<Note> {
         let row = sqlx::query(
-            "SELECT id, title, content, tags, parent_id, idx, created_at, updated_at FROM note WHERE id = ?",
+            "SELECT id, title, content, tags, parent_id, idx, created_at, updated_at FROM note WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -250,6 +251,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 subnote_count: None, // Not computed for single note get
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
+                deleted_at: None,
             })
         } else {
             Err(DbError::NotFound {
@@ -261,7 +263,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
     async fn get_metadata_only(&self, id: &str) -> DbResult<Note> {
         let row = sqlx::query(
-            "SELECT id, title, tags, parent_id, idx, created_at, updated_at FROM note WHERE id = ?",
+            "SELECT id, title, tags, parent_id, idx, created_at, updated_at FROM note WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -309,6 +311,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 subnote_count: None, // Not computed for single note get
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
+                deleted_at: None,
             })
         } else {
             Err(DbError::NotFound {
@@ -363,8 +366,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
             let select = if needs_activity_column {
                 "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
-                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at, \
-                 (SELECT COUNT(*) FROM note WHERE parent_id = n.id) AS subnote_count"
+                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id AND deleted_at IS NULL), n.updated_at) AS last_activity_at, \
+                 (SELECT COUNT(*) FROM note WHERE parent_id = n.id AND deleted_at IS NULL) AS subnote_count"
             } else {
                 "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
             };
@@ -375,8 +378,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             let select = if needs_activity_column {
                 // Explicitly reference outer table in subquery using table name
                 "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
-                 COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at, \
-                 (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id) AS subnote_count"
+                 COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL), note.updated_at) AS last_activity_at, \
+                 (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL) AS subnote_count"
             } else {
                 "id, title, content, tags, parent_id, idx, created_at, updated_at"
             };
@@ -387,6 +390,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 if needs_activity_column { "note." } else { "" },
             )
         };
+
+        // Soft-deleted rows are tombstones and must never appear in results.
+        where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
 
         // Add parent_id filter if specified (after we know the table prefix)
         if let Some(parent_id) = &query.parent_id {
@@ -558,6 +564,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
+                    deleted_at: None,
                 }
             })
             .collect();
@@ -632,6 +639,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             "FROM note".to_string()
         };
 
+        // Soft-deleted rows are tombstones and must never appear in results.
+        where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
+
         // Add parent_id filter if specified
         if let Some(parent_id) = &query.parent_id {
             where_conditions.push(format!("{}parent_id = ?", order_field_prefix));
@@ -697,8 +707,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let (sql, count_sql) = if needs_json_each || needs_project_join {
             let select_cols = if needs_activity_column {
                 "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
-                 (SELECT COUNT(*) FROM note WHERE parent_id = n.id) AS subnote_count, \
-                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at"
+                 (SELECT COUNT(*) FROM note WHERE parent_id = n.id AND deleted_at IS NULL) AS subnote_count, \
+                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id AND deleted_at IS NULL), n.updated_at) AS last_activity_at"
             } else {
                 "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
             };
@@ -717,8 +727,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             (
                 format!(
                     "SELECT note.id, note.title, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
-                     (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id) AS subnote_count, \
-                     COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at
+                     (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL) AS subnote_count, \
+                     COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL), note.updated_at) AS last_activity_at
                      FROM note {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -826,6 +836,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
+                    deleted_at: None,
                 }
             })
             .collect();
@@ -852,7 +863,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     }
 
     async fn count(&self) -> DbResult<usize> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM note")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM note WHERE deleted_at IS NULL")
             .fetch_one(self.pool)
             .await
             .map_err(|e| DbError::Database {
@@ -959,20 +970,110 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     }
 
     async fn delete(&self, id: &str) -> DbResult<()> {
-        let result = sqlx::query("DELETE FROM note WHERE id = ?")
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let deleted = soft_delete_row(&mut tx, "note", "Note", id, true).await?;
+
+        if !deleted {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        }
+
+        // Hard-delete M:N relationship rows for the note.
+        sqlx::query("DELETE FROM project_note WHERE note_id = ?")
             .bind(id)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
 
-        if result.rows_affected() == 0 {
-            return Err(DbError::NotFound {
-                entity_type: "Note".to_string(),
-                id: id.to_string(),
-            });
-        }
+        sqlx::query("DELETE FROM note_repo WHERE note_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        // Orphan child notes so they survive the parent tombstone.
+        sqlx::query("UPDATE note SET parent_id = NULL WHERE parent_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        restore_row(&mut tx, "note", "Note", id, true).await?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn purge_deleted(&self, before: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Project links for the purged notes.
+        sqlx::query(
+            "DELETE FROM project_note
+             WHERE note_id IN (
+                 SELECT id FROM note WHERE deleted_at IS NOT NULL AND deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Repo links for the purged notes.
+        sqlx::query(
+            "DELETE FROM note_repo
+             WHERE note_id IN (
+                 SELECT id FROM note WHERE deleted_at IS NOT NULL AND deleted_at < ?
+             )",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        sqlx::query("DELETE FROM note WHERE deleted_at IS NOT NULL AND deleted_at < ?")
+            .bind(before)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         Ok(())
     }
@@ -1037,7 +1138,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
             let select = if needs_activity_column {
                 "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
-                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id), n.updated_at) AS last_activity_at"
+                 COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id AND deleted_at IS NULL), n.updated_at) AS last_activity_at"
             } else {
                 "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
             };
@@ -1047,7 +1148,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             // No filters, simple FTS5 join - use explicit table prefix
             let select = if needs_activity_column {
                 "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
-                 COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id), note.updated_at) AS last_activity_at"
+                 COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL), note.updated_at) AS last_activity_at"
             } else {
                 "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at"
             };
@@ -1058,6 +1159,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 "note.",
             )
         };
+
+        // Soft-deleted rows are tombstones and must never appear in results.
+        where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
 
         // Add parent_id filter if specified (after we know the table prefix)
         if let Some(parent_id) = &query.parent_id {
@@ -1219,6 +1323,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     subnote_count,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
+                    deleted_at: None,
                 }
             })
             .collect();
