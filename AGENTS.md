@@ -149,6 +149,22 @@ use context_sync::{MockGitOps, SyncManager};
 let state = AppState::new(db, SyncManager::new(MockGitOps::new()), notifier, skills_dir);
 ```
 
+### Code Coverage
+
+Code coverage is measured with `cargo-llvm-cov` (LLVM source-based instrumentation, stable Rust).
+
+```bash
+cargo install cargo-llvm-cov --locked
+rustup component add llvm-tools-preview
+cargo llvm-cov --workspace --ignore-filename-regex '(/test/|/test$)' --summary-only
+```
+
+- Coverage is a second quality dimension next to clippy: clippy finds suspicious code, coverage finds code no test executes.
+- Unit test files live in `crates/*/test/` (singular), which the default exclusion patterns do not cover — pass `--ignore-filename-regex '(/test/|/test$)'` to keep them out of the report. Integration binaries under `crates/context-cli/tests/` are excluded by the default patterns.
+- `--fail-under-lines <N>` exits non-zero when total line coverage drops below `N` percent. No threshold is enforced yet.
+- Baseline (measured with the command above): 71.56% lines, 73.16% regions, 60.95% functions.
+- Full workflow, output formats, per-crate runs, and CI integration: `docs/coverage.md`.
+
 ## Code Quality
 
 - Write tests before implementation
