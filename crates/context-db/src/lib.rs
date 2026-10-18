@@ -33,17 +33,29 @@ mod note_fts_test;
 #[path = "../test/note_read_edit.rs"]
 mod note_read_edit_test;
 #[cfg(test)]
+#[path = "../test/note_restore.rs"]
+mod note_restore_test;
+#[cfg(test)]
 #[path = "../test/note_subnote.rs"]
 mod note_subnote_test;
 #[cfg(test)]
 #[path = "../test/note.rs"]
 mod note_test;
 #[cfg(test)]
+#[path = "../test/project_restore.rs"]
+mod project_restore_test;
+#[cfg(test)]
 #[path = "../test/project.rs"]
 mod project_test;
 #[cfg(test)]
+#[path = "../test/repo_restore.rs"]
+mod repo_restore_test;
+#[cfg(test)]
 #[path = "../test/repo.rs"]
 mod repo_test;
+#[cfg(test)]
+#[path = "../test/skill_restore.rs"]
+mod skill_restore_test;
 #[cfg(test)]
 #[path = "../test/skill.rs"]
 mod skill_test;
@@ -60,8 +72,14 @@ mod sync_roundtrip_test;
 #[path = "../test/task_crud.rs"]
 mod task_crud_test;
 #[cfg(test)]
+#[path = "../test/task_list_restore.rs"]
+mod task_list_restore_test;
+#[cfg(test)]
 #[path = "../test/task_list.rs"]
 mod task_list_test;
+#[cfg(test)]
+#[path = "../test/task_restore.rs"]
+mod task_restore_test;
 #[cfg(test)]
 #[path = "../test/task.rs"]
 mod task_test;

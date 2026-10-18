@@ -77,6 +77,12 @@ pub struct DeleteProjectParams {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RestoreProjectParams {
+    #[schemars(description = "Project ID (8-character hex)")]
+    pub id: String,
+}
+
 /// Project management tools
 ///
 /// Generic over `D: Database` for zero-cost abstraction.
@@ -305,5 +311,38 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
         Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&content).unwrap(),
         )]))
+    }
+
+    /// Restore a soft-deleted project
+    #[tool(
+        description = "Restore a soft-deleted project (cascades to children deleted in the same delete)"
+    )]
+    pub async fn restore_project(
+        &self,
+        params: Parameters<RestoreProjectParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .projects()
+            .restore(&params.0.id)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::ProjectUpdated {
+            project_id: params.0.id.clone(),
+        });
+
+        let content = json!({
+            "success": true,
+            "message": format!("Project {} restored successfully", params.0.id)
+        });
+
+        let text = serde_json::to_string_pretty(&content).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 }

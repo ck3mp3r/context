@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause, soft_delete_row};
+use super::helpers::{build_limit_offset_clause, build_order_clause, restore_row, soft_delete_row};
 use context_core::{
     DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStats, TaskStatus,
     TransitionLog,
@@ -647,6 +647,75 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Ancestor-consistency guard: never create a live task under a
+        // soft-deleted task list.
+        let list = sqlx::query(
+            "SELECT tl.id, tl.deleted_at FROM task_list tl
+             WHERE tl.id = (SELECT list_id FROM task WHERE id = ?)",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        if let Some(row) = list {
+            let deleted_at: Option<String> = row.get("deleted_at");
+            if deleted_at.is_some() {
+                let list_id: String = row.get("id");
+                return Err(DbError::Validation {
+                    message: format!(
+                        "Cannot restore task '{}': task list '{}' is soft-deleted",
+                        id, list_id
+                    ),
+                });
+            }
+        }
+
+        let Some(tombstone) = restore_row(&mut tx, "task", "Task", id, true).await? else {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        };
+
+        // Cascade: restore the descendants deleted with this task. The
+        // tombstone is captured before the clear; SQLite datetime('now') has
+        // one-second granularity, so cascade descendants carry the same
+        // timestamp or one second later. Descendants deleted earlier stay
+        // deleted. A descendant deleted independently within the same second
+        // as the cascade is indistinguishable and is restored.
+        sqlx::query(
+            "WITH RECURSIVE descendants(id) AS (
+                 SELECT id FROM task WHERE parent_id = ?
+                 UNION
+                 SELECT t.id FROM task t JOIN descendants d ON t.parent_id = d.id
+             )
+             UPDATE task SET deleted_at = NULL, updated_at = datetime('now')
+             WHERE id IN (SELECT id FROM descendants)
+               AND deleted_at IS NOT NULL AND deleted_at >= ?",
+        )
+        .bind(id)
+        .bind(&tombstone)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),

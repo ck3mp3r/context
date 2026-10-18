@@ -46,6 +46,7 @@ async fn test_export_then_import_roundtrip() {
         tags: vec!["git".to_string()],
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db1.repos().create(&repo).await.unwrap();
@@ -109,6 +110,7 @@ async fn test_import_export_preserves_all_relationships() {
         tags: vec![],
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db1.repos().create(&repo).await.unwrap();
@@ -247,6 +249,39 @@ async fn test_export_import_preserves_task_updated_at() {
     );
     assert_eq!(imported_task.title, "Test Task");
     assert_eq!(imported_task.status, TaskStatus::InProgress);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_import_preserves_repo_updated_at() {
+    let db1 = setup_test_db().await;
+    let db2 = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    let repo = Repo {
+        id: "repo0001".to_string(),
+        remote: "https://github.com/test/repo".to_string(),
+        path: None,
+        tags: vec![],
+        project_ids: vec![],
+        created_at: Some("2024-01-01T10:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T12:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db1.repos().create(&repo).await.unwrap();
+
+    db1.sync().export_all(temp_dir.path()).await.unwrap();
+    db2.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let imported = db2.repos().get("repo0001").await.unwrap();
+    assert_eq!(
+        imported.updated_at,
+        Some("2024-01-01T12:00:00Z".to_string()),
+        "repo updated_at must survive export/import"
+    );
+    assert_eq!(
+        imported.created_at,
+        Some("2024-01-01T10:00:00Z".to_string())
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

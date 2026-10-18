@@ -123,6 +123,16 @@ impl<D: Database + 'static> McpServer<D> {
         self.project_tools.delete_project(params).await
     }
 
+    #[tool(
+        description = "Restore a soft-deleted project (cascades to children deleted in the same delete)"
+    )]
+    pub async fn restore_project(
+        &self,
+        params: Parameters<RestoreProjectParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.project_tools.restore_project(params).await
+    }
+
     // =========================================================================
     // Repository Tools
     // =========================================================================
@@ -167,6 +177,14 @@ impl<D: Database + 'static> McpServer<D> {
         self.repo_tools.delete_repo(params).await
     }
 
+    #[tool(description = "Restore a soft-deleted repository")]
+    pub async fn restore_repo(
+        &self,
+        params: Parameters<RestoreRepoParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.repo_tools.restore_repo(params).await
+    }
+
     // =========================================================================
     // TaskList Tools
     // =========================================================================
@@ -209,6 +227,16 @@ impl<D: Database + 'static> McpServer<D> {
         params: Parameters<DeleteTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
         self.task_list_tools.delete_task_list(params).await
+    }
+
+    #[tool(
+        description = "Restore a soft-deleted task list (cascades to tasks deleted in the same delete). Fails when the parent project is still deleted."
+    )]
+    pub async fn restore_task_list(
+        &self,
+        params: Parameters<RestoreTaskListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_list_tools.restore_task_list(params).await
     }
 
     #[tool(description = "Get task statistics for a task list")]
@@ -273,6 +301,16 @@ impl<D: Database + 'static> McpServer<D> {
         self.task_tools.delete_task(params).await
     }
 
+    #[tool(
+        description = "Restore a soft-deleted task (cascades to descendants deleted in the same delete). Fails when the parent task list is still deleted."
+    )]
+    pub async fn restore_task(
+        &self,
+        params: Parameters<RestoreTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.task_tools.restore_task(params).await
+    }
+
     // =========================================================================
     // Note Tools
     // =========================================================================
@@ -299,6 +337,14 @@ impl<D: Database + 'static> McpServer<D> {
         params: Parameters<DeleteNoteParams>,
     ) -> Result<CallToolResult, McpError> {
         self.note_tools.delete_note(params).await
+    }
+
+    #[tool(description = "Restore a soft-deleted note")]
+    pub async fn restore_note(
+        &self,
+        params: Parameters<RestoreNoteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.note_tools.restore_note(params).await
     }
 
     #[tool(
@@ -347,6 +393,14 @@ impl<D: Database + 'static> McpServer<D> {
         params: Parameters<UpdateSkillParams>,
     ) -> Result<CallToolResult, McpError> {
         self.skill_tools.update_skill(params).await
+    }
+
+    #[tool(description = "Restore a soft-deleted skill")]
+    pub async fn restore_skill(
+        &self,
+        params: Parameters<RestoreSkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.skill_tools.restore_skill(params).await
     }
 
     // =========================================================================

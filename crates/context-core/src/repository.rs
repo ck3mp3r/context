@@ -26,6 +26,13 @@ pub trait ProjectRepository: Send + Sync {
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, project: &Project) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Restore a soft-deleted project by clearing its `deleted_at`.
+    ///
+    /// Returns `Ok(())` when the project is live afterwards, including when it
+    /// was already live. Returns `Err(DbError::NotFound)` when no project with
+    /// `id` exists. Restores the project's task lists and tasks that were
+    /// soft-deleted by the same delete cascade.
+    fn restore(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     fn search(
         &self,
         query: &str,
@@ -49,6 +56,12 @@ pub trait RepoRepository: Send + Sync {
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, repo: &Repo) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Restore a soft-deleted repo by clearing its `deleted_at`.
+    ///
+    /// Returns `Ok(())` when the repo is live afterwards, including when it was
+    /// already live. Returns `Err(DbError::NotFound)` when no repo with `id`
+    /// exists. Does not restore the relationship rows removed by the delete.
+    fn restore(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     /// Hard-delete tombstones whose `deleted_at` is older than `before`.
     ///
     /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
@@ -72,6 +85,13 @@ pub trait TaskListRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
     fn update(&self, task_list: &TaskList) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Restore a soft-deleted task list by clearing its `deleted_at`.
+    ///
+    /// Returns `Ok(())` when the task list is live afterwards, including when it
+    /// was already live. Returns `Err(DbError::NotFound)` when no task list with
+    /// `id` exists. Restores the tasks that were soft-deleted by the same delete
+    /// cascade.
+    fn restore(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     /// Hard-delete tombstones whose `deleted_at` is older than `before`.
     ///
     /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
@@ -96,6 +116,13 @@ pub trait TaskRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn update(&self, task: &Task) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Restore a soft-deleted task by clearing its `deleted_at`.
+    ///
+    /// Returns `Ok(())` when the task is live afterwards, including when it was
+    /// already live. Returns `Err(DbError::NotFound)` when no task with `id`
+    /// exists. Restores the descendant tasks that were soft-deleted by the same
+    /// delete cascade.
+    fn restore(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     /// Hard-delete tombstones whose `deleted_at` is older than `before`.
     ///
     /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
@@ -132,6 +159,12 @@ pub trait NoteRepository: Send + Sync {
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
     fn update(&self, note: &Note) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Restore a soft-deleted note by clearing its `deleted_at`.
+    ///
+    /// Returns `Ok(())` when the note is live afterwards, including when it was
+    /// already live. Returns `Err(DbError::NotFound)` when no note with `id`
+    /// exists. Does not restore the `parent_id` links cleared by the delete.
+    fn restore(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     /// Hard-delete tombstones whose `deleted_at` is older than `before`.
     ///
     /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a
@@ -172,6 +205,13 @@ pub trait SkillRepository: Send + Sync {
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, skill: &crate::Skill) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
+    /// Restore a soft-deleted skill by clearing its `deleted_at`.
+    ///
+    /// Returns `Ok(())` when the skill is live afterwards, including when it was
+    /// already live. Returns `Err(DbError::NotFound)` when no skill with `id`
+    /// exists. Does not restore the attachments or relationship rows removed by
+    /// the delete.
+    fn restore(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     /// Hard-delete tombstones whose `deleted_at` is older than `before`.
     ///
     /// `before` is a SQLite timestamp (`YYYY-MM-DD HH:MM:SS`). Rows with a

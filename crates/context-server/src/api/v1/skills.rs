@@ -491,6 +491,63 @@ pub async fn delete_skill<D: Database, G: GitOps + Send + Sync>(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Restore a soft-deleted skill
+///
+/// Clears the skill's deletion tombstone and returns the restored skill.
+#[utoipa::path(
+    post,
+    path = "/api/v1/skills/{id}/restore",
+    tag = "skills",
+    params(("id" = String, Path, description = "Skill ID")),
+    responses(
+        (status = 200, description = "Skill restored", body = SkillResponse),
+        (status = 400, description = "Restore blocked by a deleted ancestor", body = ErrorResponse),
+        (status = 404, description = "Skill not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn restore_skill<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(skill_id): Path<String>,
+) -> Result<Json<SkillResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db();
+    let repo = db.skills();
+    repo.restore(&skill_id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Skill '{}' not found", skill_id),
+            }),
+        ),
+        DbError::Validation { message } => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: message }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillUpdated {
+        skill_id: skill_id.clone(),
+    });
+
+    let restored = repo.get(&skill_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(SkillResponse::from(restored)))
+}
+
 // =============================================================================
 // Import Skill
 // =============================================================================

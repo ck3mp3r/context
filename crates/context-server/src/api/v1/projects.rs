@@ -575,3 +575,66 @@ pub async fn delete_project<D: Database, G: GitOps + Send + Sync>(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Restore a soft-deleted project
+///
+/// Clears the project's deletion tombstone and returns the restored project.
+#[utoipa::path(
+    post,
+    path = "/api/v1/projects/{id}/restore",
+    tag = "projects",
+    params(
+        ("id" = String, Path, description = "Project ID (8-character hex)")
+    ),
+    responses(
+        (status = 200, description = "Project restored", body = ProjectResponse),
+        (status = 400, description = "Restore blocked by a deleted ancestor", body = ErrorResponse),
+        (status = 404, description = "Project not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn restore_project<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state
+        .db()
+        .projects()
+        .restore(&id)
+        .await
+        .map_err(|e| match e {
+            DbError::NotFound { .. } => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: format!("Project '{}' not found", id),
+                }),
+            ),
+            DbError::Validation { message } => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: message }),
+            ),
+            _ => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            ),
+        })?;
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::ProjectUpdated {
+        project_id: id.clone(),
+    });
+
+    let restored = state.db().projects().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(ProjectResponse::from(restored)))
+}

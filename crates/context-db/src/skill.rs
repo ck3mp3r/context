@@ -2,7 +2,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, soft_delete_row};
+use super::helpers::{build_limit_offset_clause, restore_row, soft_delete_row};
 use context_core::{DbError, DbResult, ListResult, SkillRepository};
 use context_core::{SKILL_DESCRIPTION_MAX, Skill, SkillAttachment, SkillQuery};
 use context_core::{current_timestamp, generate_entity_id};
@@ -413,6 +413,20 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        restore_row(&mut tx, "skill", "Skill", id, true).await?;
 
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),

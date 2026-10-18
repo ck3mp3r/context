@@ -1,7 +1,7 @@
 //! Tests for SqliteRepoRepository.
 
 use crate::SqliteDatabase;
-use crate::helpers::{count_rows, read_deleted_at};
+use crate::helpers::{count_rows, read_deleted_at, read_updated_at};
 use context_core::{Database, HasRepos, Repo, RepoQuery, RepoRepository};
 
 async fn setup_db() -> SqliteDatabase {
@@ -24,6 +24,7 @@ async fn repo_create_and_get() {
         tags: vec![],
         project_ids: vec![], // Empty by default - relationships managed separately
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -62,6 +63,7 @@ async fn repo_list() {
             tags: vec![],
             project_ids: vec![], // Empty by default - relationships managed separately
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -74,6 +76,7 @@ async fn repo_list() {
             tags: vec![],
             project_ids: vec![], // Empty by default - relationships managed separately
             created_at: Some("2025-01-01 00:00:01".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -95,6 +98,7 @@ async fn repo_update() {
         tags: vec![],
         project_ids: vec![], // Empty by default - relationships managed separately
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -118,6 +122,7 @@ async fn repo_delete() {
         tags: vec![],
         project_ids: vec![], // Empty by default - relationships managed separately
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -155,6 +160,7 @@ async fn repo_delete_cascades_to_relationships() {
         tags: vec![],
         project_ids: vec!["projrepo".to_string()],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -195,6 +201,7 @@ async fn delete_already_deleted_is_noop() {
         tags: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -239,6 +246,7 @@ async fn repo_create_with_tags() {
         tags: vec!["work".to_string(), "active".to_string()],
         project_ids: vec![], // Empty by default - relationships managed separately
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -264,6 +272,7 @@ async fn repo_list_with_tag_filter() {
             tags: vec!["work".to_string(), "active".to_string()],
             project_ids: vec![], // Empty by default - relationships managed separately
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -277,6 +286,7 @@ async fn repo_list_with_tag_filter() {
             tags: vec!["work".to_string(), "archived".to_string()],
             project_ids: vec![], // Empty by default - relationships managed separately
             created_at: Some("2025-01-01 00:00:01".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -290,6 +300,7 @@ async fn repo_list_with_tag_filter() {
             tags: vec!["personal".to_string(), "active".to_string()],
             project_ids: vec![], // Empty by default - relationships managed separately
             created_at: Some("2025-01-01 00:00:02".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -359,6 +370,7 @@ async fn repo_get_loads_project_relationships() {
         tags: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     repos.create(&repo).await.expect("Create should succeed");
@@ -404,6 +416,7 @@ async fn repo_list_with_search_query() {
             tags: vec!["backend".to_string(), "production".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -417,6 +430,7 @@ async fn repo_list_with_search_query() {
             tags: vec!["frontend".to_string(), "production".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:01".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -430,6 +444,7 @@ async fn repo_list_with_search_query() {
             tags: vec!["internal".to_string(), "backend".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:02".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -490,6 +505,7 @@ async fn fts5_search_finds_repo_by_remote() {
             tags: vec!["language".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -503,6 +519,7 @@ async fn fts5_search_finds_repo_by_remote() {
             tags: vec!["language".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:01".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -532,6 +549,7 @@ async fn fts5_search_finds_repo_by_path() {
             tags: vec![],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -545,6 +563,7 @@ async fn fts5_search_finds_repo_by_path() {
             tags: vec![],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:01".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -574,6 +593,7 @@ async fn fts5_search_finds_repo_by_tags() {
             tags: vec!["microservice".to_string(), "production".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -587,6 +607,7 @@ async fn fts5_search_finds_repo_by_tags() {
             tags: vec!["monolith".to_string(), "legacy".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:01".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -616,6 +637,7 @@ async fn fts5_search_boolean_operators() {
             tags: vec!["api".to_string(), "production".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -629,6 +651,7 @@ async fn fts5_search_boolean_operators() {
             tags: vec!["frontend".to_string(), "production".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:01".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -642,6 +665,7 @@ async fn fts5_search_boolean_operators() {
             tags: vec!["api".to_string(), "staging".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:02".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -671,6 +695,7 @@ async fn fts5_search_phrase_query() {
             tags: vec![],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -684,6 +709,7 @@ async fn fts5_search_phrase_query() {
             tags: vec![],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:01".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -713,6 +739,7 @@ async fn fts5_search_handles_special_characters() {
             tags: vec!["app".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -741,6 +768,7 @@ async fn fts5_search_empty_results() {
             tags: vec!["test".to_string()],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .await
@@ -773,6 +801,7 @@ async fn create_repo_with_invalid_project_should_rollback() {
         tags: vec![],
         project_ids: vec!["nonexistent_project".to_string()], // Invalid project_id
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -809,6 +838,7 @@ async fn create_repo_with_empty_remote_should_fail() {
         tags: vec![],
         project_ids: vec![],
         created_at: None,
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -839,6 +869,7 @@ async fn create_repo_with_whitespace_only_remote_should_fail() {
         tags: vec![],
         project_ids: vec![],
         created_at: None,
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -862,6 +893,7 @@ async fn update_repo_with_empty_remote_should_fail() {
         tags: vec![],
         project_ids: vec![],
         created_at: None,
+        updated_at: None,
         deleted_at: None,
     };
     repos.create(&repo).await.unwrap();
@@ -882,6 +914,7 @@ fn make_repo(id: &str, remote: &str) -> Repo {
         tags: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     }
 }
@@ -989,5 +1022,76 @@ async fn test_purge_deleted_preserves_recent_tombstones() {
         count_rows(db.pool(), "repo", "id = ?", "repoprg2").await,
         1,
         "a tombstone inside the retention period must be kept"
+    );
+}
+
+// =============================================================================
+// updated_at tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_create_sets_updated_at() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    let created = repos
+        .create(&make_repo("repocrt1", "github:user/created"))
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(
+        created.updated_at,
+        Some("2025-01-01 00:00:00".to_string()),
+        "create should default updated_at to created_at"
+    );
+    assert_eq!(
+        read_updated_at(db.pool(), "repo", "repocrt1").await,
+        Some("2025-01-01 00:00:00".to_string()),
+        "create should persist updated_at"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_update_bumps_updated_at() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    repos
+        .create(&make_repo("repoupd2", "github:user/updated"))
+        .await
+        .expect("Create should succeed");
+
+    // Mirror the API path: read the row, change a field, write it back.
+    let mut repo = repos.get("repoupd2").await.expect("Get should succeed");
+    repo.path = Some("/new/path".to_string());
+    repos.update(&repo).await.expect("Update should succeed");
+
+    let updated_at = read_updated_at(db.pool(), "repo", "repoupd2").await;
+    assert!(
+        updated_at.as_deref() > Some("2025-01-01 00:00:00"),
+        "update should bump updated_at past created_at, got: {:?}",
+        updated_at
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repo_delete_bumps_updated_at() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    repos
+        .create(&make_repo("repodel2", "github:user/deleted"))
+        .await
+        .expect("Create should succeed");
+    repos
+        .delete("repodel2")
+        .await
+        .expect("Delete should succeed");
+
+    let updated_at = read_updated_at(db.pool(), "repo", "repodel2").await;
+    assert!(
+        updated_at.as_deref() > Some("2025-01-01 00:00:00"),
+        "delete should bump updated_at past created_at, got: {:?}",
+        updated_at
     );
 }

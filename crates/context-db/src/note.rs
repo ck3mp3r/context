@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, soft_delete_row};
+use super::helpers::{build_limit_offset_clause, restore_row, soft_delete_row};
 use context_core::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
 use context_core::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
 use context_core::{current_timestamp, generate_entity_id};
@@ -1008,6 +1008,20 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        restore_row(&mut tx, "note", "Note", id, true).await?;
 
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),

@@ -3,6 +3,9 @@
 mod notes;
 mod projects;
 mod repos;
+#[cfg(test)]
+#[path = "../../../test/api/v1/restore.rs"]
+mod restore_test;
 mod skills;
 mod sync;
 #[cfg(test)]

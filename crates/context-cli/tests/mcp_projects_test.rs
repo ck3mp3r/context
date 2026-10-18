@@ -596,3 +596,75 @@ async fn test_list_projects_with_project_ids_filter() {
     assert_eq!(projects.len(), 1);
     assert_eq!(projects[0]["id"], "12345678");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_restore_project() {
+    let db = setup_db().await;
+    let db = Arc::new(db);
+
+    let project = Project {
+        id: "12345678".to_string(),
+        title: "To Restore".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    db.projects().create(&project).await.unwrap();
+    db.projects().delete("12345678").await.unwrap();
+
+    let notifier = ChangeNotifier::new();
+    let mut rx = notifier.subscribe();
+    let tools = ProjectTools::new(Arc::clone(&db), notifier);
+
+    use context_server::mcp::tools::projects::RestoreProjectParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .restore_project(Parameters(RestoreProjectParams {
+            id: "12345678".to_string(),
+        }))
+        .await;
+    assert!(result.is_ok());
+
+    let call_result: CallToolResult = result.unwrap();
+    assert!(call_result.is_error.is_none() || call_result.is_error == Some(false));
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(response["success"], true);
+
+    let restored = db.projects().get("12345678").await.unwrap();
+    assert_eq!(restored.title, "To Restore");
+
+    let message = rx.try_recv().expect("restore should broadcast a message");
+    assert_eq!(
+        message,
+        context_server::api::notifier::UpdateMessage::ProjectUpdated {
+            project_id: "12345678".to_string()
+        }
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_restore_project_not_found() {
+    let db = setup_db().await;
+    let db = Arc::new(db);
+
+    let tools = ProjectTools::new(db, ChangeNotifier::new());
+
+    use context_server::mcp::tools::projects::RestoreProjectParams;
+    use rmcp::handler::server::wrapper::Parameters;
+    let result = tools
+        .restore_project(Parameters(RestoreProjectParams {
+            id: "nonexist".to_string(),
+        }))
+        .await;
+    assert!(result.is_err());
+}

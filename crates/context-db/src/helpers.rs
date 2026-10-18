@@ -6,7 +6,7 @@ use context_core::{DbError, DbResult, PageSort, SortOrder};
 ///
 /// When `bump_updated_at` is true the row's `updated_at` is set to the current
 /// time as well, so the tombstone flows through incremental sync. Tables
-/// without an `updated_at` column (currently only `repo`) pass false.
+/// without an `updated_at` column pass false.
 ///
 /// Returns `Ok(true)` when this call soft-deleted the row, `Ok(false)` when the
 /// row exists but is already soft-deleted (idempotent no-op), and
@@ -57,6 +57,70 @@ pub async fn soft_delete_row(
     }
 
     Ok(false)
+}
+
+/// Restore a soft-deleted entity row by clearing its `deleted_at`.
+///
+/// When `bump_updated_at` is true the row's `updated_at` is set to the current
+/// time as well, so the restore flows through incremental sync. Tables without
+/// an `updated_at` column pass false.
+///
+/// Returns `Ok(Some(tombstone))` with the row's previous `deleted_at` value when
+/// this call restored the row, `Ok(None)` when the row exists but is already
+/// live (idempotent no-op), and `Err(DbError::NotFound)` when no row with `id`
+/// exists.
+///
+/// Callers that cascade the restore to child rows must capture the tombstone
+/// before clearing it and match children with `deleted_at >= tombstone`.
+/// SQLite `datetime('now')` has one-second granularity and is evaluated per
+/// statement, so cascade children carry the same timestamp as the parent or one
+/// second later. Children soft-deleted before the parent's delete carry an
+/// earlier timestamp and stay deleted. A child soft-deleted independently within
+/// the same second as the parent's cascade is indistinguishable and is restored.
+pub async fn restore_row(
+    conn: &mut sqlx::SqliteConnection,
+    table: &str,
+    entity_type: &str,
+    id: &str,
+    bump_updated_at: bool,
+) -> DbResult<Option<String>> {
+    let select_sql = format!("SELECT deleted_at FROM {} WHERE id = ?", table);
+    let tombstone: Option<Option<String>> =
+        sqlx::query_scalar(sqlx::AssertSqlSafe(select_sql.as_str()))
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+    let Some(tombstone) = tombstone else {
+        return Err(DbError::NotFound {
+            entity_type: entity_type.to_string(),
+            id: id.to_string(),
+        });
+    };
+
+    let Some(tombstone) = tombstone else {
+        return Ok(None);
+    };
+
+    let set_clause = if bump_updated_at {
+        "deleted_at = NULL, updated_at = datetime('now')"
+    } else {
+        "deleted_at = NULL"
+    };
+    let sql = format!("UPDATE {} SET {} WHERE id = ?", table, set_clause);
+
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(id)
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+    Ok(Some(tombstone))
 }
 
 /// Read the `deleted_at` tombstone marker for a row. Test-only helper.

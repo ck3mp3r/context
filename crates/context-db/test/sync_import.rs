@@ -24,6 +24,7 @@ fn create_test_jsonl_repos_before_projects(temp_dir: &TempDir) {
         tags: vec![],
         project_ids: vec!["proj0001".to_string()], // FK reference
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -64,6 +65,7 @@ fn create_invalid_fk_jsonl(temp_dir: &TempDir) {
         // constraint passes and the deferred FK check is what fails.
         project_ids: vec!["deadbeef".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -99,6 +101,7 @@ fn create_partial_invalid_jsonl(temp_dir: &TempDir) {
         tags: vec![],
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -500,6 +503,7 @@ async fn test_import_batch_idempotent() {
         tags: vec![],
         project_ids: vec!["projidem".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db1.repos().create(&repo).await.unwrap();
@@ -670,6 +674,85 @@ async fn test_import_lww_guard() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn import_repo_lww_guard() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // The stored row is newer than the row in the JSONL file.
+    let current = Repo {
+        id: "repolww1".to_string(),
+        remote: "github:newer/repo".to_string(),
+        path: None,
+        tags: vec![],
+        project_ids: vec![],
+        created_at: Some("2024-01-01 00:00:00".to_string()),
+        updated_at: Some("2024-06-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    db.repos().create(&current).await.unwrap();
+
+    let stale = Repo {
+        remote: "github:stale/repo".to_string(),
+        updated_at: Some("2024-01-01 00:00:00".to_string()),
+        ..current.clone()
+    };
+    write_jsonl(&temp_dir.path().join("repos.jsonl"), &[stale]).unwrap();
+
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let unchanged = db.repos().get("repolww1").await.unwrap();
+    assert_eq!(
+        unchanged.remote, "github:newer/repo",
+        "an older import must not overwrite newer repo data"
+    );
+    assert_eq!(
+        unchanged.updated_at,
+        Some("2024-06-01 00:00:00".to_string())
+    );
+
+    // A newer row does overwrite the stored row.
+    let newer = Repo {
+        remote: "github:newest/repo".to_string(),
+        updated_at: Some("2024-12-01 00:00:00".to_string()),
+        ..current.clone()
+    };
+    write_jsonl(&temp_dir.path().join("repos.jsonl"), &[newer]).unwrap();
+
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let updated = db.repos().get("repolww1").await.unwrap();
+    assert_eq!(updated.remote, "github:newest/repo");
+    assert_eq!(updated.updated_at, Some("2024-12-01 00:00:00".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn import_repo_without_updated_at_succeeds() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // A pre-migration export has no updated_at key for repos.
+    let legacy = serde_json::json!({
+        "id": "repoleg1",
+        "remote": "github:legacy/repo",
+        "path": null,
+        "tags": [],
+        "project_ids": [],
+        "created_at": "2024-01-01 00:00:00",
+        "deleted_at": null
+    });
+    std::fs::write(temp_dir.path().join("repos.jsonl"), format!("{}\n", legacy)).unwrap();
+
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let imported = db.repos().get("repoleg1").await.unwrap();
+    assert_eq!(imported.remote, "github:legacy/repo");
+    assert_eq!(
+        imported.updated_at, None,
+        "a missing updated_at must import as NULL"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_import_batches_multiple_rows() {
     use context_core::{Note, NoteRepository, Task, TaskRepository, TaskStatus};
 
@@ -700,6 +783,7 @@ async fn test_import_batches_multiple_rows() {
             tags: vec![],
             project_ids: vec![format!("projbtc{}", i)],
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            updated_at: None,
             deleted_at: None,
         })
         .collect();

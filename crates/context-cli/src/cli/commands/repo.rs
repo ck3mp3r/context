@@ -228,3 +228,17 @@ pub async fn delete_repo(api_client: &ApiClient, id: &str, force: bool) -> CliRe
         })
     }
 }
+
+/// Restore a soft-deleted repository
+pub async fn restore_repo(api_client: &ApiClient, id: &str) -> CliResult<String> {
+    let response = api_client
+        .post(&format!("/api/v1/repos/{}/restore", id))
+        .send()
+        .await?;
+
+    let repo: Repo = ApiClient::handle_response(response).await?;
+    Ok(format!(
+        "✓ Restored repository: {} ({})",
+        repo.remote, repo.id
+    ))
+}

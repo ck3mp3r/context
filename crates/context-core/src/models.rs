@@ -187,6 +187,9 @@ pub struct Repo {
     #[serde(default)]
     pub project_ids: Vec<Id>,
     pub created_at: Option<String>,
+    /// Timestamp of the last write; drives incremental sync and the import LWW guard.
+    #[serde(default)]
+    pub updated_at: Option<String>,
     /// Timestamp when the repo was soft-deleted (NULL = not deleted)
     #[serde(default)]
     pub deleted_at: Option<String>,

@@ -2,7 +2,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause, soft_delete_row};
+use super::helpers::{build_limit_offset_clause, build_order_clause, restore_row, soft_delete_row};
 use context_core::{
     DbError, DbResult, ListResult, Project, ProjectQuery, ProjectRepository, SortOrder,
 };
@@ -410,6 +410,51 @@ impl<'a> ProjectRepository for SqliteProjectRepository<'a> {
                     message: e.to_string(),
                 })?;
         }
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        let Some(tombstone) = restore_row(&mut tx, "project", "Project", id, true).await? else {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        };
+
+        // Cascade: restore the task lists and tasks deleted with this project.
+        sqlx::query(
+            "UPDATE task_list SET deleted_at = NULL, updated_at = datetime('now')
+             WHERE project_id = ? AND deleted_at >= ?",
+        )
+        .bind(id)
+        .bind(&tombstone)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        sqlx::query(
+            "UPDATE task SET deleted_at = NULL, updated_at = datetime('now')
+             WHERE list_id IN (SELECT id FROM task_list WHERE project_id = ? AND deleted_at IS NULL)
+               AND deleted_at >= ?",
+        )
+        .bind(id)
+        .bind(&tombstone)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),

@@ -127,6 +127,23 @@ async fn test_repo_crud_operations() {
         delete_again.is_ok(),
         "Repeated delete should be an idempotent no-op"
     );
+
+    // RESTORE: Restore the soft-deleted repo
+    let restore_result = restore_repo(&api_client, repo_id).await;
+    assert!(restore_result.is_ok(), "Should restore soft-deleted repo");
+    let restore_output = restore_result.unwrap();
+    assert!(restore_output.contains("Restored repository"));
+    assert!(restore_output.contains(repo_id));
+
+    // Verify the repo is readable again after restore
+    let restored = get_repo(&api_client, repo_id, "json")
+        .await
+        .expect("Failed to get restored repo");
+    let restored_repo: Repo = serde_json::from_str(&restored).unwrap();
+    assert_eq!(
+        restored_repo.remote,
+        "https://github.com/acme/backend-api-v2"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -400,6 +417,19 @@ async fn test_repo_error_handling() {
         "Should return error for non-existent repo"
     );
     let error = delete_result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+
+    // RESTORE: Non-existent repo
+    let restore_result = restore_repo(&api_client, "nonexist").await;
+    assert!(
+        restore_result.is_err(),
+        "Should return error for non-existent repo"
+    );
+    let error = restore_result.unwrap_err().to_string();
     assert!(
         error.contains("not found") || error.contains("404") || error.contains("Not Found"),
         "Error should mention not found, got: {}",

@@ -205,6 +205,23 @@ async fn test_task_crud_operations() {
 
     // Verify deletion is idempotent (soft-delete no-op on repeat)
     assert!(delete_task(&api_client, &task_id, true).await.is_ok());
+
+    // RESTORE: Restore the soft-deleted task
+    let restore_result = restore_task(&api_client, &task_id).await;
+    assert!(restore_result.is_ok(), "Should restore soft-deleted task");
+    let restore_output = restore_result.unwrap();
+    assert!(restore_output.contains("Restored task"));
+    assert!(restore_output.contains(&task_id));
+
+    // Verify the task is readable again after restore
+    let restored = get_task(&api_client, &task_id, "json")
+        .await
+        .expect("Failed to get restored task");
+    let restored_task: serde_json::Value = serde_json::from_str(&restored).unwrap();
+    assert_eq!(
+        restored_task["title"],
+        "Implement OAuth2 + SAML Authentication"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -530,6 +547,10 @@ async fn test_error_handling() {
     // Delete non-existent task
     let delete_result = delete_task(&api_client, "nonexistent", true).await;
     assert!(delete_result.is_err());
+
+    // Restore non-existent task
+    let restore_result = restore_task(&api_client, "nonexistent").await;
+    assert!(restore_result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]

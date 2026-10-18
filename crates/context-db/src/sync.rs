@@ -254,7 +254,7 @@ async fn import_all_with_transaction(
     let repos_file = input_dir.join("repos.jsonl");
     if repos_file.exists() {
         let mut reader = JsonlReader::open(&repos_file)?;
-        let batch_size = rows_per_batch(6);
+        let batch_size = rows_per_batch(7);
         loop {
             let repos: Vec<Repo> = read_batch(&mut reader, batch_size)?;
             if repos.is_empty() {
@@ -265,17 +265,18 @@ async fn import_all_with_transaction(
                 .map(|repo| Ok((repo, serde_json::to_string(&repo.tags)?)))
                 .collect::<Result<_, serde_json::Error>>()?;
 
-            // `repo` has no `updated_at` column, so it cannot carry a LWW guard.
             batched_upsert(
                 tx,
                 &rows,
-                6,
-                "INSERT INTO repo (id, remote, path, tags, created_at, deleted_at) ",
+                7,
+                "INSERT INTO repo (id, remote, path, tags, created_at, updated_at, deleted_at) ",
                 " ON CONFLICT(id) DO UPDATE SET
                     remote = excluded.remote,
                     path = excluded.path,
                     tags = excluded.tags,
-                    deleted_at = excluded.deleted_at",
+                    updated_at = excluded.updated_at,
+                    deleted_at = excluded.deleted_at
+                  WHERE repo.updated_at IS NULL OR excluded.updated_at > repo.updated_at",
                 |separated, (repo, tags)| {
                     separated
                         .push_bind(&repo.id)
@@ -283,6 +284,7 @@ async fn import_all_with_transaction(
                         .push_bind(&repo.path)
                         .push_bind(tags)
                         .push_bind(&repo.created_at)
+                        .push_bind(&repo.updated_at)
                         .push_bind(&repo.deleted_at);
                 },
             )
@@ -785,17 +787,14 @@ async fn export_all_from_pool(
     // incremental export share one SQL shape.
     let cutoff = read_sync_cutoff(pool).await?.unwrap_or_default();
 
-    // Export repos, including tombstones. `repo` has no `updated_at` column, so
-    // the newest timestamp the schema can offer is the delete time, falling
-    // back to the creation time.
+    // Export repos, including tombstones.
     let repos = export_query(
         pool,
         &output_dir.join("repos.jsonl"),
-        "SELECT r.id, r.remote, r.path, r.tags, r.created_at, r.deleted_at,
+        "SELECT r.id, r.remote, r.path, r.tags, r.created_at, r.updated_at, r.deleted_at,
                 COALESCE((SELECT json_group_array(pr.project_id) FROM project_repo pr WHERE pr.repo_id = r.id), '[]') AS project_ids
          FROM repo r
-         WHERE COALESCE(r.deleted_at, r.created_at) IS NULL
-            OR COALESCE(r.deleted_at, r.created_at) > ?
+         WHERE r.updated_at IS NULL OR r.updated_at > ?
          ORDER BY r.id",
         &cutoff,
         |row| {
@@ -806,6 +805,7 @@ async fn export_all_from_pool(
                 tags: json_string_vec(row, "tags"),
                 project_ids: json_string_vec(row, "project_ids"),
                 created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
                 deleted_at: row.get("deleted_at"),
             })
         },

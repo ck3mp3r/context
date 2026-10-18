@@ -162,6 +162,20 @@ async fn test_skill_crud_operations() {
         delete_again.is_ok(),
         "Repeated delete should be an idempotent no-op"
     );
+
+    // RESTORE: Restore the soft-deleted skill
+    let restore_result = restore_skill(&api_client, skill_id).await;
+    assert!(restore_result.is_ok(), "Should restore soft-deleted skill");
+    let restore_output = restore_result.unwrap();
+    assert!(restore_output.contains("Restored skill"));
+    assert!(restore_output.contains(skill_id));
+
+    // Verify the skill is readable again after restore
+    let restored = get_skill(&api_client, skill_id, "json")
+        .await
+        .expect("Failed to get restored skill");
+    let restored_skill: serde_json::Value = serde_json::from_str(&restored).unwrap();
+    assert_eq!(restored_skill["name"], "rust");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -360,6 +374,12 @@ async fn test_get_skill_not_found() {
 
     let result = get_skill(&api_client, "nonexistent", "json").await;
     assert!(result.is_err(), "Should fail to get non-existent skill");
+
+    let restore_result = restore_skill(&api_client, "nonexistent").await;
+    assert!(
+        restore_result.is_err(),
+        "Should fail to restore non-existent skill"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

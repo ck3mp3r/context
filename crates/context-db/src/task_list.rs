@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, build_order_clause, soft_delete_row};
+use super::helpers::{build_limit_offset_clause, build_order_clause, restore_row, soft_delete_row};
 use context_core::{
     DbError, DbResult, ListResult, TaskList, TaskListQuery, TaskListRepository, TaskListStatus,
 };
@@ -644,6 +644,64 @@ impl<'a> TaskListRepository for SqliteTaskListRepository<'a> {
             .map_err(|e| DbError::Database {
                 message: e.to_string(),
             })?;
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        // Ancestor-consistency guard: never create a live task list under a
+        // soft-deleted project.
+        let project = sqlx::query(
+            "SELECT p.id, p.deleted_at FROM project p
+             WHERE p.id = (SELECT project_id FROM task_list WHERE id = ?)",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        if let Some(row) = project {
+            let deleted_at: Option<String> = row.get("deleted_at");
+            if deleted_at.is_some() {
+                let project_id: String = row.get("id");
+                return Err(DbError::Validation {
+                    message: format!(
+                        "Cannot restore task list '{}': project '{}' is soft-deleted",
+                        id, project_id
+                    ),
+                });
+            }
+        }
+
+        let Some(tombstone) = restore_row(&mut tx, "task_list", "TaskList", id, true).await? else {
+            tx.commit().await.map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+            return Ok(());
+        };
+
+        // Cascade: restore the tasks deleted with this list.
+        sqlx::query(
+            "UPDATE task SET deleted_at = NULL, updated_at = datetime('now')
+             WHERE list_id = ? AND deleted_at IS NOT NULL AND deleted_at >= ?",
+        )
+        .bind(id)
+        .bind(&tombstone)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),

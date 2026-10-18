@@ -56,6 +56,7 @@ async fn test_export_with_data() {
         tags: vec!["test".to_string()],
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
@@ -150,6 +151,7 @@ async fn test_export_includes_relationships() {
         tags: vec!["test".to_string()],
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();

@@ -147,6 +147,12 @@ pub struct DeleteTaskParams {
     pub task_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RestoreTaskParams {
+    #[schemars(description = "Task ID (8-character hex)")]
+    pub task_id: String,
+}
+
 // =============================================================================
 // Tool Implementation
 // =============================================================================
@@ -449,5 +455,37 @@ impl<D: HasTasks + 'static> TaskTools<D> {
             "Task {} deleted successfully",
             params.0.task_id
         ))]))
+    }
+
+    #[tool(
+        description = "Restore a soft-deleted task (cascades to descendants deleted in the same delete). Fails when the parent task list is still deleted."
+    )]
+    pub async fn restore_task(
+        &self,
+        params: Parameters<RestoreTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .tasks()
+            .restore(&params.0.task_id)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::TaskUpdated {
+            task_id: params.0.task_id.clone(),
+        });
+
+        let content = json!({
+            "success": true,
+            "message": format!("Task {} restored successfully", params.0.task_id)
+        });
+
+        let text = serde_json::to_string_pretty(&content).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 }

@@ -405,6 +405,7 @@ async fn test_export_uses_direct_sql() {
         tags: vec![],
         project_ids: vec!["projdir1".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
@@ -500,6 +501,7 @@ async fn test_export_uses_direct_sql() {
         tags: vec![],
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&orphan).await.unwrap();
@@ -595,6 +597,47 @@ async fn test_incremental_export_includes_tombstones() {
     assert!(
         projects[0].deleted_at.is_some(),
         "exported tombstone must carry deleted_at"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn export_includes_restored_repo() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    let repo = Repo {
+        id: "reporex1".to_string(),
+        remote: "https://github.com/test/restored".to_string(),
+        path: None,
+        tags: vec![],
+        project_ids: vec![],
+        created_at: Some("2024-01-01 00:00:00".to_string()),
+        updated_at: None,
+        deleted_at: None,
+    };
+    db.repos().create(&repo).await.unwrap();
+
+    // The cutoff sits after the create, before the delete and the restore.
+    db.sync()
+        .set_last_synced_at("2024-03-01 00:00:00")
+        .await
+        .unwrap();
+
+    db.repos().delete("reporex1").await.unwrap();
+    db.repos().restore("reporex1").await.unwrap();
+
+    db.sync().export_all(temp_dir.path()).await.unwrap();
+
+    let repos: Vec<Repo> = read_jsonl(&temp_dir.path().join("repos.jsonl")).unwrap();
+    assert_eq!(
+        repos.len(),
+        1,
+        "a restored repo must be exported incrementally"
+    );
+    assert_eq!(repos[0].id, "reporex1");
+    assert!(
+        repos[0].deleted_at.is_none(),
+        "the exported restored repo must be live"
     );
 }
 

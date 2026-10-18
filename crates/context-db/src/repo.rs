@@ -2,7 +2,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-use super::helpers::{build_limit_offset_clause, soft_delete_row};
+use super::helpers::{build_limit_offset_clause, restore_row, soft_delete_row};
 use context_core::{DbError, DbResult, ListResult, Repo, RepoQuery, RepoRepository};
 use context_core::{current_timestamp, generate_entity_id};
 
@@ -46,6 +46,11 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             .clone()
             .filter(|s| !s.is_empty())
             .or_else(|| Some(current_timestamp()));
+        let updated_at = repo
+            .updated_at
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| created_at.clone());
 
         let tags_json = serde_json::to_string(&repo.tags).map_err(|e| DbError::Database {
             message: format!("Failed to serialize tags: {}", e),
@@ -56,12 +61,15 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             message: e.to_string(),
         })?;
 
-        sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
+        sqlx::query(
+            "INSERT INTO repo (id, remote, path, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
             .bind(&id)
             .bind(&repo.remote)
             .bind(&repo.path)
             .bind(&tags_json)
             .bind(&created_at)
+            .bind(&updated_at)
             .execute(&mut *tx)
             .await
             .map_err(|e| DbError::Database {
@@ -92,13 +100,14 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             tags: repo.tags.clone(),
             project_ids: repo.project_ids.clone(),
             created_at,
+            updated_at,
             deleted_at: None,
         })
     }
 
     async fn get(&self, id: &str) -> DbResult<Repo> {
         let row = sqlx::query(
-            "SELECT id, remote, path, tags, created_at FROM repo WHERE id = ? AND deleted_at IS NULL",
+            "SELECT id, remote, path, tags, created_at, updated_at FROM repo WHERE id = ? AND deleted_at IS NULL",
         )
             .bind(id)
             .fetch_optional(self.pool)
@@ -132,6 +141,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             tags,
             project_ids,
             created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
             deleted_at: None,
         })
     }
@@ -193,14 +203,14 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                 }
 
                 (
-                    "DISTINCT r.id, r.remote, r.path, r.tags, r.created_at",
+                    "DISTINCT r.id, r.remote, r.path, r.tags, r.created_at, r.updated_at",
                     from,
                     "r.",
                 )
             } else {
                 // No joins, simple query (no search)
                 (
-                    "id, remote, path, tags, created_at",
+                    "id, remote, path, tags, created_at, updated_at",
                     "FROM repo".to_string(),
                     "",
                 )
@@ -281,6 +291,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                     tags,
                     project_ids: vec![], // Empty by default - relationships managed separately
                     created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
                     deleted_at: None,
                 }
             })
@@ -330,16 +341,22 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             message: format!("Failed to serialize tags: {}", e),
         })?;
 
-        let result = sqlx::query("UPDATE repo SET remote = ?, path = ?, tags = ? WHERE id = ?")
-            .bind(&repo.remote)
-            .bind(&repo.path)
-            .bind(&tags_json)
-            .bind(&repo.id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| DbError::Database {
-                message: e.to_string(),
-            })?;
+        // Every write bumps updated_at so the change flows through incremental sync.
+        let updated_at = current_timestamp();
+
+        let result = sqlx::query(
+            "UPDATE repo SET remote = ?, path = ?, tags = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(&repo.remote)
+        .bind(&repo.path)
+        .bind(&tags_json)
+        .bind(&updated_at)
+        .bind(&repo.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
 
         if result.rows_affected() == 0 {
             return Err(DbError::NotFound {
@@ -382,8 +399,7 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
             message: e.to_string(),
         })?;
 
-        // The repo table has no updated_at column, so only deleted_at is set.
-        let deleted = soft_delete_row(&mut tx, "repo", "Repo", id, false).await?;
+        let deleted = soft_delete_row(&mut tx, "repo", "Repo", id, true).await?;
 
         if !deleted {
             tx.commit().await.map_err(|e| DbError::Database {
@@ -403,6 +419,20 @@ impl<'a> RepoRepository for SqliteRepoRepository<'a> {
                     message: e.to_string(),
                 })?;
         }
+
+        tx.commit().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        Ok(())
+    }
+
+    async fn restore(&self, id: &str) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
+
+        restore_row(&mut tx, "repo", "Repo", id, true).await?;
 
         tx.commit().await.map_err(|e| DbError::Database {
             message: e.to_string(),

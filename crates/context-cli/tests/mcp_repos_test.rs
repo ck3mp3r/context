@@ -98,6 +98,7 @@ async fn test_get_repo() {
         tags: vec!["test".to_string()],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
@@ -144,6 +145,7 @@ async fn test_update_repo() {
         tags: vec!["original".to_string()],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
@@ -193,6 +195,7 @@ async fn test_delete_repo() {
         tags: vec![],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
@@ -238,6 +241,7 @@ async fn test_list_repos_with_data() {
         tags: vec!["test".to_string()],
         project_ids: vec![],
         created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&repo).await.unwrap();
@@ -276,6 +280,7 @@ async fn test_list_repos_pagination() {
             tags: vec![],
             project_ids: vec![],
             created_at: Some("2025-01-01 00:00:00".to_string()),
+            updated_at: None,
             deleted_at: None,
         };
         db.repos().create(&repo).await.unwrap();

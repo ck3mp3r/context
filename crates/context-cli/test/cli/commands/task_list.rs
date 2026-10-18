@@ -183,6 +183,26 @@ async fn test_task_list_crud_operations() {
         delete_again.is_ok(),
         "Repeated delete should be an idempotent no-op"
     );
+
+    // RESTORE: Restore the soft-deleted task list
+    let restore_result = restore_task_list(&api_client, list_id).await;
+    assert!(
+        restore_result.is_ok(),
+        "Should restore soft-deleted task list"
+    );
+    let restore_output = restore_result.unwrap();
+    assert!(restore_output.contains("Restored task list"));
+    assert!(restore_output.contains(list_id));
+
+    // Verify the task list is readable again after restore
+    let restored = get_task_list(&api_client, list_id, "json")
+        .await
+        .expect("Failed to get restored task list");
+    let restored_list: serde_json::Value = serde_json::from_str(&restored).unwrap();
+    assert_eq!(
+        restored_list["title"],
+        "Q1 2026 Backend Migration (Updated)"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -595,6 +615,19 @@ async fn test_task_list_error_handling() {
         "Should return error for non-existent task list"
     );
     let error = delete_result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+
+    // RESTORE: Non-existent task list
+    let restore_result = restore_task_list(&api_client, "nonexist").await;
+    assert!(
+        restore_result.is_err(),
+        "Should return error for non-existent task list"
+    );
+    let error = restore_result.unwrap_err().to_string();
     assert!(
         error.contains("not found") || error.contains("404") || error.contains("Not Found"),
         "Error should mention not found, got: {}",

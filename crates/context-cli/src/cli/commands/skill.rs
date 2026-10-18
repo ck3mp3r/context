@@ -161,6 +161,17 @@ pub async fn delete_skill(api_client: &ApiClient, id: &str, force: bool) -> CliR
     Ok(format!("Deleted skill: {}", id))
 }
 
+/// Restore a soft-deleted skill
+pub async fn restore_skill(api_client: &ApiClient, id: &str) -> CliResult<String> {
+    let response = api_client
+        .post(&format!("/api/v1/skills/{}/restore", id))
+        .send()
+        .await?;
+
+    let skill: Skill = ApiClient::handle_response(response).await?;
+    Ok(format!("✓ Restored skill: {} ({})", skill.name, skill.id))
+}
+
 /// Import a skill from a source
 ///
 /// Source formats:

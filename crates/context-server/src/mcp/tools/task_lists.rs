@@ -112,6 +112,12 @@ pub struct DeleteTaskListParams {
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RestoreTaskListParams {
+    #[schemars(description = "TaskList ID (8-character hex)")]
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct GetTaskListStatsParams {
     #[schemars(description = "TaskList ID")]
     pub id: String,
@@ -366,6 +372,37 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
         let response = json!({
             "success": true,
             "id": params.0.id,
+        });
+
+        let content = serde_json::to_string_pretty(&response).map_err(|e| {
+            McpError::internal_error(
+                "serialization_error",
+                Some(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]))
+    }
+
+    #[tool(
+        description = "Restore a soft-deleted task list (cascades to tasks deleted in the same delete). Fails when the parent project is still deleted."
+    )]
+    pub async fn restore_task_list(
+        &self,
+        params: Parameters<RestoreTaskListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.db
+            .task_lists()
+            .restore(&params.0.id)
+            .await
+            .map_err(map_db_error)?;
+
+        self.notifier.notify(UpdateMessage::TaskListUpdated {
+            task_list_id: params.0.id.clone(),
+        });
+
+        let response = json!({
+            "success": true,
+            "message": format!("Task list {} restored successfully", params.0.id)
         });
 
         let content = serde_json::to_string_pretty(&response).map_err(|e| {

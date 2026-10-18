@@ -69,6 +69,7 @@ async fn test_export_then_import() {
         tags: vec!["test".to_string()],
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db1.repos().create(&repo).await.unwrap();
@@ -125,6 +126,7 @@ async fn test_import_updates_existing() {
         tags: vec!["v1".to_string()],
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db.repos().create(&repo_v1).await.unwrap();
@@ -137,6 +139,7 @@ async fn test_import_updates_existing() {
         tags: vec!["v2".to_string()],                        // Changed
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
 
@@ -191,6 +194,7 @@ async fn test_import_preserves_relationships() {
         tags: vec![],
         project_ids: vec!["proj0001".to_string()],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: None,
         deleted_at: None,
     };
     db1.repos().create(&repo).await.unwrap();

@@ -147,6 +147,23 @@ async fn test_note_crud_operations() {
         delete_again.is_ok(),
         "Repeated delete should be an idempotent no-op"
     );
+
+    // RESTORE: Restore the soft-deleted note
+    let restore_result = restore_note(&api_client, note_id).await;
+    assert!(restore_result.is_ok(), "Should restore soft-deleted note");
+    let restore_output = restore_result.unwrap();
+    assert!(restore_output.contains("Restored note"));
+    assert!(restore_output.contains(note_id));
+
+    // Verify the note is readable again after restore
+    let restored = get_note(&api_client, note_id, "json")
+        .await
+        .expect("Failed to get restored note");
+    let restored_note: serde_json::Value = serde_json::from_str(&restored).unwrap();
+    assert_eq!(
+        restored_note["title"],
+        "Rust Async Programming Guide (Updated)"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -542,6 +559,19 @@ async fn test_note_error_handling() {
         "Should return error for non-existent note"
     );
     let error = delete_result.unwrap_err().to_string();
+    assert!(
+        error.contains("not found") || error.contains("404") || error.contains("Not Found"),
+        "Error should mention not found, got: {}",
+        error
+    );
+
+    // RESTORE: Non-existent note
+    let restore_result = restore_note(&api_client, "nonexist").await;
+    assert!(
+        restore_result.is_err(),
+        "Should return error for non-existent note"
+    );
+    let error = restore_result.unwrap_err().to_string();
     assert!(
         error.contains("not found") || error.contains("404") || error.contains("Not Found"),
         "Error should mention not found, got: {}",

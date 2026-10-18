@@ -595,6 +595,63 @@ pub async fn delete_task<D: Database, G: GitOps + Send + Sync>(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Restore a soft-deleted task
+///
+/// Clears the task's deletion tombstone, restores the descendants deleted with
+/// it, and returns the restored task.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{id}/restore",
+    tag = "tasks",
+    params(("id" = String, Path, description = "Task ID")),
+    responses(
+        (status = 200, description = "Task restored", body = TaskResponse),
+        (status = 400, description = "Restore blocked by a deleted task list", body = ErrorResponse),
+        (status = 404, description = "Task not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn restore_task<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(id): Path<String>,
+) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state.db().tasks().restore(&id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Task '{}' not found", id),
+            }),
+        ),
+        DbError::Validation { message } => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: message }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    // Broadcast TaskUpdated notification
+    state.notifier().notify(UpdateMessage::TaskUpdated {
+        task_id: id.clone(),
+    });
+
+    let restored = state.db().tasks().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(TaskResponse::from(restored)))
+}
+
 /// Get task transitions
 ///
 /// Returns the list of all state transitions for a task, ordered by newest first.
