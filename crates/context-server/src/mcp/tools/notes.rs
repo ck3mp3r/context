@@ -22,12 +22,12 @@ use context_core::{HasNotes, Note, NoteQuery, NoteRepository, PageSort};
 // =============================================================================
 
 /// Compute ETag from updated_at timestamp for concurrency control.
-/// Returns a 64-character hex string (SHA256 hash).
+/// Returns an 8-character hex string (truncated SHA256 hash).
 fn compute_etag(updated_at: &str) -> String {
     let mut hasher = sha2::Sha256::new();
     sha2::Digest::update(&mut hasher, updated_at.as_bytes());
     let result = hasher.finalize();
-    result.iter().fold(String::new(), |mut acc, b| {
+    result.iter().take(4).fold(String::new(), |mut acc, b| {
         use std::fmt::Write;
         write!(acc, "{:02x}", b).unwrap();
         acc
