@@ -261,66 +261,6 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         }
     }
 
-    async fn get_metadata_only(&self, id: &str) -> DbResult<Note> {
-        let row = sqlx::query(
-            "SELECT id, title, tags, parent_id, idx, created_at, updated_at FROM note WHERE id = ? AND deleted_at IS NULL",
-        )
-        .bind(id)
-        .fetch_optional(self.pool)
-        .await
-        .map_err(|e| DbError::Database {
-            message: e.to_string(),
-        })?;
-
-        if let Some(row) = row {
-            let tags_json: String = row.get("tags");
-            let tags: Vec<String> =
-                serde_json::from_str(&tags_json).map_err(|e| DbError::Database {
-                    message: format!("Failed to parse tags JSON: {}", e),
-                })?;
-
-            // Get repo relationships
-            let repo_ids: Vec<String> =
-                sqlx::query_scalar("SELECT repo_id FROM note_repo WHERE note_id = ?")
-                    .bind(id)
-                    .fetch_all(self.pool)
-                    .await
-                    .map_err(|e| DbError::Database {
-                        message: e.to_string(),
-                    })?;
-
-            // Get project relationships
-            let project_ids: Vec<String> =
-                sqlx::query_scalar("SELECT project_id FROM project_note WHERE note_id = ?")
-                    .bind(id)
-                    .fetch_all(self.pool)
-                    .await
-                    .map_err(|e| DbError::Database {
-                        message: e.to_string(),
-                    })?;
-
-            Ok(Note {
-                id: row.get("id"),
-                title: row.get("title"),
-                content: String::new(), // Empty content for metadata-only
-                tags,
-                parent_id: row.get("parent_id"),
-                idx: row.get("idx"),
-                repo_ids,
-                project_ids,
-                subnote_count: None, // Not computed for single note get
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-                deleted_at: None,
-            })
-        } else {
-            Err(DbError::NotFound {
-                entity_type: "Note".to_string(),
-                id: id.to_string(),
-            })
-        }
-    }
-
     async fn list(&self, query: Option<&NoteQuery>) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);

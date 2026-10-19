@@ -1,8 +1,8 @@
 //! Tests for the note etag contract
 //!
 //! Covers etag length, determinism, distinctness across updated_at values,
-//! stale-etag rejection in edit_note, and the stale-etag error payload.
-//! Uses the test harness in common::setup_db().
+//! stale-etag rejection in edit_note, the stale-etag error payload, and the
+//! empty-ranges rejection in read_note. Uses the test harness in common::setup_db().
 
 mod common;
 
@@ -11,7 +11,7 @@ use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::notes::{EditNoteParams, NoteTools, ReadNoteParams};
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::ContentBlock;
+use rmcp::model::{ContentBlock, ErrorCode};
 use std::sync::Arc;
 
 async fn setup_db() -> SqliteDatabase {
@@ -167,6 +167,44 @@ async fn test_edit_note_rejects_stale_etag() {
     assert_eq!(
         unchanged.title, "Test Note",
         "note should be unchanged after a rejected edit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_read_note_rejects_empty_ranges() {
+    let db = setup_db().await;
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    db.notes()
+        .create(&make_note("note0001", "2025-01-01 00:00:00"))
+        .await
+        .expect("Create should succeed");
+
+    let params = ReadNoteParams {
+        note_id: "note0001".to_string(),
+        format: None,
+        ranges: Some(vec![]),
+    };
+
+    let error = tools
+        .read_note(Parameters(params))
+        .await
+        .expect_err("read_note should reject an empty ranges array");
+
+    assert_eq!(
+        error.code,
+        ErrorCode::INVALID_PARAMS,
+        "empty ranges should be reported as invalid_params"
+    );
+    assert_eq!(
+        error.message.as_ref(),
+        "Empty ranges array. Omit ranges for a full read or specify one or more line ranges.",
+        "error message should explain the empty-ranges rejection"
+    );
+    assert_eq!(
+        error.data.expect("error should carry a data payload")["note_id"],
+        "note0001"
     );
 }
 

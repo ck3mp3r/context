@@ -145,7 +145,7 @@ pub struct ReadNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "Line ranges to fetch. Omit=full content, []=metadata only, or specify ranges. Sorted & validated for overlaps."
+        description = "Line ranges to fetch. Omit for full content. An empty array is an error. Sorted & validated for overlaps."
     )]
     pub ranges: Option<Vec<LineRange>>,
     #[schemars(
@@ -390,7 +390,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Read note. Returns etag (for edit_note) and content in TOON format (line numbers). Ranges: omit=full, []=metadata, or specify. Use format='json' for plain content."
+        description = "Read note. Returns etag (for edit_note) and content in TOON format (line numbers). Ranges: omit=full, or specify; an empty array is an error. Use format='json' for plain content."
     )]
     pub async fn read_note(
         &self,
@@ -398,7 +398,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     ) -> Result<CallToolResult, McpError> {
         // Handle ranges parameter semantics:
         // - None: return full note with content (default)
-        // - Some([]): return metadata only (no content)
+        // - Some([]): invalid_params error (an empty array names no ranges)
         // - Some([ranges]): return specific line ranges
 
         match &params.0.ranges {
@@ -428,31 +428,13 @@ impl<D: HasNotes + 'static> NoteTools<D> {
                 )]))
             }
 
-            // Empty array: return metadata only (no content)
-            Some(ranges) if ranges.is_empty() => {
-                let note = self
-                    .db
-                    .notes()
-                    .get_metadata_only(&params.0.note_id)
-                    .await
-                    .map_err(|e| {
-                        McpError::resource_not_found(
-                            "note_not_found",
-                            Some(serde_json::json!({"error": e.to_string()})),
-                        )
-                    })?;
-
-                // Compute etag from updated_at
-                let etag = compute_etag(note.updated_at.as_ref().unwrap_or(&String::new()));
-
-                // Create response with etag
-                let mut note_json = serde_json::to_value(&note).unwrap();
-                note_json["etag"] = serde_json::Value::String(etag);
-
-                Ok(CallToolResult::success(vec![ContentBlock::text(
-                    serde_json::to_string_pretty(&note_json).unwrap(),
-                )]))
-            }
+            // Empty array: an empty ranges array names no ranges, so reject it
+            Some(ranges) if ranges.is_empty() => Err(McpError::invalid_params(
+                "Empty ranges array. Omit ranges for a full read or specify one or more line ranges.",
+                Some(serde_json::json!({
+                    "note_id": params.0.note_id
+                })),
+            )),
 
             // Specific line ranges: return line groups
             Some(ranges) => {
