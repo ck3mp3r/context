@@ -48,7 +48,7 @@ crates/context-db/
     └── task.rs
 ```
 
-- Filenames drop the `_test` suffix: `src/project.rs` is tested by `test/project.rs`. The `mod` name keeps it: `mod project_test`. The module name is independent of the filename.
+- Filenames drop the `_test` suffix in both test trees: `src/project.rs` is tested by `test/project.rs`, and integration binaries are `tests/foo.rs`, never `tests/foo_test.rs`. The `mod` name keeps it: `mod project_test`. The module name is independent of the filename.
 - Declare each test module from its production module with `#[cfg(test)]` and a `#[path]` attribute. `#[path]` resolves relative to the declaring file, so the path must escape `src/`:
 
 ```rust
@@ -73,6 +73,7 @@ mod mod_test;
 - Test support files (helpers, fixtures) live in `test/` too. `crates/context-db/src/helpers.rs` is production code shared by production and tests, so it stays in `src/`.
 - Keep test files focused on one module.
 - Cross-crate integration tests stay in `crates/context-cli/tests/` as cargo test binaries. They run under `cargo nextest` like any other test and do not move into `test/`.
+- Filenames drop the `_test` suffix in `tests/` too: `tests/foo.rs`. Each `tests/*.rs` file is its own cargo test binary; the target name is the file stem.
 
 ### No test-only code in production
 

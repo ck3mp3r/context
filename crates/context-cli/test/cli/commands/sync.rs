@@ -11,9 +11,10 @@ use crate::cli::commands::sync::*;
 // 2. Request structure validation
 // 3. Output formatting (covered by manual testing)
 //
-// The actual sync operations (init, export, import, status) are fully tested in:
-// - src/sync/manager_test.rs (sync manager core logic - 100% coverage)
-// - src/sync/git_test.rs (git operations - 100% coverage)
+// The actual sync operations (init, export, import, status) are tested in the
+// context-sync crate:
+// - crates/context-sync/test/manager.rs (mod manager_test — sync manager core logic)
+// - crates/context-sync/test/git.rs (mod git_test — git operations)
 //
 // This provides adequate coverage without duplicating complex integration tests.
 // =============================================================================

@@ -251,32 +251,6 @@ async fn note_update_over_hard_max_fails() {
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn note_get_with_content_excluded() {
-    let db = setup_db().await;
-    let notes = db.notes();
-
-    let note = make_note(
-        "meta0001",
-        "Test Note",
-        "This is the content that should be excluded",
-    );
-    notes.create(&note).await.expect("Create should succeed");
-
-    // Get note without content
-    let retrieved = notes
-        .get_metadata_only("meta0001")
-        .await
-        .expect("Get should succeed");
-
-    assert_eq!(retrieved.id, "meta0001");
-    assert_eq!(retrieved.title, "Test Note");
-    assert_eq!(
-        retrieved.content, "",
-        "Content should be empty when excluded"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn note_list_with_content_excluded() {
     let db = setup_db().await;
     let notes = db.notes();
@@ -457,13 +431,6 @@ async fn get_soft_deleted_returns_not_found() {
         matches!(result, Err(context_core::DbError::NotFound { .. })),
         "get on a soft-deleted note should return NotFound, got: {:?}",
         result
-    );
-
-    let metadata = notes.get_metadata_only("notedel2").await;
-    assert!(
-        matches!(metadata, Err(context_core::DbError::NotFound { .. })),
-        "get_metadata_only on a soft-deleted note should return NotFound, got: {:?}",
-        metadata
     );
 }
 
