@@ -524,7 +524,6 @@ impl<D: HasNotes + 'static> NoteTools<D> {
                 "Note has been modified since last read. Please re-read the note before editing.",
                 Some(serde_json::json!({
                     "note_id": params.0.note_id,
-                    "expected_etag": current_etag,
                     "provided_etag": params.0.etag
                 })),
             ));
