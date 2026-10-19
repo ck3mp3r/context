@@ -163,13 +163,13 @@ Facts the agent needs. Do not make the agent discover these.
 ## FILES
 Exact file paths the agent will read or modify. For each file: the path, the line number, what is at that location, and what about it changes (or stays the same for regression targets).
 - src/api/v1/tasks.rs:42 — create_task handler; validates title and calls repo; add empty-title validation before repo call
-- src/api/v1/tasks_test.rs — co-located tests for task handlers; add test for empty-title rejection
+- test/api/v1/tasks.rs — unit tests for the task handlers in the crate-root test/ tree; add a test for empty-title rejection
 - src/db/sqlite/task.rs:118 — TaskRepository::create; inserts row; no changes, must continue to accept non-empty titles
 
 ## PATTERNS
 How the codebase does this kind of work. The agent follows these, not new patterns. List every convention the agent must follow.
 - Error handling: return DbError::Validation { message } for input errors (see src/db/error.rs)
-- Test style: #[tokio::test(flavor = "multi_thread")], in-memory SQLite, co-located *_test.rs files
+- Test style: #[tokio::test(flavor = "multi_thread")], in-memory SQLite, unit tests in the crate-root test/ tree (filenames drop the _test suffix; mod names keep it)
 - Response format: axum::Json with crate::api::v1::types structs
 - Naming: snake_case functions, PascalCase types
 - Imports: use crate:: prefix for internal modules
