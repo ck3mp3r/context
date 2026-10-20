@@ -58,6 +58,33 @@ async fn test_export_creates_all_jsonl_files() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_export_empty_database_returns_zero_summary() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
+
+    assert_eq!(summary.repos, 0, "empty database must export 0 repos");
+    assert_eq!(summary.projects, 0, "empty database must export 0 projects");
+    assert_eq!(
+        summary.task_lists, 0,
+        "empty database must export 0 task lists"
+    );
+    assert_eq!(summary.tasks, 0, "empty database must export 0 tasks");
+    assert_eq!(
+        summary.transitions, 0,
+        "empty database must export 0 transitions"
+    );
+    assert_eq!(summary.notes, 0, "empty database must export 0 notes");
+    assert_eq!(summary.skills, 0, "empty database must export 0 skills");
+    assert_eq!(
+        summary.attachments, 0,
+        "empty database must export 0 attachments"
+    );
+    assert_eq!(summary.total(), 0, "empty database must export 0 entities");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_skills_file_exists_after_export() {
     let db = setup_test_db().await;
     let temp_dir = TempDir::new().unwrap();

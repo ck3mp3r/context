@@ -1522,6 +1522,11 @@ This skill has attachments.
     assert_eq!(script_att.type_, "script");
     assert_eq!(script_att.content_hash, script_hash);
     assert_eq!(script_att.content, script_b64);
+    assert_eq!(
+        script_att.mime_type,
+        Some("text/x-shellscript".to_string()),
+        "import must preserve the script attachment mime_type"
+    );
 
     let ref_att = attachments
         .iter()
@@ -1529,6 +1534,11 @@ This skill has attachments.
         .unwrap();
     assert_eq!(ref_att.type_, "reference");
     assert_eq!(ref_att.content_hash, reference_hash);
+    assert_eq!(
+        ref_att.mime_type,
+        Some("text/markdown".to_string()),
+        "import must preserve the reference attachment mime_type"
+    );
 
     // Test 2: Re-import with changed attachment content (should update)
     let modified_script = b"#!/bin/bash\necho 'modified script'";
@@ -1593,6 +1603,11 @@ This skill has attachments.
         .unwrap();
     assert_eq!(updated_script.content_hash, modified_hash);
     assert_eq!(updated_script.content, modified_b64);
+    assert_eq!(
+        updated_script.mime_type,
+        Some("text/x-shellscript".to_string()),
+        "LWW update must preserve the script attachment mime_type"
+    );
 
     // Reference should be unchanged
     let unchanged_ref = updated_attachments
