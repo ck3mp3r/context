@@ -361,6 +361,7 @@ create_note(
 - Hierarchical via `parent_id` — use subnotes for detail, parent notes for summary
 - Use `include_content: false` when you list notes to avoid context bloat
 - **TOON format is the default** — `read_note` returns line-numbered content for accurate patching (use `format="json"` to opt out)
+- **No H1 headings in note content** — the note `title` field renders as the heading; start content with `##` or lower
 
 ### Note Editing - CRITICAL
 
