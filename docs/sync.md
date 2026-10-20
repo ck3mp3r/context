@@ -410,8 +410,10 @@ When the same entity exists in both sync files and the database:
 - Machine B: Updated same task at 11:00 AM
 - After import on Machine A: Machine B's 11:00 AM version wins
 
-Tables without an `updated_at` column (`repo`, `task_transition_log`) upsert
-their values directly. Re-importing the same file writes identical values.
+The `repo` table carries an `updated_at` column, so its import upsert applies
+the same last-write-wins guard as the other entity tables. `task_transition_log`
+is the only table without an `updated_at` column; it upserts its values
+directly, and re-importing the same file writes identical values.
 
 ### Handling Conflicts
 
