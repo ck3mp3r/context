@@ -1562,7 +1562,7 @@ This skill has attachments.
             filename: "run.sh".to_string(),
             content: modified_b64.clone(),
             content_hash: modified_hash.clone(),
-            mime_type: Some("text/x-shellscript".to_string()),
+            mime_type: Some("text/plain".to_string()),
             created_at: Some("2024-01-01T10:00:00Z".to_string()),
             updated_at: Some("2024-01-02T10:00:00Z".to_string()),
             deleted_at: None,
@@ -1605,8 +1605,8 @@ This skill has attachments.
     assert_eq!(updated_script.content, modified_b64);
     assert_eq!(
         updated_script.mime_type,
-        Some("text/x-shellscript".to_string()),
-        "LWW update must preserve the script attachment mime_type"
+        Some("text/plain".to_string()),
+        "LWW update must apply the re-imported mime_type"
     );
 
     // Reference should be unchanged
