@@ -8,11 +8,11 @@ mod common;
 use base64::prelude::*;
 use context_core::read_jsonl;
 use context_core::{
-    HasNotes, HasProjects, HasRepos, HasSkills, Note, NoteRepository, Project, ProjectRepository,
-    Repo, RepoRepository, Skill, SkillAttachment, SkillRepository,
+    HasNotes, HasProjects, HasRepos, HasSkills, HasSync, Note, NoteRepository, Project,
+    ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment, SkillRepository,
+    SyncRepository,
 };
 use context_db::SqliteDatabase;
-use context_sync::export_all;
 use tempfile::TempDir;
 
 async fn setup_test_db() -> SqliteDatabase {
@@ -24,7 +24,7 @@ async fn test_export_empty_database() {
     let db = setup_test_db().await;
     let temp_dir = TempDir::new().unwrap();
 
-    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
 
     // No default project in migrations
     assert_eq!(summary.repos, 0);
@@ -77,7 +77,7 @@ async fn test_export_with_data() {
     db.projects().create(&project).await.unwrap();
 
     // Export
-    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
 
     assert_eq!(summary.repos, 1);
     assert_eq!(summary.projects, 1); // Just the one we created
@@ -101,7 +101,7 @@ async fn test_export_creates_all_files() {
     let db = setup_test_db().await;
     let temp_dir = TempDir::new().unwrap();
 
-    export_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().export_all(temp_dir.path()).await.unwrap();
 
     // All 6 files should exist
     let expected_files = [
@@ -174,7 +174,7 @@ async fn test_export_includes_relationships() {
     db.notes().create(&note).await.unwrap();
 
     // Export
-    export_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().export_all(temp_dir.path()).await.unwrap();
 
     // Read back the exported note
     let notes: Vec<Note> = read_jsonl(&temp_dir.path().join("notes.jsonl")).unwrap();
@@ -205,7 +205,7 @@ async fn test_export_skills_empty() {
     let db = setup_test_db().await;
     let temp_dir = TempDir::new().unwrap();
 
-    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
 
     // Skills should be 0 in empty database
     assert_eq!(summary.skills, 0);
@@ -266,7 +266,7 @@ Do something useful.
     db.skills().create(&skill).await.unwrap();
 
     // Export
-    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
 
     // Verify summary includes skills
     assert_eq!(summary.skills, 1);
@@ -374,7 +374,7 @@ Test instructions.
     db.skills().create(&skill_no_projects).await.unwrap();
 
     // Export
-    export_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().export_all(temp_dir.path()).await.unwrap();
 
     // Read back the exported skills
     let skills: Vec<Skill> = read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
@@ -436,7 +436,7 @@ origin:
     db.skills().create(&skill).await.unwrap();
 
     // Export
-    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
     assert_eq!(summary.skills, 1);
 
     // Read back the exported skill
@@ -551,7 +551,7 @@ Run scripts/deploy.sh
         .unwrap();
 
     // Export
-    let summary = export_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
     assert_eq!(summary.skills, 1);
     assert_eq!(summary.attachments, 2);
 

@@ -8,12 +8,11 @@ mod common;
 use base64::prelude::*;
 use context_core::write_jsonl;
 use context_core::{
-    HasNotes, HasProjects, HasRepos, HasSkills, HasTaskLists, Note, NoteRepository, Project,
-    ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment, SkillRepository, TaskList,
-    TaskListRepository, TaskListStatus,
+    HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, Note, NoteRepository,
+    Project, ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment, SkillRepository,
+    SyncRepository, TaskList, TaskListRepository, TaskListStatus,
 };
 use context_db::SqliteDatabase;
-use context_sync::{export_all, import_all};
 use tempfile::TempDir;
 
 async fn setup_test_db() -> SqliteDatabase {
@@ -33,7 +32,7 @@ async fn test_import_empty_directory() {
     std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
     std::fs::write(temp_dir.path().join("skills.jsonl"), "").unwrap();
 
-    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
 
     assert_eq!(summary.repos, 0);
     assert_eq!(summary.projects, 0);
@@ -50,7 +49,7 @@ async fn test_import_missing_files() {
     let temp_dir = TempDir::new().unwrap();
 
     // Don't create any files - should handle gracefully
-    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
 
     assert_eq!(summary.total(), 0);
 }
@@ -90,12 +89,12 @@ async fn test_export_then_import() {
     db1.projects().create(&project).await.unwrap();
 
     // Export from db1
-    let export_summary = export_all(&db1, temp_dir.path()).await.unwrap();
+    let export_summary = db1.sync().export_all(temp_dir.path()).await.unwrap();
     assert_eq!(export_summary.repos, 1);
     assert_eq!(export_summary.projects, 1); // Just test project
 
     // Import to db2
-    let import_summary = import_all(&db2, temp_dir.path()).await.unwrap();
+    let import_summary = db2.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(import_summary.repos, 1);
     assert_eq!(import_summary.projects, 1); // Just test project
 
@@ -126,7 +125,7 @@ async fn test_import_updates_existing() {
         tags: vec!["v1".to_string()],
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: None,
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
     };
     db.repos().create(&repo_v1).await.unwrap();
@@ -139,7 +138,7 @@ async fn test_import_updates_existing() {
         tags: vec!["v2".to_string()],                        // Changed
         project_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: None,
+        updated_at: Some("2024-01-02T00:00:00Z".to_string()),
         deleted_at: None,
     };
 
@@ -152,7 +151,7 @@ async fn test_import_updates_existing() {
     std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
 
     // Import should update the existing repo
-    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(summary.repos, 1);
 
     // Verify it was updated, not duplicated
@@ -216,10 +215,10 @@ async fn test_import_preserves_relationships() {
     db1.notes().create(&note).await.unwrap();
 
     // Export from db1
-    export_all(&db1, temp_dir.path()).await.unwrap();
+    db1.sync().export_all(temp_dir.path()).await.unwrap();
 
     // Import to db2
-    import_all(&db2, temp_dir.path()).await.unwrap();
+    db2.sync().import_all(temp_dir.path()).await.unwrap();
 
     // Verify relationships are preserved
     let imported_project = db2.projects().get("proj0001").await.unwrap();
@@ -266,7 +265,7 @@ async fn test_import_preserves_timestamps() {
     assert_eq!(stored_note.updated_at, Some(original_updated.to_string()));
 
     // Export the note
-    export_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().export_all(temp_dir.path()).await.unwrap();
 
     // Modify the note content and update timestamp
     let modified_updated = "2024-01-03T20:45:00Z";
@@ -289,7 +288,7 @@ async fn test_import_preserves_timestamps() {
     write_jsonl(&temp_dir.path().join("notes.jsonl"), &[modified_note]).unwrap();
 
     // Import should preserve the modified timestamp
-    import_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
 
     // Verify timestamps were preserved (not overwritten by trigger)
     let imported_note = db.notes().get("testid01").await.unwrap();
@@ -352,7 +351,7 @@ async fn test_import_preserves_project_timestamps() {
     std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
     std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
 
-    import_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
 
     let imported_project = db.projects().get("proj1234").await.unwrap();
     assert_eq!(
@@ -434,7 +433,7 @@ async fn test_import_preserves_task_list_timestamps() {
     std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
     std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
 
-    import_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
 
     let imported_list = db.task_lists().get("list1234").await.unwrap();
     assert_eq!(
@@ -503,7 +502,7 @@ Do something
     std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
 
     // Import
-    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(summary.skills, 1);
 
     // Verify skill was created
@@ -596,7 +595,7 @@ Updated instructions
     std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
 
     // Import should update
-    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(summary.skills, 1);
 
     // Verify only one skill exists (updated, not duplicated)
@@ -684,7 +683,7 @@ Test instructions
     std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
 
     // Import
-    import_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
 
     // Verify M:N relationships preserved
     let imported_skill = db.skills().get("skill001").await.unwrap();
@@ -707,7 +706,7 @@ async fn test_import_missing_skills_file_handled_gracefully() {
     // No skills.jsonl
 
     // Import should succeed with 0 skills
-    let summary = import_all(&db, temp_dir.path()).await.unwrap();
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(summary.skills, 0);
 }
 
@@ -759,11 +758,11 @@ Should survive export/import
     db1.skills().create(&skill).await.unwrap();
 
     // Export from db1
-    let export_summary = export_all(&db1, temp_dir.path()).await.unwrap();
+    let export_summary = db1.sync().export_all(temp_dir.path()).await.unwrap();
     assert_eq!(export_summary.skills, 1);
 
     // Import to db2
-    let import_summary = import_all(&db2, temp_dir.path()).await.unwrap();
+    let import_summary = db2.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(import_summary.skills, 1);
 
     // Verify data integrity
@@ -836,11 +835,11 @@ origin:
     db1.skills().create(&skill).await.unwrap();
 
     // Export from db1
-    let export_summary = export_all(&db1, temp_dir.path()).await.unwrap();
+    let export_summary = db1.sync().export_all(temp_dir.path()).await.unwrap();
     assert_eq!(export_summary.skills, 1);
 
     // Import to db2
-    let import_summary = import_all(&db2, temp_dir.path()).await.unwrap();
+    let import_summary = db2.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(import_summary.skills, 1);
 
     // Verify ALL fields survived round-trip
@@ -937,7 +936,7 @@ Initial instructions
     db.skills().create(&initial_skill).await.unwrap();
 
     // Export (to create JSONL file)
-    export_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().export_all(temp_dir.path()).await.unwrap();
 
     // Modify the JSONL to simulate external changes to Agent Skills fields
     let skills_file = temp_dir.path().join("skills.jsonl");
@@ -989,7 +988,7 @@ Updated instructions with changes
     .unwrap();
 
     // Import - this should UPSERT (update existing skill)
-    let import_summary = import_all(&db, temp_dir.path()).await.unwrap();
+    let import_summary = db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(import_summary.skills, 1);
 
     // Verify ALL Agent Skills fields were updated via UPSERT
@@ -1129,7 +1128,7 @@ This skill has attachments.
         &attachments,
     )
     .unwrap();
-    import_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
 
     // Verify skill created
     let imported_skill = db.skills().get("sk001234").await.unwrap();
@@ -1151,7 +1150,7 @@ This skill has attachments.
     assert_eq!(ref_att.type_, "reference");
     assert_eq!(ref_att.content_hash, reference_hash);
 
-    // Test 2: Re-import with changed attachment content (should update + invalidate cache)
+    // Test 2: Re-import with changed attachment content (should update)
     let modified_script = b"#!/bin/bash\necho 'modified script'";
     let modified_hash = {
         use sha2::{Digest, Sha256};
@@ -1202,7 +1201,7 @@ This skill has attachments.
         &updated_attachments_export,
     )
     .unwrap();
-    import_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
 
     // Verify attachment updated
     let updated_attachments = db.skills().get_attachments("sk001234").await.unwrap();
@@ -1222,19 +1221,35 @@ This skill has attachments.
         .unwrap();
     assert_eq!(unchanged_ref.content_hash, reference_hash);
 
-    // Test 3: Re-import with attachment removed (should delete it)
-    let minimal_attachments_export = vec![SkillAttachment {
-        id: "at005678".to_string(),
-        skill_id: "sk001234".to_string(),
-        type_: "reference".to_string(),
-        filename: "README.md".to_string(),
-        content: reference_b64.clone(),
-        content_hash: reference_hash.clone(),
-        mime_type: Some("text/markdown".to_string()),
-        created_at: Some("2024-01-01T10:00:00Z".to_string()),
-        updated_at: Some("2024-01-01T10:00:00Z".to_string()),
-        deleted_at: None,
-    }];
+    // Test 3: Re-import with the script attachment tombstoned. The live import
+    // never deletes attachments absent from the file; a removal propagates only
+    // as a tombstone whose updated_at is later than the stored row.
+    let tombstoned_attachments_export = vec![
+        SkillAttachment {
+            id: "at001234".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "script".to_string(),
+            filename: "run.sh".to_string(),
+            content: modified_b64.clone(),
+            content_hash: modified_hash.clone(),
+            mime_type: Some("text/x-shellscript".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-03T10:00:00Z".to_string()),
+            deleted_at: Some("2024-01-03T10:00:00Z".to_string()),
+        },
+        SkillAttachment {
+            id: "at005678".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "reference".to_string(),
+            filename: "README.md".to_string(),
+            content: reference_b64.clone(),
+            content_hash: reference_hash.clone(),
+            mime_type: Some("text/markdown".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            deleted_at: None,
+        },
+    ];
 
     write_jsonl(
         &temp_dir.path().join("skills.jsonl"),
@@ -1243,10 +1258,10 @@ This skill has attachments.
     .unwrap();
     write_jsonl(
         &temp_dir.path().join("skills_attachments.jsonl"),
-        &minimal_attachments_export,
+        &tombstoned_attachments_export,
     )
     .unwrap();
-    import_all(&db, temp_dir.path()).await.unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
 
     // Verify script attachment is soft-deleted (excluded from the live set)
     let live_filenames: Vec<String> = sqlx::query_scalar(

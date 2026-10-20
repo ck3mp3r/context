@@ -12,11 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::{
-    export::ExportError,
-    git::{GitError, GitOps},
-    import::ImportError,
-};
+use crate::git::{GitError, GitOps};
 use context_core::{ExportSummary, ImportSummary, get_sync_dir, read_jsonl};
 
 /// Result of sync initialization.
@@ -34,14 +30,6 @@ pub enum SyncError {
     #[error("Git error: {0}")]
     #[diagnostic(code(c5t::sync::git))]
     Git(#[from] GitError),
-
-    #[error("Export error: {0}")]
-    #[diagnostic(code(c5t::sync::export))]
-    Export(#[from] ExportError),
-
-    #[error("Import error: {0}")]
-    #[diagnostic(code(c5t::sync::import))]
-    Import(#[from] ImportError),
 
     #[error("Database error: {0}")]
     #[diagnostic(code(c5t::sync::database))]

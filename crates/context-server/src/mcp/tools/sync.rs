@@ -347,18 +347,6 @@ fn map_sync_error(err: SyncError) -> McpError {
                 "error": git_err.to_string(),
             })),
         ),
-        SyncError::Export(export_err) => McpError::internal_error(
-            "export_error",
-            Some(serde_json::json!({
-                "error": export_err.to_string(),
-            })),
-        ),
-        SyncError::Import(import_err) => McpError::internal_error(
-            "import_error",
-            Some(serde_json::json!({
-                "error": import_err.to_string(),
-            })),
-        ),
         SyncError::Io(io_err) => McpError::internal_error(
             "io_error",
             Some(serde_json::json!({
