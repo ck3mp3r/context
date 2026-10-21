@@ -139,3 +139,28 @@ pub fn read_jsonl<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Vec<T>, J
 
     Ok(entities)
 }
+
+/// Count the non-empty lines in a JSONL file.
+///
+/// Streams the file one line at a time and deserializes nothing, so memory use
+/// stays constant regardless of file size. Empty and whitespace-only lines are
+/// skipped, matching the line handling of [`JsonlReader`].
+///
+/// # Arguments
+/// * `path` - Path to the input file
+///
+/// # Errors
+/// Returns error if the file cannot be opened or read.
+pub fn count_jsonl_lines(path: &Path) -> Result<usize, JsonlError> {
+    let file = File::open(path)?;
+    let mut count = 0;
+
+    for line_result in BufReader::new(file).lines() {
+        let line = line_result?;
+        if !line.trim().is_empty() {
+            count += 1;
+        }
+    }
+
+    Ok(count)
+}
