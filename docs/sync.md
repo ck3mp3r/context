@@ -328,10 +328,14 @@ Returns:
 - Remote URL
 - `last_synced_at` and local `schema_version`
 - Entity counts in the database and in the sync files
+- Tombstone counts in the database
 
 The sync-file counts are line counts of the JSONL files. The files hold the
 full replica, including tombstones; the database counts exclude tombstones. The
-two counts match while the database holds no tombstones.
+tombstone counts come from the database. Right after an export the counts
+reconcile as `jsonl = db_live + tombstones`: the purge runs before the export,
+so purged tombstones leave both sides together. Between exports the identity
+drifts only by entities created after the last export.
 
 ## Sync Workflow
 

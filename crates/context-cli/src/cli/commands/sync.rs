@@ -350,6 +350,8 @@ struct SyncStatusRow {
     database: String,
     #[tabled(rename = "Sync Files")]
     sync_files: String,
+    #[tabled(rename = "Tombstones")]
+    tombstones: String,
 }
 
 fn format_sync_status(response: &SyncResponse) -> String {
@@ -406,6 +408,7 @@ fn format_sync_status(response: &SyncResponse) -> String {
         // Build table data
         let db = data.get("database");
         let sync = data.get("sync_files");
+        let tombstones = data.get("tombstones");
 
         let rows = vec![
             SyncStatusRow {
@@ -417,6 +420,11 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .unwrap_or("-".to_string()),
                 sync_files: sync
                     .and_then(|s| s.get("repos"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                tombstones: tombstones
+                    .and_then(|t| t.get("repos"))
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),
@@ -433,6 +441,11 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),
+                tombstones: tombstones
+                    .and_then(|t| t.get("projects"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
             },
             SyncStatusRow {
                 item: "Task Lists".to_string(),
@@ -443,6 +456,11 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .unwrap_or("-".to_string()),
                 sync_files: sync
                     .and_then(|s| s.get("task_lists"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                tombstones: tombstones
+                    .and_then(|t| t.get("task_lists"))
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),
@@ -459,6 +477,11 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),
+                tombstones: tombstones
+                    .and_then(|t| t.get("tasks"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
             },
             SyncStatusRow {
                 item: "Notes".to_string(),
@@ -469,6 +492,11 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .unwrap_or("-".to_string()),
                 sync_files: sync
                     .and_then(|s| s.get("notes"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                tombstones: tombstones
+                    .and_then(|t| t.get("notes"))
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),
@@ -485,6 +513,11 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),
+                tombstones: tombstones
+                    .and_then(|t| t.get("skills"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
             },
             SyncStatusRow {
                 item: "Attachments".to_string(),
@@ -498,6 +531,11 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),
+                tombstones: tombstones
+                    .and_then(|t| t.get("attachments"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
             },
             SyncStatusRow {
                 item: "Total".to_string(),
@@ -508,6 +546,11 @@ fn format_sync_status(response: &SyncResponse) -> String {
                     .unwrap_or("-".to_string()),
                 sync_files: sync
                     .and_then(|s| s.get("total"))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.to_string())
+                    .unwrap_or("-".to_string()),
+                tombstones: tombstones
+                    .and_then(|t| t.get("total"))
                     .and_then(|v| v.as_u64())
                     .map(|n| n.to_string())
                     .unwrap_or("-".to_string()),

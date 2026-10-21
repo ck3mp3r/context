@@ -387,3 +387,155 @@ async fn test_export_shows_change_count() {
         output
     );
 }
+
+fn row_for<'a>(output: &'a str, item: &str) -> &'a str {
+    output
+        .lines()
+        .find(|line| line.contains(item))
+        .unwrap_or_else(|| panic!("status output must contain a {item} row, got: {output}"))
+}
+
+fn last_cell(row: &str) -> &str {
+    row.trim()
+        .trim_end_matches('│')
+        .rsplit('│')
+        .next()
+        .unwrap_or("")
+        .trim()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_status_shows_tombstones_column() {
+    let body = serde_json::json!({
+        "message": "Sync status retrieved",
+        "data": {
+            "initialized": true,
+            "remote_url": "git@github.com:test/repo.git",
+            "last_synced_at": "2026-10-18 12:00:00",
+            "schema_version": 20261018000002i64,
+            "git": { "clean": true },
+            "database": {
+                "repos": 1,
+                "projects": 2,
+                "task_lists": 3,
+                "tasks": 4,
+                "notes": 5,
+                "skills": 6,
+                "attachments": 7,
+                "total": 28
+            },
+            "sync_files": {
+                "repos": 21,
+                "projects": 22,
+                "task_lists": 23,
+                "tasks": 24,
+                "notes": 25,
+                "skills": 26,
+                "attachments": 27,
+                "total": 168
+            },
+            "tombstones": {
+                "repos": 11,
+                "projects": 12,
+                "task_lists": 13,
+                "tasks": 14,
+                "notes": 15,
+                "skills": 16,
+                "attachments": 17,
+                "total": 98
+            }
+        }
+    });
+
+    let url = spawn_mock_api(body).await;
+    let api_client = ApiClient::new(Some(url));
+
+    let output = status(&api_client).await.expect("status should succeed");
+
+    assert!(
+        output.contains("Tombstones"),
+        "status output must label the Tombstones column, got: {}",
+        output
+    );
+
+    let expected = [
+        ("Repos", "11", "1", "21"),
+        ("Projects", "12", "2", "22"),
+        ("Task Lists", "13", "3", "23"),
+        ("Tasks", "14", "4", "24"),
+        ("Notes", "15", "5", "25"),
+        ("Skills", "16", "6", "26"),
+        ("Attachments", "17", "7", "27"),
+        ("Total", "98", "28", "168"),
+    ];
+
+    for (item, tombstones, database, sync_files) in expected {
+        let row = row_for(&output, item);
+        assert_eq!(
+            last_cell(row),
+            tombstones,
+            "{item} row must show {tombstones} tombstones, got: {row}"
+        );
+        assert!(
+            row.contains(database) && row.contains(sync_files),
+            "{item} row must keep database {database} and sync files {sync_files}, got: {row}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_status_without_tombstones_renders_dash() {
+    let body = serde_json::json!({
+        "message": "Sync status retrieved",
+        "data": {
+            "initialized": true,
+            "remote_url": "git@github.com:test/repo.git",
+            "last_synced_at": "2026-10-18 12:00:00",
+            "schema_version": 20261018000002i64,
+            "git": { "clean": true },
+            "database": {
+                "repos": 0,
+                "projects": 1,
+                "task_lists": 0,
+                "tasks": 0,
+                "notes": 0,
+                "skills": 0,
+                "attachments": 0,
+                "total": 1
+            },
+            "sync_files": {
+                "repos": 0,
+                "projects": 1,
+                "task_lists": 0,
+                "tasks": 0,
+                "notes": 0,
+                "skills": 0,
+                "attachments": 0,
+                "total": 1
+            }
+        }
+    });
+
+    let url = spawn_mock_api(body).await;
+    let api_client = ApiClient::new(Some(url));
+
+    let output = status(&api_client).await.expect("status should succeed");
+
+    for item in [
+        "Repos",
+        "Projects",
+        "Task Lists",
+        "Tasks",
+        "Notes",
+        "Skills",
+        "Attachments",
+        "Total",
+    ] {
+        let row = row_for(&output, item);
+        assert_eq!(
+            last_cell(row),
+            "-",
+            "{item} row must render '-' when tombstones are absent, got: {row}"
+        );
+    }
+}
