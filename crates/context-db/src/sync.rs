@@ -681,12 +681,15 @@ async fn current_schema_version(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
     Ok(version.unwrap_or(0))
 }
 
-/// Read the incremental export cutoff from `sync_state`.
+/// Read the previous export cutoff from `sync_state`.
+///
+/// The cutoff no longer filters the exported files; it bounds the change counts
+/// in the returned `ExportSummary`.
 ///
 /// Returns `None` when the table is missing (unmigrated database), when no
 /// export has run yet, or when the stored schema version differs from the
 /// current one. A schema version change resets the cutoff so the next export
-/// is a full export.
+/// reports every row as changed.
 async fn read_sync_cutoff(pool: &SqlitePool) -> Result<Option<String>, sqlx::Error> {
     let table_exists: Option<String> = sqlx::query_scalar(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'",
@@ -738,9 +741,8 @@ async fn write_sync_cutoff(pool: &SqlitePool, timestamp: &str) -> Result<(), sql
 
 /// Stream every row produced by `sql` to `path` as JSONL, one line per row.
 ///
-/// `cutoff` is bound to the single `?` placeholder in `sql`. Pass an empty
-/// string for a full export: every non-NULL timestamp sorts after `""`, and
-/// the `IS NULL` branch of each predicate keeps rows without a timestamp.
+/// `sql` takes no bind parameters: the export writes the full table on every
+/// run, so the file is always a complete replica of the database.
 ///
 /// `map_row` converts a row into the entity that is serialized. Rows are
 /// fetched one at a time, so memory stays flat regardless of table size.
@@ -748,7 +750,6 @@ async fn export_query<T, F>(
     pool: &SqlitePool,
     path: &Path,
     sql: &'static str,
-    cutoff: &str,
     mut map_row: F,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>>
 where
@@ -756,7 +757,7 @@ where
     F: FnMut(&sqlx::sqlite::SqliteRow) -> Result<T, Box<dyn std::error::Error + Send + Sync>>,
 {
     let mut writer = JsonlWriter::create(path)?;
-    let mut rows = sqlx::query(sql).bind(cutoff).fetch(pool);
+    let mut rows = sqlx::query(sql).fetch(pool);
     while let Some(row) = rows.try_next().await? {
         let entity = map_row(&row)?;
         writer.write(&entity)?;
@@ -764,15 +765,30 @@ where
     Ok(writer.finish()?)
 }
 
+/// Count the rows of `sql` that changed after `cutoff`.
+///
+/// `sql` binds `cutoff` to its single `?` placeholder. An empty cutoff counts
+/// every row with a non-NULL timestamp, which matches a full export.
+async fn count_changed(
+    pool: &SqlitePool,
+    sql: &'static str,
+    cutoff: &str,
+) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    let count: i64 = sqlx::query_scalar(sql).bind(cutoff).fetch_one(pool).await?;
+    Ok(usize::try_from(count).unwrap_or(0))
+}
+
 /// Export database entities to JSONL files using a SQLite pool.
 ///
-/// Export is incremental: when `sync_state.last_synced_at` is set, only rows
-/// whose timestamp is greater than that cutoff are written. A NULL cutoff (first
-/// sync, or a schema version change) exports every row.
+/// Every export writes every row of every table, so each JSONL file is a full
+/// replica of the database. The previous cutoff from `sync_state.last_synced_at`
+/// does not filter the files; it only drives the change counts in the returned
+/// `ExportSummary`. A NULL cutoff (first sync, or a schema version change) counts
+/// every row.
 ///
-/// Export reads every matching row, including soft-deleted tombstones, so that
-/// deletions propagate to other machines. Each entity's `deleted_at` value is
-/// written to the JSONL output.
+/// Export reads every row, including soft-deleted tombstones, so that deletions
+/// propagate to other machines. Each entity's `deleted_at` value is written to
+/// the JSONL output.
 async fn export_all_from_pool(
     pool: &SqlitePool,
     output_dir: &Path,
@@ -784,19 +800,17 @@ async fn export_all_from_pool(
     use std::str::FromStr;
 
     // An empty cutoff matches every non-NULL timestamp, so a full export and an
-    // incremental export share one SQL shape.
+    // incremental export share one COUNT shape.
     let cutoff = read_sync_cutoff(pool).await?.unwrap_or_default();
 
     // Export repos, including tombstones.
-    let repos = export_query(
+    export_query(
         pool,
         &output_dir.join("repos.jsonl"),
         "SELECT r.id, r.remote, r.path, r.tags, r.created_at, r.updated_at, r.deleted_at,
                 COALESCE((SELECT json_group_array(pr.project_id) FROM project_repo pr WHERE pr.repo_id = r.id), '[]') AS project_ids
          FROM repo r
-         WHERE r.updated_at IS NULL OR r.updated_at > ?
          ORDER BY r.id",
-        &cutoff,
         |row| {
             Ok(Repo {
                 id: row.get("id"),
@@ -813,7 +827,7 @@ async fn export_all_from_pool(
     .await?;
 
     // Export projects, including tombstones.
-    let projects = export_query(
+    export_query(
         pool,
         &output_dir.join("projects.jsonl"),
         "SELECT p.id, p.title, p.description, p.tags, p.external_refs, p.created_at, p.updated_at, p.deleted_at,
@@ -821,9 +835,7 @@ async fn export_all_from_pool(
                 COALESCE((SELECT json_group_array(tl.id) FROM task_list tl WHERE tl.project_id = p.id), '[]') AS task_list_ids,
                 COALESCE((SELECT json_group_array(pn.note_id) FROM project_note pn WHERE pn.project_id = p.id), '[]') AS note_ids
          FROM project p
-         WHERE p.updated_at IS NULL OR p.updated_at > ?
          ORDER BY p.id",
-        &cutoff,
         |row| {
             Ok(Project {
                 id: row.get("id"),
@@ -843,15 +855,13 @@ async fn export_all_from_pool(
     .await?;
 
     // Export task lists, including tombstones.
-    let task_lists = export_query(
+    export_query(
         pool,
         &output_dir.join("lists.jsonl"),
         "SELECT tl.id, tl.title, tl.description, tl.notes, tl.tags, tl.external_refs, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at, tl.deleted_at,
                 COALESCE((SELECT json_group_array(tlr.repo_id) FROM task_list_repo tlr WHERE tlr.task_list_id = tl.id), '[]') AS repo_ids
          FROM task_list tl
-         WHERE tl.updated_at IS NULL OR tl.updated_at > ?
          ORDER BY tl.id",
-        &cutoff,
         |row| {
             Ok(TaskList {
                 id: row.get("id"),
@@ -874,14 +884,12 @@ async fn export_all_from_pool(
     .await?;
 
     // Export tasks, including tombstones.
-    let tasks = export_query(
+    export_query(
         pool,
         &output_dir.join("tasks.jsonl"),
         "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at, deleted_at
          FROM task
-         WHERE updated_at IS NULL OR updated_at > ?
          ORDER BY id",
-        &cutoff,
         |row| {
             Ok(Task {
                 id: row.get("id"),
@@ -904,15 +912,13 @@ async fn export_all_from_pool(
 
     // Export task transitions. Transitions of tombstoned tasks are excluded so
     // the export cannot reference a task that is not exported as live.
-    let transitions = export_query(
+    export_query(
         pool,
         &output_dir.join("task_transition_log.jsonl"),
         "SELECT id, task_id, status, transitioned_at
          FROM task_transition_log
          WHERE task_id NOT IN (SELECT id FROM task WHERE deleted_at IS NOT NULL)
-           AND (transitioned_at IS NULL OR transitioned_at > ?)
          ORDER BY transitioned_at DESC",
-        &cutoff,
         |row| {
             let status_str: String = row.get("status");
             let status =
@@ -928,16 +934,14 @@ async fn export_all_from_pool(
     .await?;
 
     // Export notes, including tombstones.
-    let notes = export_query(
+    export_query(
         pool,
         &output_dir.join("notes.jsonl"),
         "SELECT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.deleted_at,
                 COALESCE((SELECT json_group_array(pn.project_id) FROM project_note pn WHERE pn.note_id = n.id), '[]') AS project_ids,
                 COALESCE((SELECT json_group_array(nr.repo_id) FROM note_repo nr WHERE nr.note_id = n.id), '[]') AS repo_ids
          FROM note n
-         WHERE n.updated_at IS NULL OR n.updated_at > ?
          ORDER BY n.id",
-        &cutoff,
         |row| {
             Ok(Note {
                 id: row.get("id"),
@@ -963,19 +967,15 @@ async fn export_all_from_pool(
     let mut attachment_rows = sqlx::query(
         "SELECT id, skill_id, type, filename, content, content_hash, mime_type, created_at, updated_at, deleted_at
          FROM skill_attachment
-         WHERE updated_at IS NULL OR updated_at > ?
          ORDER BY skill_id, id",
     )
-    .bind(&cutoff)
     .fetch(pool);
     let mut skill_rows = sqlx::query(
         "SELECT s.id, s.name, s.description, s.content, s.tags, s.created_at, s.updated_at, s.deleted_at,
                 COALESCE((SELECT json_group_array(ps.project_id) FROM project_skill ps WHERE ps.skill_id = s.id), '[]') AS project_ids
          FROM skill s
-         WHERE s.updated_at IS NULL OR s.updated_at > ?
          ORDER BY s.id",
     )
-    .bind(&cutoff)
     .fetch(pool);
 
     let mut skill_writer = JsonlWriter::create(&output_dir.join("skills.jsonl"))?;
@@ -1056,8 +1056,61 @@ async fn export_all_from_pool(
         next_attachment = attachment_rows.try_next().await?;
     }
 
-    let skills = skill_writer.finish()?;
-    let attachments = attachment_writer.finish()?;
+    skill_writer.finish()?;
+    attachment_writer.finish()?;
+
+    // The files hold every row; the summary reports only the rows that changed
+    // after the previous cutoff.
+    let repos = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM repo WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let projects = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM project WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let task_lists = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM task_list WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let tasks = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM task WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let transitions = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM task_transition_log
+         WHERE transitioned_at > ?
+           AND task_id NOT IN (SELECT id FROM task WHERE deleted_at IS NOT NULL)",
+        &cutoff,
+    )
+    .await?;
+    let notes = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM note WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let skills = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM skill WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let attachments = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM skill_attachment WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
 
     Ok(ExportSummary {
         repos,

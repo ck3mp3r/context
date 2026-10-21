@@ -720,3 +720,98 @@ Updated instructions for the skill.
         "CRITICAL: updated_at must be preserved during import!"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_second_export_keeps_full_replica() {
+    use context_core::{Task, TaskRepository, TaskStatus};
+
+    let db1 = setup_test_db().await;
+    let db2 = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    let project = Project {
+        id: "projfull".to_string(),
+        title: "Full Replica Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db1.projects().create(&project).await.unwrap();
+
+    let task_list = TaskList {
+        id: "listfull".to_string(),
+        title: "Full Replica List".to_string(),
+        description: None,
+        notes: None,
+        project_id: "projfull".to_string(),
+        tags: vec![],
+        status: TaskListStatus::Active,
+        external_refs: vec![],
+        repo_ids: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        archived_at: None,
+        deleted_at: None,
+    };
+    db1.task_lists().create(&task_list).await.unwrap();
+
+    let first_task = Task {
+        id: "taskfull".to_string(),
+        list_id: "listfull".to_string(),
+        parent_id: None,
+        title: "First Task".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: None,
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db1.tasks().create(&first_task).await.unwrap();
+
+    db1.sync().export_all(temp_dir.path()).await.unwrap();
+
+    // SyncManager advances the cutoff after a successful export. The next
+    // export must still write the unchanged project, list, and first task.
+    db1.sync()
+        .set_last_synced_at(&context_core::current_timestamp())
+        .await
+        .unwrap();
+
+    let second_task = Task {
+        id: "taskful2".to_string(),
+        list_id: "listfull".to_string(),
+        parent_id: None,
+        title: "Second Task".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: None,
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2024-01-02T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-02T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db1.tasks().create(&second_task).await.unwrap();
+
+    db1.sync().export_all(temp_dir.path()).await.unwrap();
+
+    db2.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let imported_project = db2.projects().get("projfull").await.unwrap();
+    assert_eq!(imported_project.title, "Full Replica Project");
+
+    let imported_first = db2.tasks().get("taskfull").await.unwrap();
+    assert_eq!(imported_first.title, "First Task");
+
+    let imported_second = db2.tasks().get("taskful2").await.unwrap();
+    assert_eq!(imported_second.title, "Second Task");
+}

@@ -578,20 +578,34 @@ async fn test_incremental_export_filters_by_updated_at() {
         .await
         .unwrap();
 
+    // The cutoff equals the older project's updated_at, so that row is not a
+    // change. It must still be exported: the file is a full replica.
     db.sync()
-        .set_last_synced_at("2024-03-01 00:00:00")
+        .set_last_synced_at("2024-01-01 00:00:00")
         .await
         .unwrap();
 
-    db.sync().export_all(temp_dir.path()).await.unwrap();
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
 
     let projects: Vec<Project> = read_jsonl(&temp_dir.path().join("projects.jsonl")).unwrap();
     assert_eq!(
         projects.len(),
-        1,
-        "only the project newer than the cutoff should be exported"
+        2,
+        "every project must be exported regardless of the cutoff"
     );
-    assert_eq!(projects[0].id, "new00001");
+    assert!(
+        projects.iter().any(|project| project.id == "old00001"),
+        "a project whose updated_at equals the cutoff must still be exported"
+    );
+    assert!(
+        projects.iter().any(|project| project.id == "new00001"),
+        "a project newer than the cutoff must be exported"
+    );
+
+    assert_eq!(
+        summary.projects, 1,
+        "only the project newer than the cutoff counts as changed"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -690,11 +704,24 @@ async fn test_incremental_export_empty_on_no_changes() {
         .await
         .unwrap();
 
-    db.sync().export_all(temp_dir.path()).await.unwrap();
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
+    assert_eq!(
+        summary.total(),
+        0,
+        "a no-change export must report zero changed rows"
+    );
+
+    // The files are a full replica, so the unchanged project is still there.
+    let projects: Vec<Project> = read_jsonl(&temp_dir.path().join("projects.jsonl")).unwrap();
+    assert_eq!(
+        projects.len(),
+        1,
+        "a no-change export must keep the full dataset in projects.jsonl"
+    );
+    assert_eq!(projects[0].id, "noch0001");
 
     for file in [
         "repos.jsonl",
-        "projects.jsonl",
         "lists.jsonl",
         "tasks.jsonl",
         "task_transition_log.jsonl",
@@ -705,7 +732,7 @@ async fn test_incremental_export_empty_on_no_changes() {
         let content = std::fs::read_to_string(temp_dir.path().join(file)).unwrap();
         assert!(
             content.trim().is_empty(),
-            "{} should be empty on a no-change export, got: {}",
+            "{} has no rows in this dataset, got: {}",
             file,
             content
         );

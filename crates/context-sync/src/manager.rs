@@ -223,8 +223,9 @@ impl<G: GitOps> SyncManager<G> {
             return Err(SyncError::NotInitialized);
         }
 
-        // Capture the cutoff before the export query runs. Any row written
-        // after this instant is picked up by the next export.
+        // Capture the cutoff before the export query runs. The export writes
+        // every row regardless of this cutoff; the cutoff only drives the
+        // changed-row counts in the returned summary.
         let cutoff = context_core::current_timestamp();
 
         // Purge tombstones older than the retention period before the export
