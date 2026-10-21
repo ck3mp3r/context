@@ -60,11 +60,41 @@ mod skill_restore_test;
 #[path = "../test/skill.rs"]
 mod skill_test;
 #[cfg(test)]
+#[path = "../test/sync_export_cutoff.rs"]
+mod sync_export_cutoff_test;
+#[cfg(test)]
+#[path = "../test/sync_export_migration.rs"]
+mod sync_export_migration_test;
+#[cfg(test)]
+#[path = "../test/sync_export_skills.rs"]
+mod sync_export_skills_test;
+#[cfg(test)]
 #[path = "../test/sync_export.rs"]
 mod sync_export_test;
 #[cfg(test)]
+#[path = "../test/sync_export_transitions.rs"]
+mod sync_export_transitions_test;
+#[cfg(test)]
+#[path = "../test/sync_import_attachments.rs"]
+mod sync_import_attachments_test;
+#[cfg(test)]
+#[path = "../test/sync_import_skills.rs"]
+mod sync_import_skills_test;
+#[cfg(test)]
 #[path = "../test/sync_import.rs"]
 mod sync_import_test;
+#[cfg(test)]
+#[path = "../test/sync_import_timestamps.rs"]
+mod sync_import_timestamps_test;
+#[cfg(test)]
+#[path = "../test/sync_import_transitions.rs"]
+mod sync_import_transitions_test;
+#[cfg(test)]
+#[path = "../test/sync_import_upsert.rs"]
+mod sync_import_upsert_test;
+#[cfg(test)]
+#[path = "../test/sync_roundtrip_skills.rs"]
+mod sync_roundtrip_skills_test;
 #[cfg(test)]
 #[path = "../test/sync_roundtrip.rs"]
 mod sync_roundtrip_test;
