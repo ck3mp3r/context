@@ -334,23 +334,17 @@ async fn test_status_includes_last_synced_at() {
     let output = status(&api_client).await.expect("status should succeed");
 
     assert!(
-        output.contains("last_synced_at"),
-        "status output must label last_synced_at, got: {}",
+        output
+            .lines()
+            .any(|line| line == "last_synced_at: 2026-10-18 12:00:00"),
+        "status output must show the last sync timestamp line, got: {}",
         output
     );
     assert!(
-        output.contains("2026-10-18 12:00:00"),
-        "status output must show the last sync timestamp, got: {}",
         output
-    );
-    assert!(
-        output.contains("schema_version"),
-        "status output must label schema_version, got: {}",
-        output
-    );
-    assert!(
-        output.contains("20261018000002"),
-        "status output must show the local schema version, got: {}",
+            .lines()
+            .any(|line| line == "schema_version: 20261018000002"),
+        "status output must show the local schema version line, got: {}",
         output
     );
 }
@@ -402,6 +396,10 @@ fn last_cell(row: &str) -> &str {
         .next()
         .unwrap_or("")
         .trim()
+}
+
+fn cell(row: &str, index: usize) -> &str {
+    row.split('│').nth(index).unwrap_or("").trim()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -472,13 +470,19 @@ async fn test_status_shows_tombstones_column() {
     for (item, tombstones, database, sync_files) in expected {
         let row = row_for(&output, item);
         assert_eq!(
+            cell(row, 2),
+            database,
+            "{item} row must show {database} database entities, got: {row}"
+        );
+        assert_eq!(
+            cell(row, 3),
+            sync_files,
+            "{item} row must show {sync_files} sync files, got: {row}"
+        );
+        assert_eq!(
             last_cell(row),
             tombstones,
             "{item} row must show {tombstones} tombstones, got: {row}"
-        );
-        assert!(
-            row.contains(database) && row.contains(sync_files),
-            "{item} row must keep database {database} and sync files {sync_files}, got: {row}"
         );
     }
 }
@@ -521,17 +525,29 @@ async fn test_status_without_tombstones_renders_dash() {
 
     let output = status(&api_client).await.expect("status should succeed");
 
-    for item in [
-        "Repos",
-        "Projects",
-        "Task Lists",
-        "Tasks",
-        "Notes",
-        "Skills",
-        "Attachments",
-        "Total",
-    ] {
+    let expected = [
+        ("Repos", "0", "0"),
+        ("Projects", "1", "1"),
+        ("Task Lists", "0", "0"),
+        ("Tasks", "0", "0"),
+        ("Notes", "0", "0"),
+        ("Skills", "0", "0"),
+        ("Attachments", "0", "0"),
+        ("Total", "1", "1"),
+    ];
+
+    for (item, database, sync_files) in expected {
         let row = row_for(&output, item);
+        assert_eq!(
+            cell(row, 2),
+            database,
+            "{item} row must show {database} database entities, got: {row}"
+        );
+        assert_eq!(
+            cell(row, 3),
+            sync_files,
+            "{item} row must show {sync_files} sync files, got: {row}"
+        );
         assert_eq!(
             last_cell(row),
             "-",
