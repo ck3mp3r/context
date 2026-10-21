@@ -10,7 +10,7 @@
 
 use crate::mcp::tools::map_db_error;
 use context_core::Database;
-use context_sync::{GitOps, RealGit, SyncError, SyncManager};
+use context_sync::{EntityCounts, GitOps, RealGit, SyncError, SyncManager, SyncStatus};
 use rmcp::{
     ErrorData as McpError,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -272,60 +272,7 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
                         "message": "Sync not initialized. Run 'init' operation first.",
                     })
                 } else {
-                    // These should always be Some when initialized=true, but handle gracefully
-                    match (status.git_status.as_ref(), status.db_counts.as_ref()) {
-                        (Some(git_status), Some(db_counts)) => {
-                            serde_json::json!({
-                                "initialized": true,
-                                "remote_url": status.remote_url,
-                                "last_synced_at": status.last_synced_at,
-                                "schema_version": status.schema_version,
-                                "git": {
-                                    "clean": git_status.clean,
-                                    "status": if git_status.clean { "No changes" } else { &git_status.status_output },
-                                },
-                                "database": {
-                                    "repos": db_counts.repos,
-                                    "projects": db_counts.projects,
-                                    "task_lists": db_counts.task_lists,
-                                    "tasks": db_counts.tasks,
-                                    "notes": db_counts.notes,
-                                    "total": db_counts.total(),
-                                },
-                                "sync_files": status.jsonl_counts.as_ref().map(|counts| {
-                                    serde_json::json!({
-                                        "repos": counts.repos,
-                                        "projects": counts.projects,
-                                        "task_lists": counts.task_lists,
-                                        "tasks": counts.tasks,
-                                        "notes": counts.notes,
-                                        "total": counts.total(),
-                                    })
-                                }),
-                                "tombstones": status.tombstone_counts.as_ref().map(|counts| {
-                                    serde_json::json!({
-                                        "repos": counts.repos,
-                                        "projects": counts.projects,
-                                        "task_lists": counts.task_lists,
-                                        "tasks": counts.tasks,
-                                        "notes": counts.notes,
-                                        "skills": counts.skills,
-                                        "attachments": counts.attachments,
-                                        "total": counts.total(),
-                                    })
-                                }),
-                            })
-                        }
-                        _ => {
-                            // This should never happen, but return safe error instead of panic
-                            return Err(McpError::internal_error(
-                                "invalid_status",
-                                Some(serde_json::json!({
-                                    "error": "Status structure inconsistent (initialized but missing data)",
-                                })),
-                            ));
-                        }
-                    }
+                    status_json(&status)?
                 }
             }
         };
@@ -387,3 +334,50 @@ fn map_sync_error(err: SyncError) -> McpError {
         ),
     }
 }
+
+/// Build the count object shared by the database, sync_files, and tombstones keys.
+fn counts_object(counts: &EntityCounts) -> serde_json::Value {
+    serde_json::json!({
+        "repos": counts.repos,
+        "projects": counts.projects,
+        "task_lists": counts.task_lists,
+        "tasks": counts.tasks,
+        "notes": counts.notes,
+        "skills": counts.skills,
+        "attachments": counts.attachments,
+        "total": counts.total(),
+    })
+}
+
+/// Build the status JSON for an initialized sync directory.
+fn status_json(status: &SyncStatus) -> Result<serde_json::Value, McpError> {
+    let (Some(git_status), Some(db_counts)) =
+        (status.git_status.as_ref(), status.db_counts.as_ref())
+    else {
+        // This should never happen, but return safe error instead of panic
+        return Err(McpError::internal_error(
+            "invalid_status",
+            Some(serde_json::json!({
+                "error": "Status structure inconsistent (initialized but missing data)",
+            })),
+        ));
+    };
+
+    Ok(serde_json::json!({
+        "initialized": true,
+        "remote_url": status.remote_url,
+        "last_synced_at": status.last_synced_at,
+        "schema_version": status.schema_version,
+        "git": {
+            "clean": git_status.clean,
+            "status": if git_status.clean { "No changes" } else { &git_status.status_output },
+        },
+        "database": counts_object(db_counts),
+        "sync_files": status.jsonl_counts.as_ref().map(counts_object),
+        "tombstones": status.tombstone_counts.as_ref().map(counts_object),
+    }))
+}
+
+#[cfg(test)]
+#[path = "../../../test/mcp/tools/sync.rs"]
+mod sync_test;
