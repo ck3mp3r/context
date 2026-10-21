@@ -318,6 +318,17 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         Ok(count as usize)
     }
 
+    async fn count_deleted(&self) -> DbResult<usize> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM skill WHERE deleted_at IS NOT NULL")
+                .fetch_one(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, skill: &Skill) -> DbResult<()> {
         // Validate skill
         validate_skill(skill)?;
@@ -578,6 +589,18 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 .map_err(|e| DbError::Database {
                     message: e.to_string(),
                 })?;
+        Ok(count as usize)
+    }
+
+    async fn count_deleted_attachments(&self) -> DbResult<usize> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM skill_attachment WHERE deleted_at IS NOT NULL",
+        )
+        .fetch_one(self.pool)
+        .await
+        .map_err(|e| DbError::Database {
+            message: e.to_string(),
+        })?;
         Ok(count as usize)
     }
 

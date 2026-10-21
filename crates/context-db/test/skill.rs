@@ -876,6 +876,109 @@ async fn list_excludes_soft_deleted() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn count_deleted_counts_tombstones_only() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    skills
+        .create(&make_skill("cntlive1", "cnt-live-skill"))
+        .await
+        .expect("Create should succeed");
+    skills
+        .create(&make_skill("cntdead1", "cnt-dead-skill"))
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(
+        skills
+            .count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        0,
+        "count_deleted should be zero without tombstones"
+    );
+
+    skills
+        .delete("cntdead1")
+        .await
+        .expect("Delete should succeed");
+
+    assert_eq!(
+        skills
+            .count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        1,
+        "count_deleted should count the tombstone"
+    );
+    assert_eq!(
+        skills.count().await.expect("Count should succeed"),
+        1,
+        "count should exclude the tombstone"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn count_deleted_attachments_counts_tombstones_only() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    skills
+        .create(&make_skill("sklcnt01", "attachment-count-skill"))
+        .await
+        .expect("Create skill should succeed");
+
+    for (id, filename) in [("attcnt01", "live.sh"), ("attcnt02", "dead.sh")] {
+        skills
+            .create_attachment(&SkillAttachment {
+                id: id.to_string(),
+                skill_id: "sklcnt01".to_string(),
+                type_: "script".to_string(),
+                filename: filename.to_string(),
+                content: "ZWNobyBoaQ==".to_string(),
+                content_hash: format!("hash-{id}"),
+                mime_type: Some("text/x-shellscript".to_string()),
+                created_at: Some("2025-01-01 00:00:00".to_string()),
+                updated_at: Some("2025-01-01 00:00:00".to_string()),
+                deleted_at: None,
+            })
+            .await
+            .expect("Create attachment should succeed");
+    }
+
+    assert_eq!(
+        skills
+            .count_deleted_attachments()
+            .await
+            .expect("Count deleted attachments should succeed"),
+        0,
+        "count_deleted_attachments should be zero without tombstones"
+    );
+
+    skills
+        .delete_attachment("attcnt02")
+        .await
+        .expect("Delete attachment should succeed");
+
+    assert_eq!(
+        skills
+            .count_deleted_attachments()
+            .await
+            .expect("Count deleted attachments should succeed"),
+        1,
+        "count_deleted_attachments should count the tombstone"
+    );
+    assert_eq!(
+        skills
+            .count_attachments()
+            .await
+            .expect("Count attachments should succeed"),
+        1,
+        "count_attachments should exclude the tombstone"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn get_attachments_excludes_soft_deleted() {
     let db = setup_db().await;
     let skills = db.skills();
