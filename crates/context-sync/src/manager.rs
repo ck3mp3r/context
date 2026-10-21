@@ -391,6 +391,7 @@ impl<G: GitOps> SyncManager<G> {
                 git_status: None,
                 db_counts: None,
                 jsonl_counts: None,
+                tombstone_counts: None,
                 last_synced_at,
                 schema_version,
             });
@@ -420,6 +421,17 @@ impl<G: GitOps> SyncManager<G> {
             attachments: db.skills().count_attachments().await?,
         };
 
+        // Count tombstones in database
+        let tombstone_counts = EntityCounts {
+            repos: db.repos().count_deleted().await?,
+            projects: db.projects().count_deleted().await?,
+            task_lists: db.task_lists().count_deleted().await?,
+            tasks: db.tasks().count_deleted().await?,
+            notes: db.notes().count_deleted().await?,
+            skills: db.skills().count_deleted().await?,
+            attachments: db.skills().count_deleted_attachments().await?,
+        };
+
         // Count entities in JSONL files
         let jsonl_counts = self.count_jsonl_entities().await;
 
@@ -432,6 +444,7 @@ impl<G: GitOps> SyncManager<G> {
             }),
             db_counts: Some(db_counts),
             jsonl_counts,
+            tombstone_counts: Some(tombstone_counts),
             last_synced_at,
             schema_version,
         })
@@ -507,6 +520,8 @@ pub struct SyncStatus {
     pub git_status: Option<GitStatus>,
     pub db_counts: Option<EntityCounts>,
     pub jsonl_counts: Option<EntityCounts>,
+    /// Counts of soft-deleted rows per entity type.
+    pub tombstone_counts: Option<EntityCounts>,
     /// Timestamp of the last successful incremental export, if any.
     pub last_synced_at: Option<String>,
     /// Local database schema version.
