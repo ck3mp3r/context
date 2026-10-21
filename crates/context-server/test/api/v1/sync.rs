@@ -92,6 +92,11 @@ async fn test_sync_status_endpoint() {
         "status must include a positive schema_version, got: {}",
         data
     );
+    assert!(
+        data.get("tombstones").is_none(),
+        "not-initialized status must not include tombstones, got: {}",
+        data
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -123,6 +128,95 @@ async fn test_sync_status_endpoint_initialized() {
     assert_eq!(data["initialized"], true);
     assert!(data.get("last_synced_at").is_some());
     assert!(data["schema_version"].as_i64().unwrap_or(0) > 0);
+
+    let tombstones = &data["tombstones"];
+    for key in [
+        "repos",
+        "projects",
+        "task_lists",
+        "tasks",
+        "notes",
+        "skills",
+        "attachments",
+        "total",
+    ] {
+        assert!(
+            tombstones.get(key).is_some(),
+            "tombstones must include {key}, got: {tombstones}"
+        );
+    }
+
+    assert!(
+        data["database"].get("total").is_some(),
+        "database object must keep its keys, got: {}",
+        data["database"]
+    );
+    assert!(
+        data["sync_files"].get("total").is_some(),
+        "sync_files object must keep its keys, got: {}",
+        data["sync_files"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_sync_status_endpoint_reports_tombstones() {
+    let db = setup_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+
+    db.projects()
+        .create(&Project {
+            id: "proj0002".to_string(),
+            title: "Deleted Project".to_string(),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: Some("2024-01-01 00:00:00".to_string()),
+            updated_at: Some("2024-01-01 00:00:00".to_string()),
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
+    db.projects().delete("proj0002").await.unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .returning(|_, _| Err(GitError::GitNotFound));
+    mock_git
+        .expect_status_porcelain()
+        .returning(|_| Ok(mock_output(0, "", "")));
+
+    let state = AppState::new(
+        db,
+        SyncManager::with_sync_dir(mock_git, sync_dir),
+        crate::api::notifier::ChangeNotifier::new(),
+        temp_dir.path().join("skills"),
+    );
+    let app = routes::create_router(state, false);
+
+    let body = get_status(&app).await;
+    let data = &body["data"];
+
+    assert_eq!(
+        data["tombstones"]["projects"], 1,
+        "one soft-deleted project must be counted, got: {}",
+        data["tombstones"]
+    );
+    assert_eq!(
+        data["tombstones"]["total"], 1,
+        "tombstone total must count only the soft-deleted project, got: {}",
+        data["tombstones"]
+    );
+    assert_eq!(
+        data["database"]["projects"], 0,
+        "live project count must exclude the tombstone, got: {}",
+        data["database"]
+    );
 }
 
 // =============================================================================

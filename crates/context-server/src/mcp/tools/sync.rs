@@ -302,6 +302,18 @@ impl<D: Database + 'static, G: GitOps + Send + Sync + 'static> SyncTools<D, G> {
                                         "total": counts.total(),
                                     })
                                 }),
+                                "tombstones": status.tombstone_counts.as_ref().map(|counts| {
+                                    serde_json::json!({
+                                        "repos": counts.repos,
+                                        "projects": counts.projects,
+                                        "task_lists": counts.task_lists,
+                                        "tasks": counts.tasks,
+                                        "notes": counts.notes,
+                                        "skills": counts.skills,
+                                        "attachments": counts.attachments,
+                                        "total": counts.total(),
+                                    })
+                                }),
                             })
                         }
                         _ => {
