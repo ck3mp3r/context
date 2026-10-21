@@ -58,6 +58,33 @@ async fn test_export_creates_all_jsonl_files() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_export_empty_database_returns_zero_summary() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
+
+    assert_eq!(summary.repos, 0, "empty database must export 0 repos");
+    assert_eq!(summary.projects, 0, "empty database must export 0 projects");
+    assert_eq!(
+        summary.task_lists, 0,
+        "empty database must export 0 task lists"
+    );
+    assert_eq!(summary.tasks, 0, "empty database must export 0 tasks");
+    assert_eq!(
+        summary.transitions, 0,
+        "empty database must export 0 transitions"
+    );
+    assert_eq!(summary.notes, 0, "empty database must export 0 notes");
+    assert_eq!(summary.skills, 0, "empty database must export 0 skills");
+    assert_eq!(
+        summary.attachments, 0,
+        "empty database must export 0 attachments"
+    );
+    assert_eq!(summary.total(), 0, "empty database must export 0 entities");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_skills_file_exists_after_export() {
     let db = setup_test_db().await;
     let temp_dir = TempDir::new().unwrap();
@@ -751,4 +778,324 @@ fn test_read_batch_reads_in_chunks() {
     assert_eq!(second.len(), 2);
     assert_eq!(third.len(), 1);
     assert!(fourth.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_skills_preserves_relationships() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create multiple projects
+    let project1 = Project {
+        id: "proj0001".to_string(),
+        title: "Project 1".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db.projects().create(&project1).await.unwrap();
+
+    let project2 = Project {
+        id: "proj0002".to_string(),
+        title: "Project 2".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db.projects().create(&project2).await.unwrap();
+
+    // Create skill linked to multiple projects
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "multi-project-skill".to_string(),
+        description: "Test description".to_string(),
+        content: r#"---
+name: multi-project-skill
+description: Test description
+---
+
+# Multi-Project Skill
+
+Test instructions.
+"#
+        .to_string(),
+        tags: vec![],
+        project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db.skills().create(&skill).await.unwrap();
+
+    // Create skill with no projects
+    let skill_no_projects = Skill {
+        id: "skill002".to_string(),
+        name: "standalone-skill".to_string(),
+        description: "Test description".to_string(),
+        content: r#"---
+name: standalone-skill
+description: Test description
+---
+
+# Standalone Skill
+
+Test instructions.
+"#
+        .to_string(),
+        tags: vec![],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db.skills().create(&skill_no_projects).await.unwrap();
+
+    // Export
+    db.sync().export_all(temp_dir.path()).await.unwrap();
+
+    // Read back the exported skills
+    let skills: Vec<Skill> = read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
+    assert_eq!(skills.len(), 2);
+
+    // Verify multi-project skill
+    let multi_project = skills.iter().find(|s| s.id == "skill001").unwrap();
+    assert_eq!(multi_project.project_ids.len(), 2);
+    assert!(multi_project.project_ids.contains(&"proj0001".to_string()));
+    assert!(multi_project.project_ids.contains(&"proj0002".to_string()));
+
+    // Verify standalone skill
+    let standalone = skills.iter().find(|s| s.id == "skill002").unwrap();
+    assert_eq!(standalone.project_ids.len(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_export_skills_with_agent_skills_fields() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a skill with ALL Agent Skills standard fields populated
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "deploy-kubernetes".to_string(),
+        description: "Deploy applications to Kubernetes cluster with validation".to_string(),
+        content: r#"---
+name: deploy-kubernetes
+description: Deploy applications to Kubernetes cluster with validation
+license: Apache-2.0
+compatibility: Requires kubectl, docker
+allowed-tools: ["Bash(kubectl:*)","Bash(docker:*)"]
+metadata:
+  author: ck3mp3r
+  version: "1.0"
+origin:
+  url: https://github.com/user/repo
+  ref: main
+  fetched_at: "2026-01-31T10:00:00Z"
+  metadata:
+    commit: abc123
+---
+
+# Deployment Steps
+
+1. Run validation
+2. Apply manifests
+"#
+        .to_string(),
+        tags: vec!["kubernetes".to_string(), "deployment".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db.skills().create(&skill).await.unwrap();
+
+    // Export
+    let summary = db.sync().export_all(temp_dir.path()).await.unwrap();
+    assert_eq!(summary.skills, 1);
+
+    // Read back the exported skill
+    let skills: Vec<Skill> = read_jsonl(&temp_dir.path().join("skills.jsonl")).unwrap();
+    assert_eq!(skills.len(), 1);
+
+    let exported = &skills[0];
+
+    // Verify core fields
+    assert_eq!(exported.id, "skill001");
+    assert_eq!(exported.name, "deploy-kubernetes");
+    assert_eq!(
+        exported.description,
+        "Deploy applications to Kubernetes cluster with validation"
+    );
+    assert!(exported.content.contains("# Deployment Steps"));
+    assert!(exported.content.contains("Run validation"));
+    assert_eq!(exported.tags, vec!["kubernetes", "deployment"]);
+
+    // Verify Agent Skills standard fields are in content
+    assert!(exported.content.contains("license: Apache-2.0"));
+    assert!(
+        exported
+            .content
+            .contains("compatibility: Requires kubectl, docker")
+    );
+    assert!(
+        exported
+            .content
+            .contains(r#"["Bash(kubectl:*)","Bash(docker:*)"]"#)
+    );
+    assert!(exported.content.contains("author: ck3mp3r"));
+
+    // Verify origin tracking fields are in content (these are now in frontmatter, not separate DB fields)
+    assert!(
+        exported
+            .content
+            .contains("url: https://github.com/user/repo")
+    );
+    assert!(exported.content.contains("ref: main"));
+    assert!(
+        exported
+            .content
+            .contains(r#"fetched_at: "2026-01-31T10:00:00Z""#)
+    );
+}
+
+// ========== Legacy repo backfill ==========
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_legacy_repo_stops_reexporting_after_backfill() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    let temp_dir = TempDir::new().unwrap();
+    let migrator = sqlx::migrate!("data/sql/sqlite/migrations");
+
+    // Stop before the backfill migration so the row can be inserted with
+    // updated_at NULL, the shape every pre-20261018000003 database has.
+    migrator.run_to(20261018000003, db.pool()).await.unwrap();
+
+    sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
+        .bind("legac001")
+        .bind("github:legacy/one")
+        .bind(None::<String>)
+        .bind("[]")
+        .bind("2025-12-01 00:00:00")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    migrator.run(db.pool()).await.unwrap();
+
+    // The schema version bump forces a full export, so the legacy row appears
+    // exactly once.
+    let first = db.sync().export_all(temp_dir.path()).await.unwrap();
+    assert_eq!(
+        first.repos, 1,
+        "the first export after the migration is full"
+    );
+
+    // SyncManager advances the cutoff after a successful export; export_all
+    // does not. Use a fixed cutoff above the legacy created_at and below now.
+    db.sync()
+        .set_last_synced_at("2026-01-01 00:00:00")
+        .await
+        .unwrap();
+
+    let second = db.sync().export_all(temp_dir.path()).await.unwrap();
+    assert_eq!(
+        second.repos, 0,
+        "a backfilled legacy repo must not be re-exported"
+    );
+
+    db.repos()
+        .update(&Repo {
+            id: "legac001".to_string(),
+            remote: "github:legacy/one-edited".to_string(),
+            path: None,
+            tags: vec![],
+            project_ids: vec![],
+            created_at: Some("2025-12-01 00:00:00".to_string()),
+            updated_at: None,
+            deleted_at: None,
+        })
+        .await
+        .unwrap();
+
+    let third = db.sync().export_all(temp_dir.path()).await.unwrap();
+    assert_eq!(third.repos, 1, "an edited legacy repo must be exported");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_migration_backfills_repo_updated_at_from_created_at() {
+    let db = SqliteDatabase::in_memory().await.unwrap();
+    let migrator = sqlx::migrate!("data/sql/sqlite/migrations");
+
+    migrator.run_to(20261018000003, db.pool()).await.unwrap();
+
+    for (id, remote, created_at) in [
+        ("legac001", "github:legacy/one", Some("2025-12-01 00:00:00")),
+        ("legac002", "github:legacy/two", Some("2026-01-15 00:00:00")),
+        ("legac003", "github:legacy/three", None),
+    ] {
+        sqlx::query("INSERT INTO repo (id, remote, path, tags, created_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(id)
+            .bind(remote)
+            .bind(None::<String>)
+            .bind("[]")
+            .bind(created_at)
+            .execute(db.pool())
+            .await
+            .unwrap();
+    }
+
+    migrator.run(db.pool()).await.unwrap();
+
+    let legac001: Option<String> =
+        sqlx::query_scalar("SELECT updated_at FROM repo WHERE id = 'legac001'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        legac001.as_deref(),
+        Some("2025-12-01 00:00:00"),
+        "updated_at must be backfilled from created_at"
+    );
+
+    let legac002: Option<String> =
+        sqlx::query_scalar("SELECT updated_at FROM repo WHERE id = 'legac002'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        legac002.as_deref(),
+        Some("2026-01-15 00:00:00"),
+        "updated_at must be backfilled from created_at"
+    );
+
+    let legac003: Option<String> =
+        sqlx::query_scalar("SELECT updated_at FROM repo WHERE id = 'legac003'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+    assert!(
+        legac003.is_some(),
+        "a NULL created_at must fall back to datetime('now')"
+    );
 }

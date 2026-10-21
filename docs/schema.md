@@ -153,8 +153,8 @@ The `content` field includes both YAML frontmatter and Markdown body, enabling s
 
 ## Migrations
 
-Location: `data/sql/sqlite/migrations/`
+Location: `crates/context-db/data/sql/sqlite/migrations/`
 
 Applied automatically by SQLx on startup.
 
-Current schema version: `20251227000000_complete_schema.sql`
+The current schema version is the highest `YYYYMMDDHHMMSS` prefix in the migration directory. SQLx records applied versions in the `_sqlx_migrations` table.

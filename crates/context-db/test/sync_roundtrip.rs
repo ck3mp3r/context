@@ -5,7 +5,7 @@ use base64::prelude::*;
 use context_core::{
     Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks, Project,
     ProjectRepository, Repo, RepoRepository, Skill, SkillRepository, SyncRepository, TaskList,
-    TaskListRepository, TaskListStatus, write_jsonl,
+    TaskListRepository, TaskListStatus, read_jsonl, write_jsonl,
 };
 use tempfile::TempDir;
 
@@ -484,6 +484,28 @@ Do something useful with this skill.
     let export_summary = db1.sync().export_all(temp_dir.path()).await.unwrap();
     assert_eq!(export_summary.skills, 1, "Should export 1 skill");
     assert_eq!(export_summary.attachments, 2, "Should export 2 attachments");
+
+    // The exported attachment rows must carry each attachment's mime_type.
+    let exported_attachments: Vec<SkillAttachment> =
+        read_jsonl(&temp_dir.path().join("skills_attachments.jsonl")).unwrap();
+    let exported_script = exported_attachments
+        .iter()
+        .find(|a| a.filename == "test.sh")
+        .expect("skills_attachments.jsonl should contain test.sh");
+    assert_eq!(
+        exported_script.mime_type,
+        Some("text/x-shellscript".to_string()),
+        "export must write the script attachment mime_type"
+    );
+    let exported_reference = exported_attachments
+        .iter()
+        .find(|a| a.filename == "docs.md")
+        .expect("skills_attachments.jsonl should contain docs.md");
+    assert_eq!(
+        exported_reference.mime_type,
+        Some("text/markdown".to_string()),
+        "export must write the reference attachment mime_type"
+    );
 
     // Import to db2
     let import_summary = db2.sync().import_all(temp_dir.path()).await.unwrap();

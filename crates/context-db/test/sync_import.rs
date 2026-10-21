@@ -1,10 +1,11 @@
 //! Tests for SyncRepository import behavior.
 
 use crate::SqliteDatabase;
+use base64::prelude::*;
 use context_core::{
-    Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks, Project,
-    ProjectRepository, Repo, RepoRepository, Skill, SkillRepository, SyncRepository, TaskList,
-    TaskListRepository, TaskListStatus, write_jsonl,
+    Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks, Note,
+    NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment,
+    SkillRepository, SyncRepository, TaskList, TaskListRepository, TaskListStatus, write_jsonl,
 };
 use tempfile::TempDir;
 
@@ -896,4 +897,774 @@ async fn test_import_batches_multiple_rows() {
         let skill = db.skills().get(&format!("skilbtc{}", i)).await.unwrap();
         assert_eq!(skill.project_ids, vec![format!("projbtc{}", i)]);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_empty_directory() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create empty JSONL files
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("projects.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("skills.jsonl"), "").unwrap();
+
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    assert_eq!(summary.repos, 0);
+    assert_eq!(summary.projects, 0);
+    assert_eq!(summary.task_lists, 0);
+    assert_eq!(summary.tasks, 0);
+    assert_eq!(summary.notes, 0);
+    assert_eq!(summary.skills, 0);
+    assert_eq!(summary.total(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_missing_files() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Don't create any files - should handle gracefully
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    assert_eq!(summary.total(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_preserves_timestamps() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a note with specific timestamps
+    let original_created = "2024-01-01T10:00:00Z";
+    let original_updated = "2024-01-02T15:30:00Z";
+
+    let note = Note {
+        id: "testid01".to_string(),
+        title: "Test Note".to_string(),
+        content: "Original content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(original_updated.to_string()),
+        deleted_at: None,
+    };
+
+    db.notes().create(&note).await.unwrap();
+
+    // Verify timestamps were stored correctly
+    let stored_note = db.notes().get("testid01").await.unwrap();
+    assert_eq!(stored_note.created_at, Some(original_created.to_string()));
+    assert_eq!(stored_note.updated_at, Some(original_updated.to_string()));
+
+    // Export the note
+    db.sync().export_all(temp_dir.path()).await.unwrap();
+
+    // Modify the note content and update timestamp
+    let modified_updated = "2024-01-03T20:45:00Z";
+    let modified_note = Note {
+        id: "testid01".to_string(),
+        title: "Test Note".to_string(),
+        content: "Modified content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(modified_updated.to_string()),
+        deleted_at: None,
+    };
+
+    // Write the modified note to JSONL (simulating external modification)
+    write_jsonl(&temp_dir.path().join("notes.jsonl"), &[modified_note]).unwrap();
+
+    // Import should preserve the modified timestamp
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    // Verify timestamps were preserved (not overwritten by trigger)
+    let imported_note = db.notes().get("testid01").await.unwrap();
+    assert_eq!(
+        imported_note.created_at,
+        Some(original_created.to_string()),
+        "created_at should be preserved"
+    );
+    assert_eq!(
+        imported_note.updated_at,
+        Some(modified_updated.to_string()),
+        "updated_at should be preserved from import, not auto-generated"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_preserves_project_timestamps() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a project with specific timestamps
+    let original_created = "2024-01-01T10:00:00Z";
+    let original_updated = "2024-01-02T15:30:00Z";
+
+    let project = Project {
+        id: "proj1234".to_string(),
+        title: "Test Project".to_string(),
+        description: Some("Test description".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(original_updated.to_string()),
+        deleted_at: None,
+    };
+
+    db.projects().create(&project).await.unwrap();
+
+    // Modify and reimport with new timestamp
+    let modified_updated = "2024-01-03T20:45:00Z";
+    let modified_project = Project {
+        id: "proj1234".to_string(),
+        title: "Modified Project".to_string(),
+        description: Some("Modified description".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(modified_updated.to_string()),
+        deleted_at: None,
+    };
+
+    write_jsonl(&temp_dir.path().join("projects.jsonl"), &[modified_project]).unwrap();
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let imported_project = db.projects().get("proj1234").await.unwrap();
+    assert_eq!(
+        imported_project.created_at.as_ref().unwrap(),
+        original_created,
+        "project created_at should be preserved"
+    );
+    assert_eq!(
+        imported_project.updated_at.as_ref().unwrap(),
+        modified_updated,
+        "project updated_at should be preserved from import, not auto-generated"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_preserves_task_list_timestamps() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a project first (required for task list)
+    let project = Project {
+        id: "proj1234".to_string(),
+        title: "Test Project".to_string(),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some("2024-01-01T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db.projects().create(&project).await.unwrap();
+
+    // Create a task list with specific timestamps
+    let original_created = "2024-01-01T10:00:00Z";
+    let original_updated = "2024-01-02T15:30:00Z";
+
+    let task_list = TaskList {
+        id: "list1234".to_string(),
+        title: "Test List".to_string(),
+        description: Some("Test description".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskListStatus::Active,
+        notes: None,
+        repo_ids: vec![],
+        project_id: "proj1234".to_string(),
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(original_updated.to_string()),
+        archived_at: None,
+        deleted_at: None,
+    };
+
+    db.task_lists().create(&task_list).await.unwrap();
+
+    // Modify and reimport with new timestamp
+    let modified_updated = "2024-01-03T20:45:00Z";
+    let modified_list = TaskList {
+        id: "list1234".to_string(),
+        title: "Modified List".to_string(),
+        description: Some("Modified description".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskListStatus::Active,
+        notes: None,
+        repo_ids: vec![],
+        project_id: "proj1234".to_string(),
+        created_at: Some(original_created.to_string()),
+        updated_at: Some(modified_updated.to_string()),
+        archived_at: None,
+        deleted_at: None,
+    };
+
+    write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
+    write_jsonl(&temp_dir.path().join("lists.jsonl"), &[modified_list]).unwrap();
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let imported_list = db.task_lists().get("list1234").await.unwrap();
+    assert_eq!(
+        imported_list.created_at.as_ref().unwrap(),
+        original_created,
+        "task_list created_at should be preserved"
+    );
+    assert_eq!(
+        imported_list.updated_at.as_ref().unwrap(),
+        modified_updated,
+        "task_list updated_at should be preserved from import, not auto-generated"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_missing_skills_file_handled_gracefully() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create other files but skip skills.jsonl
+    std::fs::write(temp_dir.path().join("repos.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("projects.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("lists.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("tasks.jsonl"), "").unwrap();
+    std::fs::write(temp_dir.path().join("notes.jsonl"), "").unwrap();
+    // No skills.jsonl
+
+    // Import should succeed with 0 skills
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
+    assert_eq!(summary.skills, 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_export_skills_agent_skills_fields_round_trip() {
+    let db1 = setup_test_db().await;
+    let db2 = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a skill in db1 with ALL Agent Skills fields populated
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "deploy-kubernetes".to_string(),
+        description: "Deploy applications to Kubernetes cluster with validation".to_string(),
+        content: r#"---
+name: deploy-kubernetes
+description: Deploy applications to Kubernetes cluster with validation
+license: Apache-2.0
+compatibility: Requires kubectl, docker
+allowed-tools: ["Bash(kubectl:*)", "Bash(docker:*)"]
+metadata:
+  author: ck3mp3r
+  version: "1.0"
+  category: deployment
+origin:
+  url: https://github.com/user/repo
+  ref: main
+  fetched_at: 2026-01-31T10:00:00Z
+  metadata:
+    commit: abc123
+    branch: main
+---
+
+# Deployment Steps
+
+1. Run validation
+2. Apply manifests
+"#
+        .to_string(),
+        tags: vec!["kubernetes".to_string(), "deployment".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T12:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T15:30:00Z".to_string()),
+        deleted_at: None,
+    };
+    db1.skills().create(&skill).await.unwrap();
+
+    // Export from db1
+    let export_summary = db1.sync().export_all(temp_dir.path()).await.unwrap();
+    assert_eq!(export_summary.skills, 1);
+
+    // Import to db2
+    let import_summary = db2.sync().import_all(temp_dir.path()).await.unwrap();
+    assert_eq!(import_summary.skills, 1);
+
+    // Verify ALL fields survived round-trip
+    let imported = db2.skills().get("skill001").await.unwrap();
+
+    // Core fields
+    assert_eq!(imported.id, "skill001");
+    assert_eq!(imported.name, "deploy-kubernetes");
+    assert_eq!(
+        imported.description,
+        "Deploy applications to Kubernetes cluster with validation"
+    );
+    assert!(imported.content.contains("# Deployment Steps"));
+    assert!(imported.content.contains("Run validation"));
+    assert!(imported.content.contains("Apply manifests"));
+    assert_eq!(imported.tags, vec!["kubernetes", "deployment"]);
+
+    // Agent Skills standard fields (now in content frontmatter)
+    assert!(imported.content.contains("license: Apache-2.0"));
+    assert!(
+        imported
+            .content
+            .contains("compatibility: Requires kubectl, docker")
+    );
+    assert!(imported.content.contains(r#"["Bash(kubectl:*)""#));
+    assert!(imported.content.contains("author: ck3mp3r"));
+    assert!(imported.content.contains(r#"version: "1.0""#));
+    assert!(imported.content.contains("category: deployment"));
+
+    // Origin tracking fields (now in content frontmatter)
+    assert!(
+        imported
+            .content
+            .contains("url: https://github.com/user/repo")
+    );
+    assert!(imported.content.contains("ref: main"));
+    assert!(
+        imported
+            .content
+            .contains("fetched_at: 2026-01-31T10:00:00Z")
+    );
+    assert!(imported.content.contains("commit: abc123"));
+    assert!(imported.content.contains("branch: main"));
+
+    // Timestamps
+    assert_eq!(
+        imported.created_at,
+        Some("2024-01-01T12:00:00Z".to_string())
+    );
+    assert_eq!(
+        imported.updated_at,
+        Some("2024-01-01T15:30:00Z".to_string())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_skills_upsert_updates_agent_skills_fields() {
+    // Tests the UPSERT code path - updating an existing skill with new Agent Skills metadata
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create initial skill with basic fields
+    let initial_skill = Skill {
+        id: "skill002".to_string(),
+        name: "initial-name".to_string(),
+        description: "Initial description".to_string(),
+        content: r#"---
+name: initial-name
+description: Initial description
+license: MIT
+compatibility: opencode>=0.1.0
+allowed-tools: ["Bash(echo:*)"]
+metadata:
+  version: "1.0"
+origin:
+  url: https://github.com/original/repo
+  ref: main
+---
+
+# Initial Skill
+
+Initial instructions
+"#
+        .to_string(),
+        tags: vec!["tag1".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T10:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db.skills().create(&initial_skill).await.unwrap();
+
+    // Export (to create JSONL file)
+    db.sync().export_all(temp_dir.path()).await.unwrap();
+
+    // Modify the JSONL to simulate external changes to Agent Skills fields
+    let skills_file = temp_dir.path().join("skills.jsonl");
+    let modified_skill = Skill {
+        id: "skill002".to_string(),
+        name: "updated-name".to_string(),
+        description: "Updated description with new content".to_string(),
+        content: r#"---
+name: updated-name
+description: Updated description with new content
+license: Apache-2.0
+compatibility: Requires kubectl >= 1.30, docker >= 20.10
+allowed-tools: ["Bash(kubectl:*)", "Bash(docker:*)", "Bash(helm:*)"]
+metadata:
+  version: "2.0"
+  author: updated
+  new_field: added
+origin:
+  url: https://github.com/updated/repo
+  ref: v2.0.0
+  fetched_at: 2026-01-31T19:00:00Z
+  metadata:
+    commit: xyz789
+    updated: true
+---
+
+# Updated Skill
+
+Updated instructions with changes
+"#
+        .to_string(),
+        tags: vec![
+            "tag1".to_string(),
+            "tag2".to_string(),
+            "updated".to_string(),
+        ],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T10:00:00Z".to_string()),
+        updated_at: Some("2026-01-31T19:00:00Z".to_string()), // CHANGED
+        deleted_at: None,
+    };
+    std::fs::write(
+        &skills_file,
+        format!("{}\n", serde_json::to_string(&modified_skill).unwrap()),
+    )
+    .unwrap();
+
+    // Import - this should UPSERT (update existing skill)
+    let import_summary = db.sync().import_all(temp_dir.path()).await.unwrap();
+    assert_eq!(import_summary.skills, 1);
+
+    // Verify ALL Agent Skills fields were updated via UPSERT
+    let updated = db.skills().get("skill002").await.unwrap();
+
+    // Core fields should be updated
+    assert_eq!(updated.name, "updated-name");
+    assert_eq!(updated.description, "Updated description with new content");
+    assert!(
+        updated
+            .content
+            .contains("Updated instructions with changes")
+    );
+    assert_eq!(updated.tags, vec!["tag1", "tag2", "updated"]);
+
+    // **CRITICAL**: Agent Skills fields should be updated via UPSERT (now in content frontmatter)
+    assert!(updated.content.contains("license: Apache-2.0")); // Must be updated
+    assert!(
+        updated
+            .content
+            .contains("compatibility: Requires kubectl >= 1.30, docker >= 20.10")
+    ); // Must be updated
+    assert!(updated.content.contains(r#"["Bash(kubectl:*)""#)); // Must be updated
+    assert!(updated.content.contains(r#"version: "2.0""#)); // Must be updated
+    assert!(updated.content.contains("author: updated")); // Must be updated
+    assert!(updated.content.contains("new_field: added")); // Must be updated
+
+    // **CRITICAL**: Origin tracking fields should be updated via UPSERT (now in content frontmatter)
+    assert!(
+        updated
+            .content
+            .contains("url: https://github.com/updated/repo")
+    ); // Must be updated
+    assert!(updated.content.contains("ref: v2.0.0")); // Must be updated
+    assert!(updated.content.contains("fetched_at: 2026-01-31T19:00:00Z")); // Must be updated
+    assert!(updated.content.contains("commit: xyz789")); // Must be updated
+    assert!(updated.content.contains("updated: true")); // Must be updated
+
+    // Timestamps
+    assert_eq!(updated.created_at, Some("2024-01-01T10:00:00Z".to_string())); // Should not change
+    assert_eq!(updated.updated_at, Some("2026-01-31T19:00:00Z".to_string())); // Should be updated
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_skills_with_attachments_upsert() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create skill with attachments
+    let skill_content = r#"---
+name: test-skill
+description: Test skill with attachments
+version: "1.0.0"
+---
+
+# Test Skill
+
+This skill has attachments.
+"#;
+
+    let script_content = b"#!/bin/bash\necho 'test script'";
+    let script_hash = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(script_content);
+        hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            write!(acc, "{:02x}", b).unwrap();
+            acc
+        })
+    };
+    let script_b64 = BASE64_STANDARD.encode(script_content);
+
+    let reference_content = b"# Reference Doc\nSome documentation";
+    let reference_hash = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(reference_content);
+        hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            write!(acc, "{:02x}", b).unwrap();
+            acc
+        })
+    };
+    let reference_b64 = BASE64_STANDARD.encode(reference_content);
+
+    let skill = Skill {
+        id: "sk001234".to_string(),
+        name: "test-skill".to_string(),
+        description: "Test skill with attachments".to_string(),
+        content: skill_content.to_string(),
+        tags: vec![],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2024-01-01T10:00:00Z".to_string()),
+        updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        deleted_at: None,
+    };
+
+    let attachments = vec![
+        SkillAttachment {
+            id: "at001234".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "script".to_string(),
+            filename: "run.sh".to_string(),
+            content: script_b64.clone(),
+            content_hash: script_hash.clone(),
+            mime_type: Some("text/x-shellscript".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            deleted_at: None,
+        },
+        SkillAttachment {
+            id: "at005678".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "reference".to_string(),
+            filename: "README.md".to_string(),
+            content: reference_b64.clone(),
+            content_hash: reference_hash.clone(),
+            mime_type: Some("text/markdown".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            deleted_at: None,
+        },
+    ];
+
+    // Write to separate JSONL files and import
+    write_jsonl(
+        &temp_dir.path().join("skills.jsonl"),
+        std::slice::from_ref(&skill),
+    )
+    .unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills_attachments.jsonl"),
+        &attachments,
+    )
+    .unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    // Verify skill created
+    let imported_skill = db.skills().get("sk001234").await.unwrap();
+    assert_eq!(imported_skill.name, "test-skill");
+
+    // Verify attachments created
+    let attachments = db.skills().get_attachments("sk001234").await.unwrap();
+    assert_eq!(attachments.len(), 2);
+
+    let script_att = attachments.iter().find(|a| a.filename == "run.sh").unwrap();
+    assert_eq!(script_att.type_, "script");
+    assert_eq!(script_att.content_hash, script_hash);
+    assert_eq!(script_att.content, script_b64);
+    assert_eq!(
+        script_att.mime_type,
+        Some("text/x-shellscript".to_string()),
+        "import must preserve the script attachment mime_type"
+    );
+
+    let ref_att = attachments
+        .iter()
+        .find(|a| a.filename == "README.md")
+        .unwrap();
+    assert_eq!(ref_att.type_, "reference");
+    assert_eq!(ref_att.content_hash, reference_hash);
+    assert_eq!(
+        ref_att.mime_type,
+        Some("text/markdown".to_string()),
+        "import must preserve the reference attachment mime_type"
+    );
+
+    // Test 2: Re-import with changed attachment content (should update)
+    let modified_script = b"#!/bin/bash\necho 'modified script'";
+    let modified_hash = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(modified_script);
+        hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+            use std::fmt::Write;
+            write!(acc, "{:02x}", b).unwrap();
+            acc
+        })
+    };
+    let modified_b64 = BASE64_STANDARD.encode(modified_script);
+
+    let updated_attachments_export = vec![
+        SkillAttachment {
+            id: "at001234".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "script".to_string(),
+            filename: "run.sh".to_string(),
+            content: modified_b64.clone(),
+            content_hash: modified_hash.clone(),
+            mime_type: Some("text/plain".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-02T10:00:00Z".to_string()),
+            deleted_at: None,
+        },
+        SkillAttachment {
+            id: "at005678".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "reference".to_string(),
+            filename: "README.md".to_string(),
+            content: reference_b64.clone(),
+            content_hash: reference_hash.clone(),
+            mime_type: Some("text/markdown".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            deleted_at: None,
+        },
+    ];
+
+    write_jsonl(
+        &temp_dir.path().join("skills.jsonl"),
+        std::slice::from_ref(&skill),
+    )
+    .unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills_attachments.jsonl"),
+        &updated_attachments_export,
+    )
+    .unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    // Verify attachment updated
+    let updated_attachments = db.skills().get_attachments("sk001234").await.unwrap();
+    assert_eq!(updated_attachments.len(), 2);
+
+    let updated_script = updated_attachments
+        .iter()
+        .find(|a| a.filename == "run.sh")
+        .unwrap();
+    assert_eq!(updated_script.content_hash, modified_hash);
+    assert_eq!(updated_script.content, modified_b64);
+    assert_eq!(
+        updated_script.mime_type,
+        Some("text/plain".to_string()),
+        "LWW update must apply the re-imported mime_type"
+    );
+
+    // Reference should be unchanged
+    let unchanged_ref = updated_attachments
+        .iter()
+        .find(|a| a.filename == "README.md")
+        .unwrap();
+    assert_eq!(unchanged_ref.content_hash, reference_hash);
+
+    // Test 3: Re-import with the script attachment tombstoned. The live import
+    // never deletes attachments absent from the file; a removal propagates only
+    // as a tombstone whose updated_at is later than the stored row.
+    let tombstoned_attachments_export = vec![
+        SkillAttachment {
+            id: "at001234".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "script".to_string(),
+            filename: "run.sh".to_string(),
+            content: modified_b64.clone(),
+            content_hash: modified_hash.clone(),
+            mime_type: Some("text/x-shellscript".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-03T10:00:00Z".to_string()),
+            deleted_at: Some("2024-01-03T10:00:00Z".to_string()),
+        },
+        SkillAttachment {
+            id: "at005678".to_string(),
+            skill_id: "sk001234".to_string(),
+            type_: "reference".to_string(),
+            filename: "README.md".to_string(),
+            content: reference_b64.clone(),
+            content_hash: reference_hash.clone(),
+            mime_type: Some("text/markdown".to_string()),
+            created_at: Some("2024-01-01T10:00:00Z".to_string()),
+            updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+            deleted_at: None,
+        },
+    ];
+
+    write_jsonl(
+        &temp_dir.path().join("skills.jsonl"),
+        std::slice::from_ref(&skill),
+    )
+    .unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills_attachments.jsonl"),
+        &tombstoned_attachments_export,
+    )
+    .unwrap();
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    // Verify script attachment is soft-deleted (excluded from the live set)
+    let live_filenames: Vec<String> = sqlx::query_scalar(
+        "SELECT filename FROM skill_attachment WHERE skill_id = ? AND deleted_at IS NULL",
+    )
+    .bind("sk001234")
+    .fetch_all(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(live_filenames, vec!["README.md".to_string()]);
 }

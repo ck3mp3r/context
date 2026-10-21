@@ -78,14 +78,14 @@ cargo clippy -- -D warnings
 
 ### Migrations
 
-Migrations are managed by SQLx and located in `data/sql/sqlite/migrations/`.
+Migrations are managed by SQLx and located in `crates/context-db/data/sql/sqlite/migrations/`.
 
 They run automatically on application startup.
 
 ### Schema Changes
 
 When modifying the schema:
-1. Create new migration file in `data/sql/sqlite/migrations/`
+1. Create new migration file in `crates/context-db/data/sql/sqlite/migrations/`
 2. Name format: `YYYYMMDDHHMMSS_description.sql`
 3. Test migration on development database
 4. Update `docs/schema.md` to reflect changes
