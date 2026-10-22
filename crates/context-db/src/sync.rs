@@ -2,6 +2,7 @@
 
 use futures_util::TryStreamExt;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
+use std::collections::HashMap;
 use std::path::Path;
 
 use context_core::{
@@ -112,6 +113,63 @@ pub(crate) fn read_batch<T: for<'de> serde::Deserialize<'de>>(
     Ok(batch)
 }
 
+/// Keep only the rows whose `updated_at` can clear the target row's LWW guard.
+///
+/// The entity upserts carry `WHERE <table>.updated_at IS NULL OR
+/// excluded.updated_at > <table>.updated_at`. A row that cannot clear that
+/// guard is a no-op write, so it is dropped before the upsert runs. The
+/// decision reads the target row's `updated_at` from the same transaction, so
+/// it sees every write made by earlier batches.
+///
+/// A row is kept when no target row exists, when the target's `updated_at` is
+/// NULL, or when the row's `updated_at` is newer than the target's. The
+/// comparison is lexicographic on the TEXT timestamps, matching SQLite's
+/// default BINARY collation.
+async fn guard_writable_rows<'r, T>(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    table: &str,
+    rows: &'r [T],
+    id_of: impl Fn(&T) -> &str,
+    updated_at_of: impl Fn(&T) -> Option<&str>,
+) -> Result<Vec<&'r T>, sqlx::Error> {
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut builder = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT id, updated_at FROM {} WHERE id IN (",
+        table
+    ));
+    {
+        let mut separated = builder.separated(", ");
+        for row in rows {
+            separated.push_bind(id_of(row));
+        }
+        separated.push_unseparated(")");
+    }
+
+    let existing: Vec<(String, Option<String>)> =
+        builder.build_query_as().fetch_all(&mut **tx).await?;
+    let targets: HashMap<&str, Option<&str>> = existing
+        .iter()
+        .map(|(id, updated_at)| (id.as_str(), updated_at.as_deref()))
+        .collect();
+
+    let mut writable = Vec::with_capacity(rows.len());
+    for row in rows {
+        let keep = match targets.get(id_of(row)) {
+            None | Some(None) => true,
+            Some(Some(target_updated_at)) => {
+                updated_at_of(row).is_some_and(|incoming| incoming > *target_updated_at)
+            }
+        };
+        if keep {
+            writable.push(row);
+        }
+    }
+    Ok(writable)
+}
+
 /// Execute a batched upsert: one multi-row statement per chunk of `rows`.
 ///
 /// `sql_prefix` is the `INSERT INTO ...` clause, `sql_suffix` is the
@@ -208,11 +266,19 @@ async fn import_all_with_transaction(
             if projects.is_empty() {
                 break;
             }
-            let rows: Vec<(&Project, String, String)> = projects
+            let writable = guard_writable_rows(
+                tx,
+                "project",
+                &projects,
+                |project| project.id.as_str(),
+                |project| project.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Project, String, String)> = writable
                 .iter()
                 .map(|project| {
                     Ok((
-                        project,
+                        *project,
                         serde_json::to_string(&project.tags)?,
                         serde_json::to_string(&project.external_refs)?,
                     ))
@@ -260,9 +326,17 @@ async fn import_all_with_transaction(
             if repos.is_empty() {
                 break;
             }
-            let rows: Vec<(&Repo, String)> = repos
+            let writable = guard_writable_rows(
+                tx,
+                "repo",
+                &repos,
+                |repo| repo.id.as_str(),
+                |repo| repo.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Repo, String)> = writable
                 .iter()
-                .map(|repo| Ok((repo, serde_json::to_string(&repo.tags)?)))
+                .map(|repo| Ok((*repo, serde_json::to_string(&repo.tags)?)))
                 .collect::<Result<_, serde_json::Error>>()?;
 
             batched_upsert(
@@ -316,11 +390,19 @@ async fn import_all_with_transaction(
             if task_lists.is_empty() {
                 break;
             }
-            let rows: Vec<(&TaskList, String, String)> = task_lists
+            let writable = guard_writable_rows(
+                tx,
+                "task_list",
+                &task_lists,
+                |task_list| task_list.id.as_str(),
+                |task_list| task_list.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&TaskList, String, String)> = writable
                 .iter()
                 .map(|task_list| {
                     Ok((
-                        task_list,
+                        *task_list,
                         serde_json::to_string(&task_list.tags)?,
                         serde_json::to_string(&task_list.external_refs)?,
                     ))
@@ -388,11 +470,19 @@ async fn import_all_with_transaction(
             if tasks.is_empty() {
                 break;
             }
-            let rows: Vec<(&Task, String, String)> = tasks
+            let writable = guard_writable_rows(
+                tx,
+                "task",
+                &tasks,
+                |task| task.id.as_str(),
+                |task| task.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Task, String, String)> = writable
                 .iter()
                 .map(|task| {
                     Ok((
-                        task,
+                        *task,
                         serde_json::to_string(&task.tags)?,
                         serde_json::to_string(&task.external_refs)?,
                     ))
@@ -485,9 +575,17 @@ async fn import_all_with_transaction(
             if notes.is_empty() {
                 break;
             }
-            let rows: Vec<(&Note, String)> = notes
+            let writable = guard_writable_rows(
+                tx,
+                "note",
+                &notes,
+                |note| note.id.as_str(),
+                |note| note.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Note, String)> = writable
                 .iter()
-                .map(|note| Ok((note, serde_json::to_string(&note.tags)?)))
+                .map(|note| Ok((*note, serde_json::to_string(&note.tags)?)))
                 .collect::<Result<_, serde_json::Error>>()?;
 
             batched_upsert(
@@ -566,9 +664,17 @@ async fn import_all_with_transaction(
             if skills.is_empty() {
                 break;
             }
-            let rows: Vec<(&Skill, String)> = skills
+            let writable = guard_writable_rows(
+                tx,
+                "skill",
+                &skills,
+                |skill| skill.id.as_str(),
+                |skill| skill.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Skill, String)> = writable
                 .iter()
-                .map(|skill| Ok((skill, serde_json::to_string(&skill.tags)?)))
+                .map(|skill| Ok((*skill, serde_json::to_string(&skill.tags)?)))
                 .collect::<Result<_, serde_json::Error>>()?;
 
             batched_upsert(
@@ -627,9 +733,18 @@ async fn import_all_with_transaction(
                 break;
             }
 
+            let writable = guard_writable_rows(
+                tx,
+                "skill_attachment",
+                &attachments,
+                |attachment| attachment.id.as_str(),
+                |attachment| attachment.updated_at.as_deref(),
+            )
+            .await?;
+
             batched_upsert(
                 tx,
-                &attachments,
+                &writable,
                 10,
                 "INSERT INTO skill_attachment (id, skill_id, type, filename, content, content_hash, mime_type, created_at, updated_at, deleted_at) ",
                 " ON CONFLICT(id) DO UPDATE SET

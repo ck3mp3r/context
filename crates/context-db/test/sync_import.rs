@@ -2,8 +2,9 @@
 
 use crate::SqliteDatabase;
 use context_core::{
-    Database, HasProjects, HasRepos, HasSync, HasTaskLists, Project, ProjectRepository, Repo,
-    RepoRepository, SyncRepository, TaskListRepository, TaskListStatus, write_jsonl,
+    Database, HasProjects, HasRepos, HasSync, HasTaskLists, Note, Project, ProjectRepository, Repo,
+    RepoRepository, Skill, SkillAttachment, SyncRepository, Task, TaskListRepository,
+    TaskListStatus, TaskStatus, write_jsonl,
 };
 use tempfile::TempDir;
 
@@ -336,4 +337,185 @@ async fn test_import_missing_skills_file_handled_gracefully() {
     // Import should succeed with 0 skills
     let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(summary.skills, 0);
+}
+
+// ========== GATE 1: empty database is a full import ==========
+
+/// Count every row in `table`, including soft-deleted rows.
+async fn count_table_rows(pool: &sqlx::SqlitePool, table: &str) -> i64 {
+    let sql = format!("SELECT COUNT(*) FROM {}", table);
+    sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .fetch_one(pool)
+        .await
+        .expect("count should succeed")
+}
+
+/// Write a full replica with `count` rows in each of the seven entity tables.
+fn write_full_replica(temp_dir: &TempDir, count: usize) {
+    let created_at = Some("2024-01-01 00:00:00".to_string());
+    let updated_at = Some("2024-06-01 00:00:00".to_string());
+
+    let projects: Vec<Project> = (0..count)
+        .map(|i| Project {
+            id: format!("projfl{i:02}"),
+            title: format!("Project {i}"),
+            description: None,
+            tags: vec![],
+            external_refs: vec![],
+            repo_ids: vec![],
+            task_list_ids: vec![],
+            note_ids: vec![],
+            created_at: created_at.clone(),
+            updated_at: updated_at.clone(),
+            deleted_at: None,
+        })
+        .collect();
+
+    let repos: Vec<Repo> = (0..count)
+        .map(|i| Repo {
+            id: format!("repofl{i:02}"),
+            remote: format!("github:test/full{i}"),
+            path: None,
+            tags: vec![],
+            project_ids: vec![format!("projfl{i:02}")],
+            created_at: created_at.clone(),
+            updated_at: updated_at.clone(),
+            deleted_at: None,
+        })
+        .collect();
+
+    let task_lists: Vec<context_core::TaskList> = (0..count)
+        .map(|i| context_core::TaskList {
+            id: format!("listfl{i:02}"),
+            title: format!("List {i}"),
+            description: None,
+            notes: None,
+            project_id: format!("projfl{i:02}"),
+            tags: vec![],
+            status: TaskListStatus::Active,
+            external_refs: vec![],
+            repo_ids: vec![format!("repofl{i:02}")],
+            created_at: created_at.clone(),
+            updated_at: updated_at.clone(),
+            archived_at: None,
+            deleted_at: None,
+        })
+        .collect();
+
+    let tasks: Vec<Task> = (0..count)
+        .map(|i| Task {
+            id: format!("taskfl{i:02}"),
+            list_id: format!("listfl{i:02}"),
+            parent_id: None,
+            title: format!("Task {i}"),
+            description: None,
+            status: TaskStatus::Todo,
+            priority: Some(3),
+            tags: vec![],
+            external_refs: vec![],
+            created_at: created_at.clone(),
+            updated_at: updated_at.clone(),
+            deleted_at: None,
+        })
+        .collect();
+
+    let notes: Vec<Note> = (0..count)
+        .map(|i| Note {
+            id: format!("notefl{i:02}"),
+            title: format!("Note {i}"),
+            content: format!("Content {i}"),
+            tags: vec![],
+            parent_id: None,
+            idx: None,
+            repo_ids: vec![format!("repofl{i:02}")],
+            project_ids: vec![format!("projfl{i:02}")],
+            subnote_count: None,
+            created_at: created_at.clone(),
+            updated_at: updated_at.clone(),
+            deleted_at: None,
+        })
+        .collect();
+
+    let skills: Vec<Skill> = (0..count)
+        .map(|i| Skill {
+            id: format!("skilfl{i:02}"),
+            name: format!("full-skill-{i}"),
+            description: format!("Full skill {i}"),
+            content: format!(
+                "---\nname: full-skill-{i}\ndescription: Full skill {i}\n---\n\n# Full Skill {i}\n"
+            ),
+            tags: vec![],
+            project_ids: vec![format!("projfl{i:02}")],
+            scripts: vec![],
+            references: vec![],
+            assets: vec![],
+            created_at: created_at.clone(),
+            updated_at: updated_at.clone(),
+            deleted_at: None,
+        })
+        .collect();
+
+    let attachments: Vec<SkillAttachment> = (0..count)
+        .map(|i| SkillAttachment {
+            id: format!("attafl{i:02}"),
+            skill_id: format!("skilfl{i:02}"),
+            type_: "script".to_string(),
+            filename: format!("script-{i}.sh"),
+            content: "ZWNobyBoaQo=".to_string(),
+            content_hash: format!("hash-{i}"),
+            mime_type: Some("text/x-shellscript".to_string()),
+            created_at: created_at.clone(),
+            updated_at: updated_at.clone(),
+            deleted_at: None,
+        })
+        .collect();
+
+    write_jsonl(&temp_dir.path().join("projects.jsonl"), &projects).unwrap();
+    write_jsonl(&temp_dir.path().join("repos.jsonl"), &repos).unwrap();
+    write_jsonl(&temp_dir.path().join("lists.jsonl"), &task_lists).unwrap();
+    write_jsonl(&temp_dir.path().join("tasks.jsonl"), &tasks).unwrap();
+    write_jsonl(&temp_dir.path().join("notes.jsonl"), &notes).unwrap();
+    write_jsonl(&temp_dir.path().join("skills.jsonl"), &skills).unwrap();
+    write_jsonl(
+        &temp_dir.path().join("skills_attachments.jsonl"),
+        &attachments,
+    )
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_empty_database_writes_every_entity_row() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let rows_per_table = 3;
+
+    write_full_replica(&temp_dir, rows_per_table);
+
+    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    assert_eq!(summary.projects, rows_per_table);
+    assert_eq!(summary.repos, rows_per_table);
+    assert_eq!(summary.task_lists, rows_per_table);
+    assert_eq!(summary.tasks, rows_per_table);
+    assert_eq!(summary.notes, rows_per_table);
+    assert_eq!(summary.skills, rows_per_table);
+    assert_eq!(summary.attachments, rows_per_table);
+
+    // No target rows exist, so the guard pre-filter must keep every row.
+    let tables = [
+        "project",
+        "repo",
+        "task_list",
+        "task",
+        "note",
+        "skill",
+        "skill_attachment",
+    ];
+    for table in tables {
+        assert_eq!(
+            count_table_rows(db.pool(), table).await,
+            rows_per_table as i64,
+            "{table} must hold every row from its file"
+        );
+    }
 }
