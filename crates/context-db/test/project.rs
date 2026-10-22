@@ -1125,6 +1125,44 @@ async fn list_excludes_soft_deleted() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn count_deleted_counts_tombstones_only() {
+    let db = setup_db().await;
+    let repo = db.projects();
+
+    repo.create(&make_purge_project("cntlive1"))
+        .await
+        .expect("Create should succeed");
+    repo.create(&make_purge_project("cntdead1"))
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(
+        repo.count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        0,
+        "count_deleted should be zero without tombstones"
+    );
+
+    repo.delete("cntdead1")
+        .await
+        .expect("Delete should succeed");
+
+    assert_eq!(
+        repo.count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        1,
+        "count_deleted should count the tombstone"
+    );
+    assert_eq!(
+        repo.count().await.expect("Count should succeed"),
+        1,
+        "count should exclude the tombstone"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn fts5_search_excludes_soft_deleted() {
     let db = setup_db().await;
     let repo = db.projects();

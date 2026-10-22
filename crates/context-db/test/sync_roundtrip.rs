@@ -1,11 +1,10 @@
 //! Tests for SyncRepository export/import roundtrips.
 
 use crate::SqliteDatabase;
-use base64::prelude::*;
 use context_core::{
-    Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks, Project,
-    ProjectRepository, Repo, RepoRepository, Skill, SkillRepository, SyncRepository, TaskList,
-    TaskListRepository, TaskListStatus, read_jsonl, write_jsonl,
+    Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks, Note,
+    NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill, SkillRepository,
+    SyncRepository, TaskList, TaskListRepository, TaskListStatus, write_jsonl,
 };
 use tempfile::TempDir;
 
@@ -402,16 +401,16 @@ async fn test_export_import_preserves_note_hierarchy() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_export_import_skills_with_relationships() {
-    // RED: Skills not included in sync yet
+async fn test_second_export_keeps_full_replica() {
+    use context_core::{Task, TaskRepository, TaskStatus};
+
     let db1 = setup_test_db().await;
     let db2 = setup_test_db().await;
     let temp_dir = TempDir::new().unwrap();
 
-    // Create a project
     let project = Project {
-        id: "proj0001".to_string(),
-        title: "Test Project".to_string(),
+        id: "projfull".to_string(),
+        title: "Full Replica Project".to_string(),
         description: None,
         tags: vec![],
         external_refs: vec![],
@@ -424,299 +423,499 @@ async fn test_export_import_skills_with_relationships() {
     };
     db1.projects().create(&project).await.unwrap();
 
-    // Create a skill linked to the project
-    let skill = Skill {
-        id: "skill001".to_string(),
-        name: "test-skill".to_string(),
-        description: "A test skill".to_string(),
-        content: r#"---
-name: test-skill
-description: A test skill
----
-
-# Test Skill
-
-Do something useful with this skill.
-"#
-        .to_string(),
-        tags: vec!["test".to_string()],
-        project_ids: vec!["proj0001".to_string()],
-        scripts: vec![],
-        references: vec![],
-        assets: vec![],
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
-        deleted_at: None,
-    };
-    db1.skills().create(&skill).await.unwrap();
-
-    // Create attachments for the skill
-    use context_core::SkillAttachment;
-    let attachment1 = SkillAttachment {
-        id: "attach01".to_string(),
-        skill_id: "skill001".to_string(),
-        type_: "script".to_string(),
-        filename: "test.sh".to_string(),
-        content: BASE64_STANDARD.encode("#!/bin/bash\necho test"),
-        content_hash: "hash123".to_string(),
-        mime_type: Some("text/x-shellscript".to_string()),
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
-        deleted_at: None,
-    };
-    db1.skills().create_attachment(&attachment1).await.unwrap();
-
-    let attachment2 = SkillAttachment {
-        id: "attach02".to_string(),
-        skill_id: "skill001".to_string(),
-        type_: "reference".to_string(),
-        filename: "docs.md".to_string(),
-        content: BASE64_STANDARD.encode("# Documentation"),
-        content_hash: "hash456".to_string(),
-        mime_type: Some("text/markdown".to_string()),
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
-        deleted_at: None,
-    };
-    db1.skills().create_attachment(&attachment2).await.unwrap();
-
-    // Export from db1
-    let export_summary = db1.sync().export_all(temp_dir.path()).await.unwrap();
-    assert_eq!(export_summary.skills, 1, "Should export 1 skill");
-    assert_eq!(export_summary.attachments, 2, "Should export 2 attachments");
-
-    // The exported attachment rows must carry each attachment's mime_type.
-    let exported_attachments: Vec<SkillAttachment> =
-        read_jsonl(&temp_dir.path().join("skills_attachments.jsonl")).unwrap();
-    let exported_script = exported_attachments
-        .iter()
-        .find(|a| a.filename == "test.sh")
-        .expect("skills_attachments.jsonl should contain test.sh");
-    assert_eq!(
-        exported_script.mime_type,
-        Some("text/x-shellscript".to_string()),
-        "export must write the script attachment mime_type"
-    );
-    let exported_reference = exported_attachments
-        .iter()
-        .find(|a| a.filename == "docs.md")
-        .expect("skills_attachments.jsonl should contain docs.md");
-    assert_eq!(
-        exported_reference.mime_type,
-        Some("text/markdown".to_string()),
-        "export must write the reference attachment mime_type"
-    );
-
-    // Import to db2
-    let import_summary = db2.sync().import_all(temp_dir.path()).await.unwrap();
-    assert_eq!(import_summary.skills, 1, "Should import 1 skill");
-    assert_eq!(import_summary.attachments, 2, "Should import 2 attachments");
-
-    // Verify skill data and relationships
-    let imported_skill = db2.skills().get("skill001").await.unwrap();
-    assert_eq!(imported_skill.name, "test-skill");
-    assert_eq!(imported_skill.description, "A test skill");
-    assert!(imported_skill.content.contains("Do something"));
-    assert_eq!(imported_skill.tags, vec!["test"]);
-    assert_eq!(imported_skill.project_ids, vec!["proj0001"]);
-
-    // Verify attachments were imported
-    let imported_attachments = db2.skills().get_attachments("skill001").await.unwrap();
-    assert_eq!(imported_attachments.len(), 2, "Should import 2 attachments");
-
-    let script = imported_attachments
-        .iter()
-        .find(|a| a.type_ == "script")
-        .unwrap();
-    assert_eq!(script.filename, "test.sh");
-    assert_eq!(script.content_hash, "hash123");
-
-    let reference = imported_attachments
-        .iter()
-        .find(|a| a.type_ == "reference")
-        .unwrap();
-    assert_eq!(reference.filename, "docs.md");
-    assert_eq!(reference.content_hash, "hash456");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_export_import_skills_multiple_projects() {
-    // RED: Skills M:N relationships not synced
-    let db1 = setup_test_db().await;
-    let db2 = setup_test_db().await;
-    let temp_dir = TempDir::new().unwrap();
-
-    // Create multiple projects
-    let project1 = Project {
-        id: "proj0001".to_string(),
-        title: "Project 1".to_string(),
+    let task_list = TaskList {
+        id: "listfull".to_string(),
+        title: "Full Replica List".to_string(),
         description: None,
+        notes: None,
+        project_id: "projfull".to_string(),
         tags: vec![],
+        status: TaskListStatus::Active,
         external_refs: vec![],
         repo_ids: vec![],
-        task_list_ids: vec![],
-        note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        archived_at: None,
         deleted_at: None,
     };
-    db1.projects().create(&project1).await.unwrap();
+    db1.task_lists().create(&task_list).await.unwrap();
 
-    let project2 = Project {
-        id: "proj0002".to_string(),
-        title: "Project 2".to_string(),
+    let first_task = Task {
+        id: "taskfull".to_string(),
+        list_id: "listfull".to_string(),
+        parent_id: None,
+        title: "First Task".to_string(),
         description: None,
+        status: TaskStatus::Backlog,
+        priority: None,
         tags: vec![],
         external_refs: vec![],
-        repo_ids: vec![],
-        task_list_ids: vec![],
-        note_ids: vec![],
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
     };
-    db1.projects().create(&project2).await.unwrap();
+    db1.tasks().create(&first_task).await.unwrap();
 
-    // Create skill linked to multiple projects
-    let skill = Skill {
-        id: "skill001".to_string(),
-        name: "multi-project-skill".to_string(),
-        description: "Test description".to_string(),
-        content: r#"---
-name: multi-project-skill
-description: Test description
----
-
-# Multi-Project Skill
-
-Test instructions for multi-project skill.
-"#
-        .to_string(),
-        tags: vec![],
-        project_ids: vec!["proj0001".to_string(), "proj0002".to_string()],
-        scripts: vec![],
-        references: vec![],
-        assets: vec![],
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
-        deleted_at: None,
-    };
-    db1.skills().create(&skill).await.unwrap();
-
-    // Export and import
     db1.sync().export_all(temp_dir.path()).await.unwrap();
+
+    // SyncManager advances the cutoff after a successful export. The next
+    // export must still write the unchanged project, list, and first task.
+    db1.sync()
+        .set_last_synced_at(&context_core::current_timestamp())
+        .await
+        .unwrap();
+
+    let second_task = Task {
+        id: "taskful2".to_string(),
+        list_id: "listfull".to_string(),
+        parent_id: None,
+        title: "Second Task".to_string(),
+        description: None,
+        status: TaskStatus::Backlog,
+        priority: None,
+        tags: vec![],
+        external_refs: vec![],
+        created_at: Some("2024-01-02T00:00:00Z".to_string()),
+        updated_at: Some("2024-01-02T00:00:00Z".to_string()),
+        deleted_at: None,
+    };
+    db1.tasks().create(&second_task).await.unwrap();
+
+    db1.sync().export_all(temp_dir.path()).await.unwrap();
+
     db2.sync().import_all(temp_dir.path()).await.unwrap();
 
-    // Verify M:N relationships preserved
-    let imported_skill = db2.skills().get("skill001").await.unwrap();
-    assert_eq!(imported_skill.project_ids.len(), 2);
-    assert!(imported_skill.project_ids.contains(&"proj0001".to_string()));
-    assert!(imported_skill.project_ids.contains(&"proj0002".to_string()));
+    let imported_project = db2.projects().get("projfull").await.unwrap();
+    assert_eq!(imported_project.title, "Full Replica Project");
+
+    let imported_first = db2.tasks().get("taskfull").await.unwrap();
+    assert_eq!(imported_first.title, "First Task");
+
+    let imported_second = db2.tasks().get("taskful2").await.unwrap();
+    assert_eq!(imported_second.title, "Second Task");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_export_import_skills_upsert() {
-    // RED: Skills upsert logic not implemented
-    let db = setup_test_db().await;
-    let temp_dir = TempDir::new().unwrap();
+// ========== Relationship rebuild skip tests ==========
 
-    // Create project
-    let project = Project {
-        id: "proj0001".to_string(),
-        title: "Test Project".to_string(),
+/// The five M:N relationship tables, each with the column that scopes a rebuild.
+const RELATIONSHIP_TABLES: [(&str, &str); 5] = [
+    ("project_repo", "repo_id"),
+    ("task_list_repo", "task_list_id"),
+    ("project_note", "note_id"),
+    ("note_repo", "note_id"),
+    ("project_skill", "skill_id"),
+];
+
+const LINK_CREATED_AT: &str = "2024-01-01 00:00:00";
+
+fn link_project(id: &str, updated_at: &str) -> Project {
+    Project {
+        id: id.to_string(),
+        title: format!("Project {id}"),
         description: None,
         tags: vec![],
         external_refs: vec![],
         repo_ids: vec![],
         task_list_ids: vec![],
         note_ids: vec![],
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: Some("2024-01-01T00:00:00Z".to_string()),
+        created_at: Some(LINK_CREATED_AT.to_string()),
+        updated_at: Some(updated_at.to_string()),
         deleted_at: None,
-    };
-    db.projects().create(&project).await.unwrap();
+    }
+}
 
-    // Create initial skill
-    let skill_v1 = Skill {
-        id: "skill001".to_string(),
-        name: "original-name".to_string(),
-        description: "Original description".to_string(),
-        content: r#"---
-name: original-name
-description: Original description
----
+fn link_repo(id: &str, project_ids: &[&str], updated_at: &str) -> Repo {
+    Repo {
+        id: id.to_string(),
+        remote: format!("github:test/{id}"),
+        path: None,
+        tags: vec![],
+        project_ids: project_ids.iter().map(|id| id.to_string()).collect(),
+        created_at: Some(LINK_CREATED_AT.to_string()),
+        updated_at: Some(updated_at.to_string()),
+        deleted_at: None,
+    }
+}
 
-# Original Skill
+fn link_task_list(id: &str, project_id: &str, repo_ids: &[&str], updated_at: &str) -> TaskList {
+    TaskList {
+        id: id.to_string(),
+        title: format!("List {id}"),
+        description: None,
+        notes: None,
+        project_id: project_id.to_string(),
+        tags: vec![],
+        status: TaskListStatus::Active,
+        external_refs: vec![],
+        repo_ids: repo_ids.iter().map(|id| id.to_string()).collect(),
+        created_at: Some(LINK_CREATED_AT.to_string()),
+        updated_at: Some(updated_at.to_string()),
+        archived_at: None,
+        deleted_at: None,
+    }
+}
 
-Original instructions for the skill.
-"#
-        .to_string(),
-        tags: vec!["v1".to_string()],
-        project_ids: vec![],
+fn link_note(id: &str, project_ids: &[&str], repo_ids: &[&str], updated_at: &str) -> Note {
+    Note {
+        id: id.to_string(),
+        title: format!("Note {id}"),
+        content: "Note content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: repo_ids.iter().map(|id| id.to_string()).collect(),
+        project_ids: project_ids.iter().map(|id| id.to_string()).collect(),
+        subnote_count: None,
+        created_at: Some(LINK_CREATED_AT.to_string()),
+        updated_at: Some(updated_at.to_string()),
+        deleted_at: None,
+    }
+}
+
+fn link_skill(id: &str, project_ids: &[&str], updated_at: &str) -> Skill {
+    Skill {
+        id: id.to_string(),
+        name: format!("skill-{id}"),
+        description: format!("Skill {id}"),
+        content: format!("---\nname: skill-{id}\ndescription: Skill {id}\n---\n\n# Skill {id}\n"),
+        tags: vec![],
+        project_ids: project_ids.iter().map(|id| id.to_string()).collect(),
         scripts: vec![],
         references: vec![],
         assets: vec![],
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: Some("2024-01-01T10:00:00Z".to_string()),
+        created_at: Some(LINK_CREATED_AT.to_string()),
+        updated_at: Some(updated_at.to_string()),
         deleted_at: None,
-    };
-    db.skills().create(&skill_v1).await.unwrap();
+    }
+}
 
-    // Create modified version in JSONL
-    let skill_v2 = Skill {
-        id: "skill001".to_string(),
-        name: "Updated Name".to_string(),
-        description: "Updated description".to_string(),
-        content: r#"---
-name: Updated Name
-description: Updated description
----
+fn write_link_replica(
+    temp_dir: &TempDir,
+    projects: &[Project],
+    repos: &[Repo],
+    task_lists: &[TaskList],
+    notes: &[Note],
+    skills: &[Skill],
+) {
+    write_jsonl(&temp_dir.path().join("projects.jsonl"), projects).unwrap();
+    write_jsonl(&temp_dir.path().join("repos.jsonl"), repos).unwrap();
+    write_jsonl(&temp_dir.path().join("lists.jsonl"), task_lists).unwrap();
+    write_jsonl(&temp_dir.path().join("notes.jsonl"), notes).unwrap();
+    write_jsonl(&temp_dir.path().join("skills.jsonl"), skills).unwrap();
+}
 
-# Updated Skill
+/// Count every relationship row the import deletes or inserts.
+///
+/// A trigger on each relationship table records the writes, so a test can tell
+/// a skipped rebuild (no writes) from an executed one.
+async fn install_relationship_write_counters(db: &SqliteDatabase) {
+    sqlx::query(
+        "CREATE TABLE relationship_writes (
+            table_name TEXT PRIMARY KEY,
+            deletes INTEGER NOT NULL DEFAULT 0,
+            inserts INTEGER NOT NULL DEFAULT 0
+        )",
+    )
+    .execute(db.pool())
+    .await
+    .expect("counter table should be created");
 
-Updated instructions for the skill.
-"#
-        .to_string(),
-        tags: vec!["v2".to_string()],
-        project_ids: vec!["proj0001".to_string()],
-        scripts: vec![],
-        references: vec![],
-        assets: vec![],
-        created_at: Some("2024-01-01T00:00:00Z".to_string()),
-        updated_at: Some("2024-01-02T15:00:00Z".to_string()),
-        deleted_at: None,
-    };
+    for (table, _) in RELATIONSHIP_TABLES {
+        for (operation, event) in [("deletes", "DELETE"), ("inserts", "INSERT")] {
+            let sql = format!(
+                "CREATE TRIGGER {table}_{operation} AFTER {event} ON {table} BEGIN
+                    INSERT INTO relationship_writes (table_name, {operation})
+                    VALUES ('{table}', 1)
+                    ON CONFLICT(table_name) DO UPDATE SET {operation} = {operation} + 1;
+                 END"
+            );
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .execute(db.pool())
+                .await
+                .expect("counter trigger should be created");
+        }
+    }
+}
 
-    // Write to JSONL
-    write_jsonl(&temp_dir.path().join("projects.jsonl"), &[project]).unwrap();
-    write_jsonl(&temp_dir.path().join("skills.jsonl"), &[skill_v2]).unwrap();
-    write_jsonl::<Repo>(&temp_dir.path().join("repos.jsonl"), &[]).unwrap();
-    write_jsonl::<TaskList>(&temp_dir.path().join("lists.jsonl"), &[]).unwrap();
-    write_jsonl::<context_core::Task>(&temp_dir.path().join("tasks.jsonl"), &[]).unwrap();
-    write_jsonl::<context_core::Note>(&temp_dir.path().join("notes.jsonl"), &[]).unwrap();
+async fn reset_relationship_writes(db: &SqliteDatabase) {
+    sqlx::query("DELETE FROM relationship_writes")
+        .execute(db.pool())
+        .await
+        .expect("counter reset should succeed");
+}
 
-    // Import should update
-    let summary = db.sync().import_all(temp_dir.path()).await.unwrap();
-    assert_eq!(summary.skills, 1, "Should import 1 skill");
+async fn relationship_writes(db: &SqliteDatabase, table: &str) -> (i64, i64) {
+    sqlx::query_as("SELECT deletes, inserts FROM relationship_writes WHERE table_name = ?")
+        .bind(table)
+        .fetch_optional(db.pool())
+        .await
+        .expect("counter read should succeed")
+        .unwrap_or((0, 0))
+}
 
-    // Verify only one skill exists (updated, not duplicated)
-    let skills = db.skills().list(None).await.unwrap();
-    assert_eq!(
-        skills.items.len(),
-        1,
-        "Should have exactly 1 skill after upsert"
+async fn relationship_count(db: &SqliteDatabase, table: &str, owner_column: &str, id: &str) -> i64 {
+    crate::helpers::count_rows(db.pool(), table, &format!("{owner_column} = ?"), id).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn import_into_empty_db_writes_every_relationship_row() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let stamp = "2024-01-01 00:00:00";
+
+    // The repo lists the same project twice: the rebuild must collapse the
+    // duplicate exactly like INSERT OR IGNORE.
+    write_link_replica(
+        &temp_dir,
+        &[link_project("proj0001", stamp)],
+        &[link_repo("repo0001", &["proj0001", "proj0001"], stamp)],
+        &[link_task_list("list0001", "proj0001", &["repo0001"], stamp)],
+        &[link_note("note0001", &["proj0001"], &["repo0001"], stamp)],
+        &[link_skill("skil0001", &["proj0001"], stamp)],
     );
 
-    // Verify it was updated
-    let updated_skill = db.skills().get("skill001").await.unwrap();
-    assert_eq!(updated_skill.name, "Updated Name");
-    assert_eq!(updated_skill.description, "Updated description");
-    assert!(updated_skill.content.contains("Updated instructions"));
-    assert_eq!(updated_skill.tags, vec!["v2"]);
-    assert_eq!(updated_skill.project_ids, vec!["proj0001"]);
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let expected = [
+        ("project_repo", "repo_id", "repo0001"),
+        ("task_list_repo", "task_list_id", "list0001"),
+        ("project_note", "note_id", "note0001"),
+        ("note_repo", "note_id", "note0001"),
+        ("project_skill", "skill_id", "skil0001"),
+    ];
+    for (table, owner_column, id) in expected {
+        assert_eq!(
+            relationship_count(&db, table, owner_column, id).await,
+            1,
+            "{table} must hold the deduplicated file pairs"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn import_skips_identical_relationship_rebuilds() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let stamp = "2024-06-01 00:00:00";
+    install_relationship_write_counters(&db).await;
+
+    write_link_replica(
+        &temp_dir,
+        &[link_project("proj0001", stamp)],
+        &[link_repo("repo0001", &["proj0001"], stamp)],
+        &[link_task_list("list0001", "proj0001", &["repo0001"], stamp)],
+        &[link_note("note0001", &["proj0001"], &["repo0001"], stamp)],
+        &[link_skill("skil0001", &["proj0001"], stamp)],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+    reset_relationship_writes(&db).await;
+
+    // The file is unchanged, so every wanted set equals the target's set.
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    for (table, _) in RELATIONSHIP_TABLES {
+        assert_eq!(
+            relationship_writes(&db, table).await,
+            (0, 0),
+            "{table} must not be rebuilt when the target already holds the file's pairs"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn import_applies_changed_relationships_with_bumped_updated_at() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let old = "2024-01-01 00:00:00";
+    let new = "2024-12-01 00:00:00";
+
+    write_link_replica(
+        &temp_dir,
+        &[link_project("proj0001", old), link_project("proj0002", old)],
+        &[link_repo("repo0001", &["proj0001"], old)],
+        &[link_task_list("list0001", "proj0001", &["repo0001"], old)],
+        &[link_note("note0001", &["proj0001"], &["repo0001"], old)],
+        &[link_skill("skil0001", &["proj0001"], old)],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    // Every entity row is newer and every link set changes.
+    write_link_replica(
+        &temp_dir,
+        &[link_project("proj0001", new), link_project("proj0002", new)],
+        &[link_repo("repo0001", &["proj0002"], new)],
+        &[link_task_list("list0001", "proj0001", &[], new)],
+        &[link_note("note0001", &["proj0002"], &[], new)],
+        &[link_skill("skil0001", &["proj0002"], new)],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
     assert_eq!(
-        updated_skill.updated_at,
-        Some("2024-01-02T15:00:00Z".to_string()),
-        "CRITICAL: updated_at must be preserved during import!"
+        db.repos().get("repo0001").await.unwrap().project_ids,
+        vec!["proj0002"]
+    );
+    assert!(
+        db.task_lists()
+            .get("list0001")
+            .await
+            .unwrap()
+            .repo_ids
+            .is_empty()
+    );
+    let note = db.notes().get("note0001").await.unwrap();
+    assert_eq!(note.project_ids, vec!["proj0002"]);
+    assert!(note.repo_ids.is_empty());
+    assert_eq!(
+        db.skills().get("skil0001").await.unwrap().project_ids,
+        vec!["proj0002"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn import_applies_changed_relationships_when_updated_at_is_equal() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let stamp = "2024-06-01 00:00:00";
+
+    write_link_replica(
+        &temp_dir,
+        &[
+            link_project("proj0001", stamp),
+            link_project("proj0002", stamp),
+        ],
+        &[link_repo("repo0001", &["proj0001"], stamp)],
+        &[link_task_list("list0001", "proj0001", &["repo0001"], stamp)],
+        &[link_note("note0001", &["proj0001"], &["repo0001"], stamp)],
+        &[link_skill("skil0001", &["proj0001"], stamp)],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    // Same updated_at, different links. The entity guard blocks the row write,
+    // but the relationship rebuild must still apply the file's set. An
+    // inferred-identity shortcut would keep the old links here.
+    write_link_replica(
+        &temp_dir,
+        &[
+            link_project("proj0001", stamp),
+            link_project("proj0002", stamp),
+        ],
+        &[link_repo("repo0001", &["proj0002"], stamp)],
+        &[link_task_list("list0001", "proj0001", &[], stamp)],
+        &[link_note("note0001", &["proj0002"], &[], stamp)],
+        &[link_skill("skil0001", &["proj0002"], stamp)],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    assert_eq!(
+        db.repos().get("repo0001").await.unwrap().project_ids,
+        vec!["proj0002"],
+        "an equal updated_at must not skip the relationship rebuild"
+    );
+    assert!(
+        db.task_lists()
+            .get("list0001")
+            .await
+            .unwrap()
+            .repo_ids
+            .is_empty()
+    );
+    let note = db.notes().get("note0001").await.unwrap();
+    assert_eq!(note.project_ids, vec!["proj0002"]);
+    assert!(note.repo_ids.is_empty());
+    assert_eq!(
+        db.skills().get("skil0001").await.unwrap().project_ids,
+        vec!["proj0002"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn import_deletes_relationships_of_tombstoned_entity_with_empty_links() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let old = "2024-01-01 00:00:00";
+    let new = "2024-12-01 00:00:00";
+
+    write_link_replica(
+        &temp_dir,
+        &[link_project("proj0001", old)],
+        &[link_repo("repo0001", &["proj0001"], old)],
+        &[link_task_list("list0001", "proj0001", &["repo0001"], old)],
+        &[link_note("note0001", &["proj0001"], &["repo0001"], old)],
+        &[link_skill("skil0001", &["proj0001"], old)],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    // Every entity is tombstoned and its link set is empty.
+    let mut tombstoned_repo = link_repo("repo0001", &[], new);
+    tombstoned_repo.deleted_at = Some("2024-12-02 00:00:00".to_string());
+    let mut tombstoned_list = link_task_list("list0001", "proj0001", &[], new);
+    tombstoned_list.deleted_at = Some("2024-12-02 00:00:00".to_string());
+    let mut tombstoned_note = link_note("note0001", &[], &[], new);
+    tombstoned_note.deleted_at = Some("2024-12-02 00:00:00".to_string());
+    let mut tombstoned_skill = link_skill("skil0001", &[], new);
+    tombstoned_skill.deleted_at = Some("2024-12-02 00:00:00".to_string());
+
+    write_link_replica(
+        &temp_dir,
+        &[link_project("proj0001", new)],
+        &[tombstoned_repo],
+        &[tombstoned_list],
+        &[tombstoned_note],
+        &[tombstoned_skill],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let expected = [
+        ("project_repo", "repo_id", "repo0001"),
+        ("task_list_repo", "task_list_id", "list0001"),
+        ("project_note", "note_id", "note0001"),
+        ("note_repo", "note_id", "note0001"),
+        ("project_skill", "skill_id", "skil0001"),
+    ];
+    for (table, owner_column, id) in expected {
+        assert_eq!(
+            relationship_count(&db, table, owner_column, id).await,
+            0,
+            "{table} must drop the rows of a tombstoned entity with empty links"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn import_leaves_relationships_of_entities_absent_from_files() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let stamp = "2024-06-01 00:00:00";
+
+    write_link_replica(
+        &temp_dir,
+        &[link_project("proj0001", stamp)],
+        &[link_repo("repo0001", &["proj0001"], stamp)],
+        &[],
+        &[],
+        &[],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    // repo0001 is absent from the second file, so its rows are out of the
+    // rebuild scope and must survive.
+    write_link_replica(
+        &temp_dir,
+        &[link_project("proj0001", stamp)],
+        &[link_repo("repo0002", &[], stamp)],
+        &[],
+        &[],
+        &[],
+    );
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    assert_eq!(
+        relationship_count(&db, "project_repo", "repo_id", "repo0001").await,
+        1,
+        "a rebuild must not touch entities absent from the files"
+    );
+    assert_eq!(
+        db.repos().get("repo0001").await.unwrap().project_ids,
+        vec!["proj0001"]
     );
 }

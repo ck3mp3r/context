@@ -521,6 +521,17 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         Ok(count as usize)
     }
 
+    async fn count_deleted(&self) -> DbResult<usize> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM task WHERE deleted_at IS NOT NULL")
+                .fetch_one(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, task: &Task) -> DbResult<()> {
         // Validate task
         validate_task(task)?;

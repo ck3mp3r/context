@@ -788,6 +788,53 @@ async fn list_excludes_soft_deleted() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn count_deleted_counts_tombstones_only() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("listcnt1", "Count List"))
+        .await
+        .expect("Create should succeed");
+    let tasks = db.tasks();
+
+    tasks
+        .create(&make_task("cntlive1", "listcnt1", "Live Task"))
+        .await
+        .expect("Create should succeed");
+    tasks
+        .create(&make_task("cntdead1", "listcnt1", "Dead Task"))
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(
+        tasks
+            .count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        0,
+        "count_deleted should be zero without tombstones"
+    );
+
+    tasks
+        .delete("cntdead1")
+        .await
+        .expect("Delete should succeed");
+
+    assert_eq!(
+        tasks
+            .count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        1,
+        "count_deleted should count the tombstone"
+    );
+    assert_eq!(
+        tasks.count().await.expect("Count should succeed"),
+        1,
+        "count should exclude the tombstone"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn fts5_search_excludes_soft_deleted() {
     let db = setup_db().await;
     db.task_lists()

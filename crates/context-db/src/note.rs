@@ -812,6 +812,17 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         Ok(count as usize)
     }
 
+    async fn count_deleted(&self) -> DbResult<usize> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM note WHERE deleted_at IS NOT NULL")
+                .fetch_one(self.pool)
+                .await
+                .map_err(|e| DbError::Database {
+                    message: e.to_string(),
+                })?;
+        Ok(count as usize)
+    }
+
     async fn update(&self, note: &Note) -> DbResult<()> {
         // Validate content size
         validate_note_size(&note.content)?;

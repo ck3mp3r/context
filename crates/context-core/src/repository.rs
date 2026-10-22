@@ -24,6 +24,7 @@ pub trait ProjectRepository: Send + Sync {
         query: Option<&ProjectQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Project>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn count_deleted(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, project: &Project) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     /// Restore a soft-deleted project by clearing its `deleted_at`.
@@ -54,6 +55,7 @@ pub trait RepoRepository: Send + Sync {
         query: Option<&RepoQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Repo>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn count_deleted(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, repo: &Repo) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     /// Restore a soft-deleted repo by clearing its `deleted_at`.
@@ -78,6 +80,7 @@ pub trait TaskListRepository: Send + Sync {
         query: Option<&TaskListQuery>,
     ) -> impl Future<Output = DbResult<ListResult<TaskList>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn count_deleted(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn search(
         &self,
         search_term: &str,
@@ -109,6 +112,7 @@ pub trait TaskRepository: Send + Sync {
         query: Option<&TaskQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn count_deleted(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn search(
         &self,
         search_term: &str,
@@ -152,6 +156,7 @@ pub trait NoteRepository: Send + Sync {
         query: Option<&NoteQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Note>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn count_deleted(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn list_metadata_only(
         &self,
         query: Option<&NoteQuery>,
@@ -202,6 +207,7 @@ pub trait SkillRepository: Send + Sync {
         query: Option<&crate::SkillQuery>,
     ) -> impl Future<Output = DbResult<ListResult<crate::Skill>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn count_deleted(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn update(&self, skill: &crate::Skill) -> impl Future<Output = DbResult<()>> + Send;
     fn delete(&self, id: &str) -> impl Future<Output = DbResult<()>> + Send;
     /// Restore a soft-deleted skill by clearing its `deleted_at`.
@@ -227,6 +233,7 @@ pub trait SkillRepository: Send + Sync {
         skill_id: &str,
     ) -> impl Future<Output = DbResult<Vec<crate::SkillAttachment>>> + Send;
     fn count_attachments(&self) -> impl Future<Output = DbResult<usize>> + Send;
+    fn count_deleted_attachments(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn create_attachment(
         &self,
         attachment: &crate::SkillAttachment,

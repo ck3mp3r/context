@@ -970,6 +970,49 @@ async fn list_excludes_soft_deleted() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn count_deleted_counts_tombstones_only() {
+    let db = setup_db().await;
+    let repos = db.repos();
+
+    repos
+        .create(&make_repo("cntlive1", "github:user/cntlive1"))
+        .await
+        .expect("Create should succeed");
+    repos
+        .create(&make_repo("cntdead1", "github:user/cntdead1"))
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(
+        repos
+            .count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        0,
+        "count_deleted should be zero without tombstones"
+    );
+
+    repos
+        .delete("cntdead1")
+        .await
+        .expect("Delete should succeed");
+
+    assert_eq!(
+        repos
+            .count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        1,
+        "count_deleted should count the tombstone"
+    );
+    assert_eq!(
+        repos.count().await.expect("Count should succeed"),
+        1,
+        "count should exclude the tombstone"
+    );
+}
+
 // =============================================================================
 // Tombstone purge tests
 // =============================================================================

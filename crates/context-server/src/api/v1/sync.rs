@@ -259,6 +259,16 @@ pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync>(
             "attachments": counts.attachments,
             "total": counts.total(),
         })),
+        "tombstones": status.tombstone_counts.as_ref().map(|counts| serde_json::json!({
+            "repos": counts.repos,
+            "projects": counts.projects,
+            "task_lists": counts.task_lists,
+            "tasks": counts.tasks,
+            "notes": counts.notes,
+            "skills": counts.skills,
+            "attachments": counts.attachments,
+            "total": counts.total(),
+        })),
     });
 
     Ok(Json(SyncResponse {

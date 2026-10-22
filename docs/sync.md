@@ -7,9 +7,9 @@ Cross-machine synchronization using git and JSONL files.
 c5t sync shares data across machines through a private git repository:
 
 - Exports the SQLite database to human-readable JSONL files
-- Exports only rows changed since the last successful export (incremental sync)
+- Writes every live row and tombstone to the JSONL files on every export (full replica)
+- Commits only the changed rows and pushes to a git remote
 - Propagates deletions with logical deletes and tombstones
-- Commits and pushes to a git remote
 - Pulls and imports from other machines
 - Resolves conflicts with last-write-wins on `updated_at`
 - Refuses imports produced by a newer database schema
@@ -28,28 +28,38 @@ hides the entity too.
 Without tombstones, a delete on one machine would be invisible to another
 machine, and the next import would resurrect the deleted row.
 
-## Incremental Sync
+## Full Replica Export
+
+Every export writes every row of every syncable table to the JSONL files. Each
+file is a complete replica of the database, including tombstones. The file
+content does not depend on what changed since the last export.
+
+Git still stores only the differences. An unchanged row produces an identical
+line, so the commit for an export contains only the rows that changed since the
+previous export.
 
 The database keeps the export cutoff in the `sync_state` table:
 
 | Column | Meaning |
 |--------|---------|
 | `last_synced_at` | Timestamp of the last successful export |
-| `last_full_sync_at` | Timestamp of the last full export |
+| `last_full_sync_at` | Timestamp of the last export that ran with no cutoff |
 | `schema_version` | Schema version recorded at the last export |
 
-Export behavior:
+The cutoff does not filter the exported files. It bounds the incremental change
+counts that the export reports:
 
 1. Capture the cutoff timestamp before the export query runs.
-2. Write only rows whose timestamp is greater than `last_synced_at`.
+2. Write every row to the JSONL files.
 3. Commit and push the JSONL files.
 4. Advance `last_synced_at` to the captured cutoff.
 
-A NULL `last_synced_at` means the next export is a **full export**: every row is
-written. This happens on the first sync and after a schema version change.
+A NULL `last_synced_at` means the next export counts every row as changed. This
+happens on the first sync and after a schema version change.
 
 Because the cutoff advances only after a successful commit and push, a failed
-export leaves the cutoff untouched. The next export re-exports the same rows.
+export leaves the cutoff untouched. The next export counts the same rows as
+changed.
 
 ## Schema Version Checking
 
@@ -72,8 +82,8 @@ Before an import, c5t compares `sync_meta.json` with the local schema version:
 - **No `sync_meta.json`**: import proceeds. This covers first syncs and legacy
   repositories.
 
-A schema version change also resets the local export cutoff. The next export is
-a full export, so the new schema sees every row.
+A schema version change also resets the local export cutoff. The next export
+counts every row as changed.
 
 ## Tombstone Purge and Retention
 
@@ -232,9 +242,9 @@ c5t sync export -m "End of day backup"
 This:
 
 1. Purges expired tombstones
-2. Exports changed rows to JSONL files
+2. Writes every row to the JSONL files
 3. Writes `sync_meta.json`
-4. Commits changes locally
+4. Commits the changed rows locally
 
 **Share with remote:**
 
@@ -265,9 +275,9 @@ Output:
 ╰─────────────┴───────╯
 ```
 
-`N changes` is the number of entities written by this export. It is not the
-total number of rows in the database. A second export with no new writes shows
-`0 changes`.
+`N changes` is the number of rows modified since the previous export. It is not
+the total number of rows in the JSONL files, which always hold the full replica.
+A second export with no new writes shows `0 changes`.
 
 ### Import
 
@@ -318,6 +328,14 @@ Returns:
 - Remote URL
 - `last_synced_at` and local `schema_version`
 - Entity counts in the database and in the sync files
+- Tombstone counts in the database
+
+The sync-file counts are line counts of the JSONL files. The files hold the
+full replica, including tombstones; the database counts exclude tombstones. The
+tombstone counts come from the database. Right after an export the counts
+reconcile as `jsonl = db_live + tombstones`: the purge runs before the export,
+so purged tombstones leave both sides together. Between exports the identity
+drifts only by entities created after the last export.
 
 ## Sync Workflow
 

@@ -83,3 +83,56 @@ fn test_streaming_read_skips_empty_lines() {
 
     assert_eq!(count, entities.len());
 }
+
+#[test]
+fn test_count_jsonl_lines_empty_file_returns_zero() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("empty.jsonl");
+    std::fs::write(&path, "").unwrap();
+
+    let count = count_jsonl_lines(&path).unwrap();
+
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn test_count_jsonl_lines_skips_blank_lines() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("entities.jsonl");
+    let entities = entities();
+    write_jsonl(&path, &entities).unwrap();
+
+    // Insert a blank line between every entity line, plus a whitespace-only line.
+    let content = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, content.replace('\n', "\n\n")).unwrap();
+    let mut content = std::fs::read_to_string(&path).unwrap();
+    content.push_str("   \n\t\n");
+    std::fs::write(&path, content).unwrap();
+
+    let count = count_jsonl_lines(&path).unwrap();
+
+    assert_eq!(count, entities.len());
+}
+
+#[test]
+fn test_count_jsonl_lines_matches_read_jsonl_len() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("entities.jsonl");
+    let entities = entities();
+    write_jsonl(&path, &entities).unwrap();
+
+    let expected = read_jsonl::<TestEntity>(&path).unwrap().len();
+    let count = count_jsonl_lines(&path).unwrap();
+
+    assert_eq!(count, expected);
+}
+
+#[test]
+fn test_count_jsonl_lines_missing_file_returns_io_error() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("missing.jsonl");
+
+    let result = count_jsonl_lines(&path);
+
+    assert!(matches!(result, Err(JsonlError::Io(_))));
+}

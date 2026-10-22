@@ -20,7 +20,7 @@ mod paths_test;
 mod utils_test;
 
 pub use error::{DbError, DbResult};
-pub use jsonl::{JsonlError, JsonlReader, JsonlWriter, read_jsonl, write_jsonl};
+pub use jsonl::{JsonlError, JsonlReader, JsonlWriter, count_jsonl_lines, read_jsonl, write_jsonl};
 pub use models::*;
 pub use paths::*;
 pub use repository::*;

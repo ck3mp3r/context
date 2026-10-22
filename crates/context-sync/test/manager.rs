@@ -1,6 +1,6 @@
-use crate::git::MockGitOps;
+use crate::git::{GitError, MockGitOps};
 use crate::manager::*;
-use context_core::{Database, HasSync, Project, SyncRepository};
+use context_core::{Database, HasProjects, HasSync, Project, ProjectRepository, SyncRepository};
 use context_db::SqliteDatabase;
 use tempfile::TempDir;
 
@@ -282,5 +282,116 @@ async fn test_export_purges_before_export() {
         exported.is_empty(),
         "a purged project must not appear in the export, got: {:?}",
         exported
+    );
+}
+
+fn make_project(id: &str) -> Project {
+    Project {
+        id: id.to_string(),
+        title: format!("Project {id}"),
+        description: None,
+        tags: vec![],
+        external_refs: vec![],
+        repo_ids: vec![],
+        task_list_ids: vec![],
+        note_ids: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    }
+}
+
+fn status_manager(temp_dir: &TempDir) -> SyncManager<MockGitOps> {
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .returning(|_, _| Err(GitError::GitNotFound));
+    mock_git
+        .expect_status_porcelain()
+        .returning(|_| Ok(mock_output(0, "", "")));
+
+    SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_status_tombstone_counts_none_when_not_initialized() {
+    let temp_dir = TempDir::new().unwrap();
+    let db = setup_db().await;
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), temp_dir.path().to_path_buf());
+
+    let status = manager.status(&db).await.unwrap();
+
+    assert!(!status.initialized, "sync must report itself uninitialized");
+    assert!(
+        status.tombstone_counts.is_none(),
+        "an uninitialized status must not report tombstone counts"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_status_tombstone_counts_counts_soft_deleted_rows() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+    let db = setup_db().await;
+
+    db.projects()
+        .create(&make_project("live0001"))
+        .await
+        .expect("Create live project should succeed");
+    db.projects()
+        .create(&make_project("tomb0001"))
+        .await
+        .expect("Create project to tombstone should succeed");
+    db.projects()
+        .delete("tomb0001")
+        .await
+        .expect("Soft delete should succeed");
+
+    let manager = status_manager(&temp_dir);
+    let status = manager.status(&db).await.unwrap();
+
+    let db_counts = status.db_counts.expect("initialized status has db counts");
+    let tombstones = status
+        .tombstone_counts
+        .expect("initialized status has tombstone counts");
+    let jsonl_counts = status
+        .jsonl_counts
+        .expect("initialized status has jsonl counts");
+
+    assert_eq!(db_counts.projects, 1, "only the live project is counted");
+    assert_eq!(tombstones.projects, 1, "the tombstone is counted");
+    assert_eq!(jsonl_counts.projects, 0, "no export has run yet");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_status_tombstone_counts_zero_without_tombstones() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+    let db = setup_db().await;
+
+    db.projects()
+        .create(&make_project("live0002"))
+        .await
+        .expect("Create live project should succeed");
+
+    let manager = status_manager(&temp_dir);
+    let status = manager.status(&db).await.unwrap();
+
+    let tombstones = status
+        .tombstone_counts
+        .expect("initialized status has tombstone counts");
+
+    assert_eq!(
+        tombstones,
+        EntityCounts {
+            repos: 0,
+            projects: 0,
+            task_lists: 0,
+            tasks: 0,
+            notes: 0,
+            skills: 0,
+            attachments: 0,
+        },
+        "a database without tombstones reports zero everywhere"
     );
 }

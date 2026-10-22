@@ -2,6 +2,7 @@
 
 use futures_util::TryStreamExt;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use context_core::{
@@ -112,6 +113,63 @@ pub(crate) fn read_batch<T: for<'de> serde::Deserialize<'de>>(
     Ok(batch)
 }
 
+/// Keep only the rows whose `updated_at` can clear the target row's LWW guard.
+///
+/// The entity upserts carry `WHERE <table>.updated_at IS NULL OR
+/// excluded.updated_at > <table>.updated_at`. A row that cannot clear that
+/// guard is a no-op write, so it is dropped before the upsert runs. The
+/// decision reads the target row's `updated_at` from the same transaction, so
+/// it sees every write made by earlier batches.
+///
+/// A row is kept when no target row exists, when the target's `updated_at` is
+/// NULL, or when the row's `updated_at` is newer than the target's. The
+/// comparison is lexicographic on the TEXT timestamps, matching SQLite's
+/// default BINARY collation.
+async fn guard_writable_rows<'r, T>(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    table: &str,
+    rows: &'r [T],
+    id_of: impl Fn(&T) -> &str,
+    updated_at_of: impl Fn(&T) -> Option<&str>,
+) -> Result<Vec<&'r T>, sqlx::Error> {
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut builder = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT id, updated_at FROM {} WHERE id IN (",
+        table
+    ));
+    {
+        let mut separated = builder.separated(", ");
+        for row in rows {
+            separated.push_bind(id_of(row));
+        }
+        separated.push_unseparated(")");
+    }
+
+    let existing: Vec<(String, Option<String>)> =
+        builder.build_query_as().fetch_all(&mut **tx).await?;
+    let targets: HashMap<&str, Option<&str>> = existing
+        .iter()
+        .map(|(id, updated_at)| (id.as_str(), updated_at.as_deref()))
+        .collect();
+
+    let mut writable = Vec::with_capacity(rows.len());
+    for row in rows {
+        let keep = match targets.get(id_of(row)) {
+            None | Some(None) => true,
+            Some(Some(target_updated_at)) => {
+                updated_at_of(row).is_some_and(|incoming| incoming > *target_updated_at)
+            }
+        };
+        if keep {
+            writable.push(row);
+        }
+    }
+    Ok(writable)
+}
+
 /// Execute a batched upsert: one multi-row statement per chunk of `rows`.
 ///
 /// `sql_prefix` is the `INSERT INTO ...` clause, `sql_suffix` is the
@@ -176,6 +234,124 @@ async fn insert_relationships(
     .await
 }
 
+/// One M:N relationship table and the columns a rebuild touches.
+struct RelationshipTable {
+    /// Table name.
+    table: &'static str,
+    /// Column holding the owning entity id; the rebuild is scoped to it.
+    owner_column: &'static str,
+    /// First column of the composite primary key.
+    left_column: &'static str,
+    /// Second column of the composite primary key.
+    right_column: &'static str,
+}
+
+const PROJECT_REPO: RelationshipTable = RelationshipTable {
+    table: "project_repo",
+    owner_column: "repo_id",
+    left_column: "project_id",
+    right_column: "repo_id",
+};
+
+const TASK_LIST_REPO: RelationshipTable = RelationshipTable {
+    table: "task_list_repo",
+    owner_column: "task_list_id",
+    left_column: "task_list_id",
+    right_column: "repo_id",
+};
+
+const PROJECT_NOTE: RelationshipTable = RelationshipTable {
+    table: "project_note",
+    owner_column: "note_id",
+    left_column: "project_id",
+    right_column: "note_id",
+};
+
+const NOTE_REPO: RelationshipTable = RelationshipTable {
+    table: "note_repo",
+    owner_column: "note_id",
+    left_column: "note_id",
+    right_column: "repo_id",
+};
+
+const PROJECT_SKILL: RelationshipTable = RelationshipTable {
+    table: "project_skill",
+    owner_column: "skill_id",
+    left_column: "project_id",
+    right_column: "skill_id",
+};
+
+/// Return true when the target already holds exactly the `wanted` pairs for
+/// `owner_ids`.
+///
+/// Reads the rows the matching `delete_relationships` call would remove, so a
+/// `true` result proves the delete and reinsert write back the same set. Both
+/// sides are compared as sets, matching `INSERT OR IGNORE` collapsing duplicate
+/// pairs.
+async fn relationships_match(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    relationship: &RelationshipTable,
+    owner_ids: &[String],
+    wanted: &[(String, String)],
+) -> Result<bool, sqlx::Error> {
+    let wanted: HashSet<(&str, &str)> = wanted
+        .iter()
+        .map(|(left, right)| (left.as_str(), right.as_str()))
+        .collect();
+
+    let mut current: HashSet<(String, String)> = HashSet::new();
+    for chunk in owner_ids.chunks(rows_per_batch(1)) {
+        let mut builder = QueryBuilder::<Sqlite>::new(format!(
+            "SELECT {}, {} FROM {} WHERE {} IN (",
+            relationship.left_column,
+            relationship.right_column,
+            relationship.table,
+            relationship.owner_column
+        ));
+        {
+            let mut separated = builder.separated(", ");
+            for id in chunk {
+                separated.push_bind(id);
+            }
+            separated.push_unseparated(")");
+        }
+        let rows: Vec<(String, String)> = builder.build_query_as().fetch_all(&mut **tx).await?;
+        current.extend(rows);
+    }
+
+    if current.len() != wanted.len() {
+        return Ok(false);
+    }
+    Ok(current
+        .iter()
+        .all(|(left, right)| wanted.contains(&(left.as_str(), right.as_str()))))
+}
+
+/// Rebuild the relationship rows owned by `owner_ids`, unless the target
+/// already holds exactly the `wanted` pairs.
+///
+/// The comparison reads the rows the `DELETE` would remove, so a skip is
+/// write-equivalent: the delete and reinsert would produce the same set.
+async fn rebuild_relationships(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    relationship: &RelationshipTable,
+    owner_ids: &[String],
+    wanted: &[(String, String)],
+) -> Result<(), sqlx::Error> {
+    if relationships_match(tx, relationship, owner_ids, wanted).await? {
+        return Ok(());
+    }
+    delete_relationships(tx, relationship.table, relationship.owner_column, owner_ids).await?;
+    insert_relationships(
+        tx,
+        relationship.table,
+        relationship.left_column,
+        relationship.right_column,
+        wanted,
+    )
+    .await
+}
+
 /// Import all JSONL files using a provided SQLite transaction.
 ///
 /// This is SQLite-specific because it uses raw SQL queries within a transaction.
@@ -208,11 +384,19 @@ async fn import_all_with_transaction(
             if projects.is_empty() {
                 break;
             }
-            let rows: Vec<(&Project, String, String)> = projects
+            let writable = guard_writable_rows(
+                tx,
+                "project",
+                &projects,
+                |project| project.id.as_str(),
+                |project| project.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Project, String, String)> = writable
                 .iter()
                 .map(|project| {
                     Ok((
-                        project,
+                        *project,
                         serde_json::to_string(&project.tags)?,
                         serde_json::to_string(&project.external_refs)?,
                     ))
@@ -260,9 +444,17 @@ async fn import_all_with_transaction(
             if repos.is_empty() {
                 break;
             }
-            let rows: Vec<(&Repo, String)> = repos
+            let writable = guard_writable_rows(
+                tx,
+                "repo",
+                &repos,
+                |repo| repo.id.as_str(),
+                |repo| repo.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Repo, String)> = writable
                 .iter()
-                .map(|repo| Ok((repo, serde_json::to_string(&repo.tags)?)))
+                .map(|repo| Ok((*repo, serde_json::to_string(&repo.tags)?)))
                 .collect::<Result<_, serde_json::Error>>()?;
 
             batched_upsert(
@@ -299,8 +491,7 @@ async fn import_all_with_transaction(
                         .map(move |project_id| (project_id.clone(), repo.id.clone()))
                 })
                 .collect();
-            delete_relationships(tx, "project_repo", "repo_id", &repo_ids).await?;
-            insert_relationships(tx, "project_repo", "project_id", "repo_id", &links).await?;
+            rebuild_relationships(tx, &PROJECT_REPO, &repo_ids, &links).await?;
 
             summary.repos += repos.len();
         }
@@ -316,11 +507,19 @@ async fn import_all_with_transaction(
             if task_lists.is_empty() {
                 break;
             }
-            let rows: Vec<(&TaskList, String, String)> = task_lists
+            let writable = guard_writable_rows(
+                tx,
+                "task_list",
+                &task_lists,
+                |task_list| task_list.id.as_str(),
+                |task_list| task_list.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&TaskList, String, String)> = writable
                 .iter()
                 .map(|task_list| {
                     Ok((
-                        task_list,
+                        *task_list,
                         serde_json::to_string(&task_list.tags)?,
                         serde_json::to_string(&task_list.external_refs)?,
                     ))
@@ -371,8 +570,7 @@ async fn import_all_with_transaction(
                         .map(move |repo_id| (list.id.clone(), repo_id.clone()))
                 })
                 .collect();
-            delete_relationships(tx, "task_list_repo", "task_list_id", &list_ids).await?;
-            insert_relationships(tx, "task_list_repo", "task_list_id", "repo_id", &links).await?;
+            rebuild_relationships(tx, &TASK_LIST_REPO, &list_ids, &links).await?;
 
             summary.task_lists += task_lists.len();
         }
@@ -388,11 +586,19 @@ async fn import_all_with_transaction(
             if tasks.is_empty() {
                 break;
             }
-            let rows: Vec<(&Task, String, String)> = tasks
+            let writable = guard_writable_rows(
+                tx,
+                "task",
+                &tasks,
+                |task| task.id.as_str(),
+                |task| task.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Task, String, String)> = writable
                 .iter()
                 .map(|task| {
                     Ok((
-                        task,
+                        *task,
                         serde_json::to_string(&task.tags)?,
                         serde_json::to_string(&task.external_refs)?,
                     ))
@@ -451,7 +657,8 @@ async fn import_all_with_transaction(
             }
 
             // `task_transition_log` has no `updated_at` column, so it cannot carry
-            // a LWW guard. Re-importing writes identical values.
+            // a LWW guard. The compare-on-conflict guard skips the rewrite when
+            // the stored row already holds the file's values.
             batched_upsert(
                 tx,
                 &transitions,
@@ -460,7 +667,10 @@ async fn import_all_with_transaction(
                 " ON CONFLICT(id) DO UPDATE SET
                     task_id = excluded.task_id,
                     status = excluded.status,
-                    transitioned_at = excluded.transitioned_at",
+                    transitioned_at = excluded.transitioned_at
+                  WHERE excluded.task_id <> task_transition_log.task_id
+                     OR excluded.status <> task_transition_log.status
+                     OR excluded.transitioned_at <> task_transition_log.transitioned_at",
                 |separated, transition| {
                     separated
                         .push_bind(&transition.id)
@@ -485,9 +695,17 @@ async fn import_all_with_transaction(
             if notes.is_empty() {
                 break;
             }
-            let rows: Vec<(&Note, String)> = notes
+            let writable = guard_writable_rows(
+                tx,
+                "note",
+                &notes,
+                |note| note.id.as_str(),
+                |note| note.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Note, String)> = writable
                 .iter()
-                .map(|note| Ok((note, serde_json::to_string(&note.tags)?)))
+                .map(|note| Ok((*note, serde_json::to_string(&note.tags)?)))
                 .collect::<Result<_, serde_json::Error>>()?;
 
             batched_upsert(
@@ -536,11 +754,8 @@ async fn import_all_with_transaction(
                         .map(move |repo_id| (note.id.clone(), repo_id.clone()))
                 })
                 .collect();
-            delete_relationships(tx, "project_note", "note_id", &note_ids).await?;
-            insert_relationships(tx, "project_note", "project_id", "note_id", &project_links)
-                .await?;
-            delete_relationships(tx, "note_repo", "note_id", &note_ids).await?;
-            insert_relationships(tx, "note_repo", "note_id", "repo_id", &repo_links).await?;
+            rebuild_relationships(tx, &PROJECT_NOTE, &note_ids, &project_links).await?;
+            rebuild_relationships(tx, &NOTE_REPO, &note_ids, &repo_links).await?;
 
             summary.notes += notes.len();
         }
@@ -566,9 +781,17 @@ async fn import_all_with_transaction(
             if skills.is_empty() {
                 break;
             }
-            let rows: Vec<(&Skill, String)> = skills
+            let writable = guard_writable_rows(
+                tx,
+                "skill",
+                &skills,
+                |skill| skill.id.as_str(),
+                |skill| skill.updated_at.as_deref(),
+            )
+            .await?;
+            let rows: Vec<(&Skill, String)> = writable
                 .iter()
-                .map(|skill| Ok((skill, serde_json::to_string(&skill.tags)?)))
+                .map(|skill| Ok((*skill, serde_json::to_string(&skill.tags)?)))
                 .collect::<Result<_, serde_json::Error>>()?;
 
             batched_upsert(
@@ -608,8 +831,7 @@ async fn import_all_with_transaction(
                         .map(move |project_id| (project_id.clone(), skill.id.clone()))
                 })
                 .collect();
-            delete_relationships(tx, "project_skill", "skill_id", &skill_ids).await?;
-            insert_relationships(tx, "project_skill", "project_id", "skill_id", &links).await?;
+            rebuild_relationships(tx, &PROJECT_SKILL, &skill_ids, &links).await?;
 
             summary.skills += skills.len();
         }
@@ -627,9 +849,18 @@ async fn import_all_with_transaction(
                 break;
             }
 
+            let writable = guard_writable_rows(
+                tx,
+                "skill_attachment",
+                &attachments,
+                |attachment| attachment.id.as_str(),
+                |attachment| attachment.updated_at.as_deref(),
+            )
+            .await?;
+
             batched_upsert(
                 tx,
-                &attachments,
+                &writable,
                 10,
                 "INSERT INTO skill_attachment (id, skill_id, type, filename, content, content_hash, mime_type, created_at, updated_at, deleted_at) ",
                 " ON CONFLICT(id) DO UPDATE SET
@@ -681,12 +912,15 @@ async fn current_schema_version(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
     Ok(version.unwrap_or(0))
 }
 
-/// Read the incremental export cutoff from `sync_state`.
+/// Read the previous export cutoff from `sync_state`.
+///
+/// The cutoff no longer filters the exported files; it bounds the change counts
+/// in the returned `ExportSummary`.
 ///
 /// Returns `None` when the table is missing (unmigrated database), when no
 /// export has run yet, or when the stored schema version differs from the
 /// current one. A schema version change resets the cutoff so the next export
-/// is a full export.
+/// reports every row as changed.
 async fn read_sync_cutoff(pool: &SqlitePool) -> Result<Option<String>, sqlx::Error> {
     let table_exists: Option<String> = sqlx::query_scalar(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'",
@@ -738,9 +972,8 @@ async fn write_sync_cutoff(pool: &SqlitePool, timestamp: &str) -> Result<(), sql
 
 /// Stream every row produced by `sql` to `path` as JSONL, one line per row.
 ///
-/// `cutoff` is bound to the single `?` placeholder in `sql`. Pass an empty
-/// string for a full export: every non-NULL timestamp sorts after `""`, and
-/// the `IS NULL` branch of each predicate keeps rows without a timestamp.
+/// `sql` takes no bind parameters: the export writes the full table on every
+/// run, so the file is always a complete replica of the database.
 ///
 /// `map_row` converts a row into the entity that is serialized. Rows are
 /// fetched one at a time, so memory stays flat regardless of table size.
@@ -748,7 +981,6 @@ async fn export_query<T, F>(
     pool: &SqlitePool,
     path: &Path,
     sql: &'static str,
-    cutoff: &str,
     mut map_row: F,
 ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>>
 where
@@ -756,7 +988,7 @@ where
     F: FnMut(&sqlx::sqlite::SqliteRow) -> Result<T, Box<dyn std::error::Error + Send + Sync>>,
 {
     let mut writer = JsonlWriter::create(path)?;
-    let mut rows = sqlx::query(sql).bind(cutoff).fetch(pool);
+    let mut rows = sqlx::query(sql).fetch(pool);
     while let Some(row) = rows.try_next().await? {
         let entity = map_row(&row)?;
         writer.write(&entity)?;
@@ -764,15 +996,30 @@ where
     Ok(writer.finish()?)
 }
 
+/// Count the rows of `sql` that changed after `cutoff`.
+///
+/// `sql` binds `cutoff` to its single `?` placeholder. An empty cutoff counts
+/// every row with a non-NULL timestamp, which matches a full export.
+async fn count_changed(
+    pool: &SqlitePool,
+    sql: &'static str,
+    cutoff: &str,
+) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    let count: i64 = sqlx::query_scalar(sql).bind(cutoff).fetch_one(pool).await?;
+    Ok(usize::try_from(count).unwrap_or(0))
+}
+
 /// Export database entities to JSONL files using a SQLite pool.
 ///
-/// Export is incremental: when `sync_state.last_synced_at` is set, only rows
-/// whose timestamp is greater than that cutoff are written. A NULL cutoff (first
-/// sync, or a schema version change) exports every row.
+/// Every export writes every row of every table, so each JSONL file is a full
+/// replica of the database. The previous cutoff from `sync_state.last_synced_at`
+/// does not filter the files; it only drives the change counts in the returned
+/// `ExportSummary`. A NULL cutoff (first sync, or a schema version change) counts
+/// every row.
 ///
-/// Export reads every matching row, including soft-deleted tombstones, so that
-/// deletions propagate to other machines. Each entity's `deleted_at` value is
-/// written to the JSONL output.
+/// Export reads every row, including soft-deleted tombstones, so that deletions
+/// propagate to other machines. Each entity's `deleted_at` value is written to
+/// the JSONL output.
 async fn export_all_from_pool(
     pool: &SqlitePool,
     output_dir: &Path,
@@ -784,19 +1031,17 @@ async fn export_all_from_pool(
     use std::str::FromStr;
 
     // An empty cutoff matches every non-NULL timestamp, so a full export and an
-    // incremental export share one SQL shape.
+    // incremental export share one COUNT shape.
     let cutoff = read_sync_cutoff(pool).await?.unwrap_or_default();
 
     // Export repos, including tombstones.
-    let repos = export_query(
+    export_query(
         pool,
         &output_dir.join("repos.jsonl"),
         "SELECT r.id, r.remote, r.path, r.tags, r.created_at, r.updated_at, r.deleted_at,
                 COALESCE((SELECT json_group_array(pr.project_id) FROM project_repo pr WHERE pr.repo_id = r.id), '[]') AS project_ids
          FROM repo r
-         WHERE r.updated_at IS NULL OR r.updated_at > ?
          ORDER BY r.id",
-        &cutoff,
         |row| {
             Ok(Repo {
                 id: row.get("id"),
@@ -813,7 +1058,7 @@ async fn export_all_from_pool(
     .await?;
 
     // Export projects, including tombstones.
-    let projects = export_query(
+    export_query(
         pool,
         &output_dir.join("projects.jsonl"),
         "SELECT p.id, p.title, p.description, p.tags, p.external_refs, p.created_at, p.updated_at, p.deleted_at,
@@ -821,9 +1066,7 @@ async fn export_all_from_pool(
                 COALESCE((SELECT json_group_array(tl.id) FROM task_list tl WHERE tl.project_id = p.id), '[]') AS task_list_ids,
                 COALESCE((SELECT json_group_array(pn.note_id) FROM project_note pn WHERE pn.project_id = p.id), '[]') AS note_ids
          FROM project p
-         WHERE p.updated_at IS NULL OR p.updated_at > ?
          ORDER BY p.id",
-        &cutoff,
         |row| {
             Ok(Project {
                 id: row.get("id"),
@@ -843,15 +1086,13 @@ async fn export_all_from_pool(
     .await?;
 
     // Export task lists, including tombstones.
-    let task_lists = export_query(
+    export_query(
         pool,
         &output_dir.join("lists.jsonl"),
         "SELECT tl.id, tl.title, tl.description, tl.notes, tl.tags, tl.external_refs, tl.status, tl.project_id, tl.created_at, tl.updated_at, tl.archived_at, tl.deleted_at,
                 COALESCE((SELECT json_group_array(tlr.repo_id) FROM task_list_repo tlr WHERE tlr.task_list_id = tl.id), '[]') AS repo_ids
          FROM task_list tl
-         WHERE tl.updated_at IS NULL OR tl.updated_at > ?
          ORDER BY tl.id",
-        &cutoff,
         |row| {
             Ok(TaskList {
                 id: row.get("id"),
@@ -874,14 +1115,12 @@ async fn export_all_from_pool(
     .await?;
 
     // Export tasks, including tombstones.
-    let tasks = export_query(
+    export_query(
         pool,
         &output_dir.join("tasks.jsonl"),
         "SELECT id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at, deleted_at
          FROM task
-         WHERE updated_at IS NULL OR updated_at > ?
          ORDER BY id",
-        &cutoff,
         |row| {
             Ok(Task {
                 id: row.get("id"),
@@ -904,15 +1143,13 @@ async fn export_all_from_pool(
 
     // Export task transitions. Transitions of tombstoned tasks are excluded so
     // the export cannot reference a task that is not exported as live.
-    let transitions = export_query(
+    export_query(
         pool,
         &output_dir.join("task_transition_log.jsonl"),
         "SELECT id, task_id, status, transitioned_at
          FROM task_transition_log
          WHERE task_id NOT IN (SELECT id FROM task WHERE deleted_at IS NOT NULL)
-           AND (transitioned_at IS NULL OR transitioned_at > ?)
          ORDER BY transitioned_at DESC",
-        &cutoff,
         |row| {
             let status_str: String = row.get("status");
             let status =
@@ -928,16 +1165,14 @@ async fn export_all_from_pool(
     .await?;
 
     // Export notes, including tombstones.
-    let notes = export_query(
+    export_query(
         pool,
         &output_dir.join("notes.jsonl"),
         "SELECT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.deleted_at,
                 COALESCE((SELECT json_group_array(pn.project_id) FROM project_note pn WHERE pn.note_id = n.id), '[]') AS project_ids,
                 COALESCE((SELECT json_group_array(nr.repo_id) FROM note_repo nr WHERE nr.note_id = n.id), '[]') AS repo_ids
          FROM note n
-         WHERE n.updated_at IS NULL OR n.updated_at > ?
          ORDER BY n.id",
-        &cutoff,
         |row| {
             Ok(Note {
                 id: row.get("id"),
@@ -963,19 +1198,15 @@ async fn export_all_from_pool(
     let mut attachment_rows = sqlx::query(
         "SELECT id, skill_id, type, filename, content, content_hash, mime_type, created_at, updated_at, deleted_at
          FROM skill_attachment
-         WHERE updated_at IS NULL OR updated_at > ?
          ORDER BY skill_id, id",
     )
-    .bind(&cutoff)
     .fetch(pool);
     let mut skill_rows = sqlx::query(
         "SELECT s.id, s.name, s.description, s.content, s.tags, s.created_at, s.updated_at, s.deleted_at,
                 COALESCE((SELECT json_group_array(ps.project_id) FROM project_skill ps WHERE ps.skill_id = s.id), '[]') AS project_ids
          FROM skill s
-         WHERE s.updated_at IS NULL OR s.updated_at > ?
          ORDER BY s.id",
     )
-    .bind(&cutoff)
     .fetch(pool);
 
     let mut skill_writer = JsonlWriter::create(&output_dir.join("skills.jsonl"))?;
@@ -1056,8 +1287,61 @@ async fn export_all_from_pool(
         next_attachment = attachment_rows.try_next().await?;
     }
 
-    let skills = skill_writer.finish()?;
-    let attachments = attachment_writer.finish()?;
+    skill_writer.finish()?;
+    attachment_writer.finish()?;
+
+    // The files hold every row; the summary reports only the rows that changed
+    // after the previous cutoff.
+    let repos = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM repo WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let projects = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM project WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let task_lists = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM task_list WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let tasks = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM task WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let transitions = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM task_transition_log
+         WHERE transitioned_at > ?
+           AND task_id NOT IN (SELECT id FROM task WHERE deleted_at IS NOT NULL)",
+        &cutoff,
+    )
+    .await?;
+    let notes = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM note WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let skills = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM skill WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
+    let attachments = count_changed(
+        pool,
+        "SELECT COUNT(*) FROM skill_attachment WHERE updated_at > ?",
+        &cutoff,
+    )
+    .await?;
 
     Ok(ExportSummary {
         repos,

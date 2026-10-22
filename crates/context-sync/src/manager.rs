@@ -13,7 +13,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::git::{GitError, GitOps};
-use context_core::{ExportSummary, ImportSummary, get_sync_dir, read_jsonl};
+use context_core::{ExportSummary, ImportSummary, count_jsonl_lines, get_sync_dir};
 
 /// Result of sync initialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,8 +223,9 @@ impl<G: GitOps> SyncManager<G> {
             return Err(SyncError::NotInitialized);
         }
 
-        // Capture the cutoff before the export query runs. Any row written
-        // after this instant is picked up by the next export.
+        // Capture the cutoff before the export query runs. The export writes
+        // every row regardless of this cutoff; the cutoff only drives the
+        // changed-row counts in the returned summary.
         let cutoff = context_core::current_timestamp();
 
         // Purge tombstones older than the retention period before the export
@@ -390,6 +391,7 @@ impl<G: GitOps> SyncManager<G> {
                 git_status: None,
                 db_counts: None,
                 jsonl_counts: None,
+                tombstone_counts: None,
                 last_synced_at,
                 schema_version,
             });
@@ -419,6 +421,17 @@ impl<G: GitOps> SyncManager<G> {
             attachments: db.skills().count_attachments().await?,
         };
 
+        // Count tombstones in database
+        let tombstone_counts = EntityCounts {
+            repos: db.repos().count_deleted().await?,
+            projects: db.projects().count_deleted().await?,
+            task_lists: db.task_lists().count_deleted().await?,
+            tasks: db.tasks().count_deleted().await?,
+            notes: db.notes().count_deleted().await?,
+            skills: db.skills().count_deleted().await?,
+            attachments: db.skills().count_deleted_attachments().await?,
+        };
+
         // Count entities in JSONL files
         let jsonl_counts = self.count_jsonl_entities().await;
 
@@ -431,6 +444,7 @@ impl<G: GitOps> SyncManager<G> {
             }),
             db_counts: Some(db_counts),
             jsonl_counts,
+            tombstone_counts: Some(tombstone_counts),
             last_synced_at,
             schema_version,
         })
@@ -480,29 +494,20 @@ impl<G: GitOps> SyncManager<G> {
     }
 
     /// Count entities in JSONL files.
+    ///
+    /// Streams each file and counts its non-empty lines, so no entity is
+    /// deserialized. A missing file counts as zero entities.
     async fn count_jsonl_entities(&self) -> Option<EntityCounts> {
-        use context_core::{Note, Project, Repo, Skill, SkillAttachment, Task, TaskList};
-
-        let repos: Vec<Repo> = read_jsonl(&self.sync_dir.join("repos.jsonl")).unwrap_or_default();
-        let projects: Vec<Project> =
-            read_jsonl(&self.sync_dir.join("projects.jsonl")).unwrap_or_default();
-        let task_lists: Vec<TaskList> =
-            read_jsonl(&self.sync_dir.join("lists.jsonl")).unwrap_or_default();
-        let tasks: Vec<Task> = read_jsonl(&self.sync_dir.join("tasks.jsonl")).unwrap_or_default();
-        let notes: Vec<Note> = read_jsonl(&self.sync_dir.join("notes.jsonl")).unwrap_or_default();
-        let skills: Vec<Skill> =
-            read_jsonl(&self.sync_dir.join("skills.jsonl")).unwrap_or_default();
-        let attachments: Vec<SkillAttachment> =
-            read_jsonl(&self.sync_dir.join("skills_attachments.jsonl")).unwrap_or_default();
+        let count = |file: &str| count_jsonl_lines(&self.sync_dir.join(file)).unwrap_or(0);
 
         Some(EntityCounts {
-            repos: repos.len(),
-            projects: projects.len(),
-            task_lists: task_lists.len(),
-            tasks: tasks.len(),
-            notes: notes.len(),
-            skills: skills.len(),
-            attachments: attachments.len(),
+            repos: count("repos.jsonl"),
+            projects: count("projects.jsonl"),
+            task_lists: count("lists.jsonl"),
+            tasks: count("tasks.jsonl"),
+            notes: count("notes.jsonl"),
+            skills: count("skills.jsonl"),
+            attachments: count("skills_attachments.jsonl"),
         })
     }
 }
@@ -515,6 +520,8 @@ pub struct SyncStatus {
     pub git_status: Option<GitStatus>,
     pub db_counts: Option<EntityCounts>,
     pub jsonl_counts: Option<EntityCounts>,
+    /// Counts of soft-deleted rows per entity type.
+    pub tombstone_counts: Option<EntityCounts>,
     /// Timestamp of the last successful incremental export, if any.
     pub last_synced_at: Option<String>,
     /// Local database schema version.

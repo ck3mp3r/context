@@ -474,6 +474,49 @@ async fn list_excludes_soft_deleted() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn count_deleted_counts_tombstones_only() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    notes
+        .create(&make_note("cntlive1", "Live Note", "Body"))
+        .await
+        .expect("Create should succeed");
+    notes
+        .create(&make_note("cntdead1", "Dead Note", "Body"))
+        .await
+        .expect("Create should succeed");
+
+    assert_eq!(
+        notes
+            .count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        0,
+        "count_deleted should be zero without tombstones"
+    );
+
+    notes
+        .delete("cntdead1")
+        .await
+        .expect("Delete should succeed");
+
+    assert_eq!(
+        notes
+            .count_deleted()
+            .await
+            .expect("Count deleted should succeed"),
+        1,
+        "count_deleted should count the tombstone"
+    );
+    assert_eq!(
+        notes.count().await.expect("Count should succeed"),
+        1,
+        "count should exclude the tombstone"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn list_subnote_count_excludes_soft_deleted() {
     let db = setup_db().await;
     let notes = db.notes();
