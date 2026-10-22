@@ -53,9 +53,6 @@ pub fn WebSocketProvider(children: Children) -> impl IntoView {
     let UseWebSocketReturn {
         ready_state,
         message,
-        send: _,
-        open: _,
-        close: _,
         ..
     } = use_websocket::<String, String, FromToStringCodec>(&url);
 
