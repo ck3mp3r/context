@@ -337,6 +337,7 @@ fn remove_skill_source_file(dir: &std::path::Path, file: &str) {
 async fn import_skill_from(
     app: &axum::Router,
     source: &str,
+    subpath: Option<&str>,
     tags: &[&str],
     project_ids: &[&str],
 ) -> Value {
@@ -350,6 +351,7 @@ async fn import_skill_from(
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "source": source,
+                        "path": subpath,
                         "tags": tags,
                         "project_ids": project_ids
                     }))
@@ -418,7 +420,7 @@ async fn refresh_skill_reimports_source_and_rebuilds_cache() {
 
     // v1: description D1 with attachment a.txt.
     write_skill_source(source_dir.path(), "refresh-skill", "D1", &["a.txt"]);
-    let imported = import_skill_from(&app.router, &source, &["keep"], &[&project_id]).await;
+    let imported = import_skill_from(&app.router, &source, None, &["keep"], &[&project_id]).await;
     let skill_id = imported["id"]
         .as_str()
         .expect("id must be a string")
@@ -466,6 +468,11 @@ async fn refresh_skill_reimports_source_and_rebuilds_cache() {
     assert_eq!(body["tags"], json!(["keep"]));
     assert_eq!(body["project_ids"], json!([project_id]));
     assert_eq!(body["source"], json!(source));
+    assert_eq!(
+        body["source_subpath"],
+        Value::Null,
+        "a skill imported without a subpath must report a null subpath"
+    );
 
     // The cache holds the refreshed content and only the current attachments.
     let cached_skill_md = std::fs::read_to_string(cache_dir.join("SKILL.md"))
@@ -500,7 +507,7 @@ async fn refresh_skill_does_not_create_cache_when_disabled() {
         .to_string();
 
     write_skill_source(source_dir.path(), "disabled-skill", "D1", &[]);
-    let imported = import_skill_from(&app.router, &source, &[], &[]).await;
+    let imported = import_skill_from(&app.router, &source, None, &[], &[]).await;
     let skill_id = imported["id"]
         .as_str()
         .expect("id must be a string")
@@ -562,4 +569,44 @@ async fn refresh_skill_unknown_id_returns_not_found() {
 
     let response = post_refresh(&app.router, "nonexist").await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// =============================================================================
+// Source subpath exposure (criterion 7)
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_skill_reports_source_subpath() {
+    let app = test_app().await;
+
+    let source_dir = TempDir::new().expect("source temp dir should be created");
+    let source = source_dir
+        .path()
+        .to_str()
+        .expect("source path should be valid UTF-8")
+        .to_string();
+
+    // The skill lives in a subdirectory of the source.
+    write_skill_source(
+        &source_dir.path().join("skills").join("nested"),
+        "nested-skill",
+        "D1",
+        &[],
+    );
+
+    let imported = import_skill_from(&app.router, &source, Some("skills/nested"), &[], &[]).await;
+    let skill_id = imported["id"]
+        .as_str()
+        .expect("id must be a string")
+        .to_string();
+    assert_eq!(imported["source"], json!(source));
+    assert_eq!(imported["source_subpath"], json!("skills/nested"));
+
+    let body = get_skill(&app.router, &skill_id).await;
+    assert_eq!(body["source"], json!(source));
+    assert_eq!(
+        body["source_subpath"],
+        json!("skills/nested"),
+        "GET must expose the stored subpath"
+    );
 }

@@ -43,6 +43,9 @@ pub struct SkillResponse {
     /// Source the skill was imported from (null when unknown)
     #[schema(example = "git+https://github.com/user/repo")]
     pub source: Option<String>,
+    /// Subpath inside the source that holds the skill (null when unknown)
+    #[schema(example = "skills/deploy")]
+    pub source_subpath: Option<String>,
 }
 
 impl From<Skill> for SkillResponse {
@@ -61,6 +64,7 @@ impl From<Skill> for SkillResponse {
             updated_at: s.updated_at.unwrap_or_default(),
             enabled: false,
             source: s.source,
+            source_subpath: s.source_subpath,
         }
     }
 }
