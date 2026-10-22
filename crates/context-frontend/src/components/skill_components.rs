@@ -109,9 +109,9 @@ pub fn SkillCard(
                     <button
                         on:click=on_toggle
                         class=move || if enabled.get() {
-                            "flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full cursor-pointer bg-ctp-green text-ctp-base hover:opacity-80 transition-opacity"
+                            "flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full border border-ctp-surface2 cursor-pointer bg-ctp-green text-ctp-base hover:border-ctp-green transition-colors"
                         } else {
-                            "flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full cursor-pointer bg-ctp-surface1 text-ctp-overlay0 hover:text-ctp-text transition-colors"
+                            "flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full border border-ctp-surface2 cursor-pointer bg-ctp-surface1 text-ctp-overlay0 hover:bg-ctp-surface2 hover:text-ctp-text transition-colors"
                         }
                         title=move || if enabled.get() { "Disable skill" } else { "Enable skill" }
                     >
@@ -134,7 +134,7 @@ pub fn SkillCard(
                             view! {
                                 <button
                                     on:click=on_refresh
-                                    class="flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full cursor-pointer bg-ctp-surface1 border border-ctp-surface2 text-ctp-subtext0 hover:bg-ctp-surface2 hover:text-ctp-text transition-colors"
+                                    class="flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full border border-ctp-surface2 cursor-pointer bg-ctp-surface1 text-ctp-subtext0 hover:bg-ctp-surface2 hover:text-ctp-text transition-colors"
                                     title="Refresh skill"
                                 >
                                     {move || if refresh_pending.get() {
