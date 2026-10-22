@@ -12,6 +12,8 @@ pub fn SkillCard(
     skill: Skill,
     #[prop(optional)] on_click: Option<Callback<String>>,
 ) -> impl IntoView {
+    use leptos::task::spawn_local;
+
     // Create a preview of the description (first 200 chars)
     let preview_content = if skill.description.chars().count() > 200 {
         let truncated: String = skill.description.chars().take(200).collect();
@@ -25,6 +27,47 @@ pub fn SkillCard(
         "#".to_string()
     } else {
         format!("/skills/{}", skill.id)
+    };
+
+    // Local mirror of the server-side enabled flag, so a toggle shows
+    // immediately instead of waiting for the WebSocket refetch.
+    let (enabled, set_enabled) = signal(skill.enabled);
+    let has_source = skill
+        .source
+        .as_deref()
+        .is_some_and(|source| !source.is_empty());
+
+    let toggle_id = skill.id.clone();
+    let on_toggle = move |ev: leptos::ev::MouseEvent| {
+        ev.prevent_default();
+        ev.stop_propagation();
+        let id = toggle_id.clone();
+        let was_enabled = enabled.get();
+        spawn_local(async move {
+            let result = if was_enabled {
+                skills::disable(&id).await
+            } else {
+                skills::enable(&id).await
+            };
+            match result {
+                Ok(_) => set_enabled.set(!was_enabled),
+                Err(e) => {
+                    web_sys::console::log_1(&format!("Failed to toggle skill {}: {}", id, e).into())
+                }
+            }
+        });
+    };
+
+    let refresh_id = skill.id.clone();
+    let on_refresh = move |ev: leptos::ev::MouseEvent| {
+        ev.prevent_default();
+        ev.stop_propagation();
+        let id = refresh_id.clone();
+        spawn_local(async move {
+            if let Err(e) = skills::refresh(&id).await {
+                web_sys::console::log_1(&format!("Failed to refresh skill {}: {}", id, e).into());
+            }
+        });
     };
 
     view! {
@@ -47,6 +90,52 @@ pub fn SkillCard(
                         <CopyableId id=skill.id.clone()/>
                     </div>
                     <h3 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">{skill.name.clone()}</h3>
+                    <span
+                        class=move || if enabled.get() {
+                            "flex-shrink-0 text-xs px-2 py-1 rounded bg-ctp-green text-ctp-base"
+                        } else {
+                            "flex-shrink-0 text-xs px-2 py-1 rounded bg-ctp-surface1 text-ctp-overlay0"
+                        }
+                        title=move || if enabled.get() { "Skill is enabled" } else { "Skill is disabled" }
+                    >
+                        {move || if enabled.get() { "Enabled" } else { "Disabled" }}
+                    </span>
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                        <button
+                            on:click=on_toggle
+                            class="text-ctp-overlay0 hover:text-ctp-text transition-colors"
+                            title=move || if enabled.get() { "Disable skill" } else { "Enable skill" }
+                        >
+                            {move || if enabled.get() {
+                                view! {
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="6" y="4" width="4" height="16"></rect>
+                                        <rect x="14" y="4" width="4" height="16"></rect>
+                                    </svg>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                    </svg>
+                                }.into_any()
+                            }}
+                        </button>
+                        {has_source.then(|| {
+                            view! {
+                                <button
+                                    on:click=on_refresh
+                                    class="text-ctp-overlay0 hover:text-ctp-text transition-colors"
+                                    title="Refresh skill"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="23 4 23 10 17 10"></polyline>
+                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                    </svg>
+                                </button>
+                            }
+                        })}
+                    </div>
                 </div>
 
             <div class="relative flex-grow mb-4">
