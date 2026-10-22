@@ -23,6 +23,7 @@ use tempfile::TempDir;
 struct TestApp {
     router: axum::Router,
     notifier: ChangeNotifier,
+    skills_dir: std::path::PathBuf,
     _temp_dir: TempDir,
 }
 
@@ -35,16 +36,18 @@ async fn test_app() -> TestApp {
 
     let temp_dir = TempDir::new().expect("Failed to create test temp dir");
     let notifier = ChangeNotifier::new();
+    let skills_dir = temp_dir.path().join("skills");
     let state = AppState::new(
         db,
         SyncManager::new(MockGitOps::new()),
         notifier.clone(),
-        temp_dir.path().join("skills"),
+        skills_dir.clone(),
     );
 
     TestApp {
         router: routes::create_router(state, false),
         notifier,
+        skills_dir,
         _temp_dir: temp_dir,
     }
 }
@@ -305,4 +308,258 @@ async fn disable_skill_broadcasts_skill_updated() {
             skill_id: skill_id.clone()
         }
     );
+}
+
+// =============================================================================
+// Refresh helpers
+// =============================================================================
+
+/// Write a skill source directory: SKILL.md plus the given attachment files.
+fn write_skill_source(dir: &std::path::Path, name: &str, description: &str, attachments: &[&str]) {
+    std::fs::create_dir_all(dir).expect("source directory should be created");
+    std::fs::write(
+        dir.join("SKILL.md"),
+        format!("---\nname: {name}\ndescription: {description}\n---\n# Body\n"),
+    )
+    .expect("SKILL.md should be written");
+    for attachment in attachments {
+        std::fs::write(dir.join(attachment), format!("content of {attachment}"))
+            .expect("attachment should be written");
+    }
+}
+
+/// Remove an attachment file from a skill source directory.
+fn remove_skill_source_file(dir: &std::path::Path, file: &str) {
+    std::fs::remove_file(dir.join(file)).expect("attachment should be removed");
+}
+
+/// Import a skill from a local source directory; return the response body.
+async fn import_skill_from(
+    app: &axum::Router,
+    source: &str,
+    tags: &[&str],
+    project_ids: &[&str],
+) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/skills/import")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "source": source,
+                        "tags": tags,
+                        "project_ids": project_ids
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    json_body(response).await
+}
+
+/// Create a project; return its ID.
+async fn create_project(app: &axum::Router, title: &str) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({ "title": title })).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    json_body(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// POST to the refresh endpoint.
+async fn post_refresh(app: &axum::Router, skill_id: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/skills/{skill_id}/refresh"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+// =============================================================================
+// Refresh: criteria 1, 2, 6, 7
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_skill_reimports_source_and_rebuilds_cache() {
+    let app = test_app().await;
+    let project_id = create_project(&app.router, "Refresh Project").await;
+
+    let source_dir = TempDir::new().expect("source temp dir should be created");
+    let source = source_dir
+        .path()
+        .to_str()
+        .expect("source path should be valid UTF-8")
+        .to_string();
+
+    // v1: description D1 with attachment a.txt.
+    write_skill_source(source_dir.path(), "refresh-skill", "D1", &["a.txt"]);
+    let imported = import_skill_from(&app.router, &source, &["keep"], &[&project_id]).await;
+    let skill_id = imported["id"]
+        .as_str()
+        .expect("id must be a string")
+        .to_string();
+    assert_eq!(imported["source"], json!(source));
+
+    let cache_dir = app.skills_dir.join("refresh-skill");
+    assert!(
+        cache_dir.join("a.txt").exists(),
+        "import must cache the v1 attachment"
+    );
+
+    // v2: description D2, a.txt dropped, b.txt added.
+    write_skill_source(source_dir.path(), "refresh-skill", "D2", &["b.txt"]);
+    remove_skill_source_file(source_dir.path(), "a.txt");
+
+    let mut rx = app.notifier.subscribe();
+    let response = post_refresh(&app.router, &skill_id).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let refreshed = json_body(response).await;
+    assert_eq!(refreshed["description"], json!("D2"));
+    assert_eq!(refreshed["source"], json!(source));
+    assert!(
+        refreshed["enabled"]
+            .as_bool()
+            .expect("enabled must be a bool"),
+        "a skill that was enabled must stay enabled"
+    );
+
+    let message = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .expect("refresh must broadcast within the timeout")
+        .expect("refresh must broadcast a message");
+    assert_eq!(
+        message,
+        UpdateMessage::SkillUpdated {
+            skill_id: skill_id.clone()
+        }
+    );
+
+    // The stored row carries the refreshed description and keeps tags and
+    // project links.
+    let body = get_skill(&app.router, &skill_id).await;
+    assert_eq!(body["description"], json!("D2"));
+    assert_eq!(body["tags"], json!(["keep"]));
+    assert_eq!(body["project_ids"], json!([project_id]));
+    assert_eq!(body["source"], json!(source));
+
+    // The cache holds the refreshed content and only the current attachments.
+    let cached_skill_md = std::fs::read_to_string(cache_dir.join("SKILL.md"))
+        .expect("cached SKILL.md should be readable");
+    assert!(
+        cached_skill_md.contains("D2"),
+        "cached SKILL.md must hold the refreshed content"
+    );
+    assert!(
+        cache_dir.join("b.txt").exists(),
+        "the refreshed attachment must be cached"
+    );
+    assert!(
+        !cache_dir.join("a.txt").exists(),
+        "an attachment dropped from the source must not survive in the cache"
+    );
+}
+
+// =============================================================================
+// Refresh: criterion 3
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_skill_does_not_create_cache_when_disabled() {
+    let app = test_app().await;
+
+    let source_dir = TempDir::new().expect("source temp dir should be created");
+    let source = source_dir
+        .path()
+        .to_str()
+        .expect("source path should be valid UTF-8")
+        .to_string();
+
+    write_skill_source(source_dir.path(), "disabled-skill", "D1", &[]);
+    let imported = import_skill_from(&app.router, &source, &[], &[]).await;
+    let skill_id = imported["id"]
+        .as_str()
+        .expect("id must be a string")
+        .to_string();
+
+    let response = post_toggle(&app.router, &skill_id, "disable").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cache_dir = app.skills_dir.join("disabled-skill");
+    assert!(
+        !cache_dir.exists(),
+        "disable must remove the cache directory"
+    );
+
+    write_skill_source(source_dir.path(), "disabled-skill", "D2", &[]);
+    let response = post_refresh(&app.router, &skill_id).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let refreshed = json_body(response).await;
+    assert_eq!(refreshed["description"], json!("D2"));
+    assert!(
+        !refreshed["enabled"]
+            .as_bool()
+            .expect("enabled must be a bool"),
+        "a skill that was disabled must stay disabled"
+    );
+    assert!(
+        !cache_dir.exists(),
+        "refresh must not create a cache directory for a disabled skill"
+    );
+}
+
+// =============================================================================
+// Refresh: criteria 4, 5, 7
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_skill_without_source_returns_bad_request() {
+    let app = test_app().await;
+    let skill_id = create_skill(&app.router, "sourceless-skill").await;
+
+    let body = get_skill(&app.router, &skill_id).await;
+    assert!(
+        body["source"].is_null(),
+        "a skill created through the API must report a null source"
+    );
+
+    let response = post_refresh(&app.router, &skill_id).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = json_body(response).await;
+    let error = body["error"].as_str().expect("error must be a string");
+    assert!(
+        error.contains("no import source"),
+        "error must mention the missing source, got: {error}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_skill_unknown_id_returns_not_found() {
+    let app = test_app().await;
+
+    let response = post_refresh(&app.router, "nonexist").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
