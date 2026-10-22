@@ -2,7 +2,7 @@
 
 use futures_util::TryStreamExt;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use context_core::{
@@ -234,6 +234,124 @@ async fn insert_relationships(
     .await
 }
 
+/// One M:N relationship table and the columns a rebuild touches.
+struct RelationshipTable {
+    /// Table name.
+    table: &'static str,
+    /// Column holding the owning entity id; the rebuild is scoped to it.
+    owner_column: &'static str,
+    /// First column of the composite primary key.
+    left_column: &'static str,
+    /// Second column of the composite primary key.
+    right_column: &'static str,
+}
+
+const PROJECT_REPO: RelationshipTable = RelationshipTable {
+    table: "project_repo",
+    owner_column: "repo_id",
+    left_column: "project_id",
+    right_column: "repo_id",
+};
+
+const TASK_LIST_REPO: RelationshipTable = RelationshipTable {
+    table: "task_list_repo",
+    owner_column: "task_list_id",
+    left_column: "task_list_id",
+    right_column: "repo_id",
+};
+
+const PROJECT_NOTE: RelationshipTable = RelationshipTable {
+    table: "project_note",
+    owner_column: "note_id",
+    left_column: "project_id",
+    right_column: "note_id",
+};
+
+const NOTE_REPO: RelationshipTable = RelationshipTable {
+    table: "note_repo",
+    owner_column: "note_id",
+    left_column: "note_id",
+    right_column: "repo_id",
+};
+
+const PROJECT_SKILL: RelationshipTable = RelationshipTable {
+    table: "project_skill",
+    owner_column: "skill_id",
+    left_column: "project_id",
+    right_column: "skill_id",
+};
+
+/// Return true when the target already holds exactly the `wanted` pairs for
+/// `owner_ids`.
+///
+/// Reads the rows the matching `delete_relationships` call would remove, so a
+/// `true` result proves the delete and reinsert write back the same set. Both
+/// sides are compared as sets, matching `INSERT OR IGNORE` collapsing duplicate
+/// pairs.
+async fn relationships_match(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    relationship: &RelationshipTable,
+    owner_ids: &[String],
+    wanted: &[(String, String)],
+) -> Result<bool, sqlx::Error> {
+    let wanted: HashSet<(&str, &str)> = wanted
+        .iter()
+        .map(|(left, right)| (left.as_str(), right.as_str()))
+        .collect();
+
+    let mut current: HashSet<(String, String)> = HashSet::new();
+    for chunk in owner_ids.chunks(rows_per_batch(1)) {
+        let mut builder = QueryBuilder::<Sqlite>::new(format!(
+            "SELECT {}, {} FROM {} WHERE {} IN (",
+            relationship.left_column,
+            relationship.right_column,
+            relationship.table,
+            relationship.owner_column
+        ));
+        {
+            let mut separated = builder.separated(", ");
+            for id in chunk {
+                separated.push_bind(id);
+            }
+            separated.push_unseparated(")");
+        }
+        let rows: Vec<(String, String)> = builder.build_query_as().fetch_all(&mut **tx).await?;
+        current.extend(rows);
+    }
+
+    if current.len() != wanted.len() {
+        return Ok(false);
+    }
+    Ok(current
+        .iter()
+        .all(|(left, right)| wanted.contains(&(left.as_str(), right.as_str()))))
+}
+
+/// Rebuild the relationship rows owned by `owner_ids`, unless the target
+/// already holds exactly the `wanted` pairs.
+///
+/// The comparison reads the rows the `DELETE` would remove, so a skip is
+/// write-equivalent: the delete and reinsert would produce the same set.
+async fn rebuild_relationships(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    relationship: &RelationshipTable,
+    owner_ids: &[String],
+    wanted: &[(String, String)],
+) -> Result<(), sqlx::Error> {
+    if relationships_match(tx, relationship, owner_ids, wanted).await? {
+        return Ok(());
+    }
+    delete_relationships(tx, relationship.table, relationship.owner_column, owner_ids).await?;
+    insert_relationships(
+        tx,
+        relationship.table,
+        relationship.left_column,
+        relationship.right_column,
+        wanted,
+    )
+    .await
+}
+
 /// Import all JSONL files using a provided SQLite transaction.
 ///
 /// This is SQLite-specific because it uses raw SQL queries within a transaction.
@@ -373,8 +491,7 @@ async fn import_all_with_transaction(
                         .map(move |project_id| (project_id.clone(), repo.id.clone()))
                 })
                 .collect();
-            delete_relationships(tx, "project_repo", "repo_id", &repo_ids).await?;
-            insert_relationships(tx, "project_repo", "project_id", "repo_id", &links).await?;
+            rebuild_relationships(tx, &PROJECT_REPO, &repo_ids, &links).await?;
 
             summary.repos += repos.len();
         }
@@ -453,8 +570,7 @@ async fn import_all_with_transaction(
                         .map(move |repo_id| (list.id.clone(), repo_id.clone()))
                 })
                 .collect();
-            delete_relationships(tx, "task_list_repo", "task_list_id", &list_ids).await?;
-            insert_relationships(tx, "task_list_repo", "task_list_id", "repo_id", &links).await?;
+            rebuild_relationships(tx, &TASK_LIST_REPO, &list_ids, &links).await?;
 
             summary.task_lists += task_lists.len();
         }
@@ -634,11 +750,8 @@ async fn import_all_with_transaction(
                         .map(move |repo_id| (note.id.clone(), repo_id.clone()))
                 })
                 .collect();
-            delete_relationships(tx, "project_note", "note_id", &note_ids).await?;
-            insert_relationships(tx, "project_note", "project_id", "note_id", &project_links)
-                .await?;
-            delete_relationships(tx, "note_repo", "note_id", &note_ids).await?;
-            insert_relationships(tx, "note_repo", "note_id", "repo_id", &repo_links).await?;
+            rebuild_relationships(tx, &PROJECT_NOTE, &note_ids, &project_links).await?;
+            rebuild_relationships(tx, &NOTE_REPO, &note_ids, &repo_links).await?;
 
             summary.notes += notes.len();
         }
@@ -714,8 +827,7 @@ async fn import_all_with_transaction(
                         .map(move |project_id| (project_id.clone(), skill.id.clone()))
                 })
                 .collect();
-            delete_relationships(tx, "project_skill", "skill_id", &skill_ids).await?;
-            insert_relationships(tx, "project_skill", "project_id", "skill_id", &links).await?;
+            rebuild_relationships(tx, &PROJECT_SKILL, &skill_ids, &links).await?;
 
             summary.skills += skills.len();
         }
