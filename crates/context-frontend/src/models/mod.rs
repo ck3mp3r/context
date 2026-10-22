@@ -117,6 +117,9 @@ pub struct Skill {
     /// Source the skill was imported from (absent when unknown)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Subpath inside the source that holds the skill (absent when unknown)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_subpath: Option<String>,
 }
 
 /// Paginated response wrapper

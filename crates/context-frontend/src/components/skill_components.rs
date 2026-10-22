@@ -41,6 +41,22 @@ pub fn SkillCard(
         .as_deref()
         .is_some_and(|source| !source.is_empty());
 
+    // Tooltip for the Update pill: name the source when there is one, with the
+    // value truncated so a long URL cannot blow up the tooltip.
+    let update_title = match skill.source.as_deref() {
+        Some(source) if !source.is_empty() => {
+            let truncated = if source.chars().count() > 80 {
+                let mut truncated: String = source.chars().take(80).collect();
+                truncated.push('…');
+                truncated
+            } else {
+                source.to_string()
+            };
+            format!("Update skill — from {}", truncated)
+        }
+        _ => "Update skill".to_string(),
+    };
+
     let toggle_id = skill.id.clone();
     let on_toggle = move |ev: leptos::ev::MouseEvent| {
         ev.prevent_default();
@@ -135,7 +151,7 @@ pub fn SkillCard(
                                 <button
                                     on:click=on_refresh
                                     class="flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full border border-ctp-surface2 cursor-pointer bg-ctp-surface1 text-ctp-subtext0 hover:bg-ctp-surface2 hover:text-ctp-text transition-colors"
-                                    title="Update skill"
+                                    title=update_title
                                 >
                                     {move || if refresh_pending.get() {
                                         view! {
@@ -347,6 +363,18 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                                             <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
                                                 <span>"Created: " {skill.created_at.clone()}</span>
                                                 <span>"Updated: " {skill.updated_at.clone()}</span>
+                                                {skill
+                                                    .source
+                                                    .clone()
+                                                    .map(|source| {
+                                                        let subpath = skill.source_subpath.clone();
+                                                        view! {
+                                                            <span class="break-all font-mono">
+                                                                "Source: " {source}
+                                                                {subpath.map(|subpath| format!(" ({})", subpath))}
+                                                            </span>
+                                                        }
+                                                    })}
                                             </div>
                                         </div>
                                     </div>
