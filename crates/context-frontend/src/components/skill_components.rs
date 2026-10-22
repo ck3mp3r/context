@@ -90,37 +90,18 @@ pub fn SkillCard(
                         <CopyableId id=skill.id.clone()/>
                     </div>
                     <h3 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">{skill.name.clone()}</h3>
-                    <span
+                    <button
+                        on:click=on_toggle
                         class=move || if enabled.get() {
-                            "flex-shrink-0 text-xs px-2 py-1 rounded bg-ctp-green text-ctp-base"
+                            "flex-shrink-0 text-xs px-2 py-1 rounded cursor-pointer bg-ctp-green text-ctp-base hover:opacity-80 transition-opacity"
                         } else {
-                            "flex-shrink-0 text-xs px-2 py-1 rounded bg-ctp-surface1 text-ctp-overlay0"
+                            "flex-shrink-0 text-xs px-2 py-1 rounded cursor-pointer bg-ctp-surface1 text-ctp-overlay0 hover:text-ctp-text transition-colors"
                         }
-                        title=move || if enabled.get() { "Skill is enabled" } else { "Skill is disabled" }
+                        title=move || if enabled.get() { "Disable skill" } else { "Enable skill" }
                     >
                         {move || if enabled.get() { "Enabled" } else { "Disabled" }}
-                    </span>
+                    </button>
                     <div class="flex items-center gap-1 flex-shrink-0">
-                        <button
-                            on:click=on_toggle
-                            class="text-ctp-overlay0 hover:text-ctp-text transition-colors"
-                            title=move || if enabled.get() { "Disable skill" } else { "Enable skill" }
-                        >
-                            {move || if enabled.get() {
-                                view! {
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect x="6" y="4" width="4" height="16"></rect>
-                                        <rect x="14" y="4" width="4" height="16"></rect>
-                                    </svg>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                                    </svg>
-                                }.into_any()
-                            }}
-                        </button>
                         {has_source.then(|| {
                             view! {
                                 <button
