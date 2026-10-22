@@ -32,6 +32,10 @@ pub fn SkillCard(
     // Local mirror of the server-side enabled flag, so a toggle shows
     // immediately instead of waiting for the WebSocket refetch.
     let (enabled, set_enabled) = signal(skill.enabled);
+    // One in-flight flag per control, so each shows its own spinner and
+    // ignores re-entrant clicks.
+    let (toggle_pending, set_toggle_pending) = signal(false);
+    let (refresh_pending, set_refresh_pending) = signal(false);
     let has_source = skill
         .source
         .as_deref()
@@ -41,8 +45,12 @@ pub fn SkillCard(
     let on_toggle = move |ev: leptos::ev::MouseEvent| {
         ev.prevent_default();
         ev.stop_propagation();
+        if toggle_pending.get() {
+            return;
+        }
         let id = toggle_id.clone();
         let was_enabled = enabled.get();
+        set_toggle_pending.set(true);
         spawn_local(async move {
             let result = if was_enabled {
                 skills::disable(&id).await
@@ -55,6 +63,8 @@ pub fn SkillCard(
                     web_sys::console::log_1(&format!("Failed to toggle skill {}: {}", id, e).into())
                 }
             }
+            // Cleared on both paths: the match above has no early return.
+            set_toggle_pending.set(false);
         });
     };
 
@@ -62,11 +72,17 @@ pub fn SkillCard(
     let on_refresh = move |ev: leptos::ev::MouseEvent| {
         ev.prevent_default();
         ev.stop_propagation();
+        if refresh_pending.get() {
+            return;
+        }
         let id = refresh_id.clone();
+        set_refresh_pending.set(true);
         spawn_local(async move {
             if let Err(e) = skills::refresh(&id).await {
                 web_sys::console::log_1(&format!("Failed to refresh skill {}: {}", id, e).into());
             }
+            // Cleared on both paths: the `if let` above has no early return.
+            set_refresh_pending.set(false);
         });
     };
 
@@ -93,12 +109,24 @@ pub fn SkillCard(
                     <button
                         on:click=on_toggle
                         class=move || if enabled.get() {
-                            "flex-shrink-0 text-xs px-2 py-1 rounded cursor-pointer bg-ctp-green text-ctp-base hover:opacity-80 transition-opacity"
+                            "flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full cursor-pointer bg-ctp-green text-ctp-base hover:opacity-80 transition-opacity"
                         } else {
-                            "flex-shrink-0 text-xs px-2 py-1 rounded cursor-pointer bg-ctp-surface1 text-ctp-overlay0 hover:text-ctp-text transition-colors"
+                            "flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full cursor-pointer bg-ctp-surface1 text-ctp-overlay0 hover:text-ctp-text transition-colors"
                         }
                         title=move || if enabled.get() { "Disable skill" } else { "Enable skill" }
                     >
+                        {move || {
+                            toggle_pending
+                                .get()
+                                .then(|| {
+                                    view! {
+                                        <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                                            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+                                        </svg>
+                                    }
+                                })
+                        }}
                         {move || if enabled.get() { "Enabled" } else { "Disabled" }}
                     </button>
                     <div class="flex items-center gap-1 flex-shrink-0">
@@ -106,13 +134,25 @@ pub fn SkillCard(
                             view! {
                                 <button
                                     on:click=on_refresh
-                                    class="text-ctp-overlay0 hover:text-ctp-text transition-colors"
+                                    class="flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full cursor-pointer bg-ctp-surface1 border border-ctp-surface2 text-ctp-subtext0 hover:bg-ctp-surface2 hover:text-ctp-text transition-colors"
                                     title="Refresh skill"
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="23 4 23 10 17 10"></polyline>
-                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                                    </svg>
+                                    {move || if refresh_pending.get() {
+                                        view! {
+                                            <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                                                <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+                                            </svg>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        }.into_any()
+                                    }}
+                                    <span>"Refresh"</span>
                                 </button>
                             }
                         })}
