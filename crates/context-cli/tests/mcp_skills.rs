@@ -69,6 +69,8 @@ async fn test_get_skill_rejects_name_lookup() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -103,6 +105,8 @@ async fn test_get_skill() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -144,6 +148,8 @@ async fn test_get_skill_extracts_attachments_to_cache() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
 
@@ -237,6 +243,8 @@ async fn test_update_skill_only_changes_tags_and_project_ids() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -285,6 +293,8 @@ async fn test_list_skills_with_data() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -332,6 +342,8 @@ async fn test_list_skills_search() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -380,6 +392,8 @@ async fn test_list_skills_pagination() {
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             deleted_at: None,
+            source: None,
+            source_subpath: None,
         };
         db.skills().create(&skill).await.unwrap();
     }
@@ -429,6 +443,8 @@ async fn test_list_skills_tag_filter() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -493,6 +509,8 @@ async fn test_list_skills_project_filter() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -540,6 +558,8 @@ async fn test_update_skill() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
     let db = Arc::new(db);
@@ -598,6 +618,8 @@ async fn test_update_skill_invalidates_cache() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
 

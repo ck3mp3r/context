@@ -164,6 +164,8 @@ pub async fn import_skill<D: HasSkills + HasProjects>(
             created_at: None,
             updated_at: None,
             deleted_at: None,
+            source: Some(source.to_string()),
+            source_subpath: subpath.map(|s| s.to_string()),
         };
 
         // Check if we need to update (skill exists and upsert is true)

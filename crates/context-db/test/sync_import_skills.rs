@@ -54,6 +54,8 @@ origin:
         created_at: Some("2024-01-01T12:00:00Z".to_string()),
         updated_at: Some("2024-01-01T15:30:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db1.skills().create(&skill).await.unwrap();
 
@@ -155,6 +157,8 @@ Initial instructions
         created_at: Some("2024-01-01T10:00:00Z".to_string()),
         updated_at: Some("2024-01-01T10:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&initial_skill).await.unwrap();
 
@@ -203,6 +207,8 @@ Updated instructions with changes
         created_at: Some("2024-01-01T10:00:00Z".to_string()),
         updated_at: Some("2026-01-31T19:00:00Z".to_string()), // CHANGED
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     std::fs::write(
         &skills_file,

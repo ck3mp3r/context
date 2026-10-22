@@ -797,15 +797,17 @@ async fn import_all_with_transaction(
             batched_upsert(
                 tx,
                 &rows,
-                8,
-                "INSERT INTO skill (id, name, description, content, tags, created_at, updated_at, deleted_at) ",
+                10,
+                "INSERT INTO skill (id, name, description, content, tags, created_at, updated_at, deleted_at, source, source_subpath) ",
                 " ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
                     content = excluded.content,
                     tags = excluded.tags,
                     updated_at = excluded.updated_at,
-                    deleted_at = excluded.deleted_at
+                    deleted_at = excluded.deleted_at,
+                    source = excluded.source,
+                    source_subpath = excluded.source_subpath
                   WHERE skill.updated_at IS NULL OR excluded.updated_at > skill.updated_at",
                 |separated, (skill, tags)| {
                     separated
@@ -816,7 +818,9 @@ async fn import_all_with_transaction(
                         .push_bind(tags)
                         .push_bind(&skill.created_at)
                         .push_bind(&skill.updated_at)
-                        .push_bind(&skill.deleted_at);
+                        .push_bind(&skill.deleted_at)
+                        .push_bind(&skill.source)
+                        .push_bind(&skill.source_subpath);
                 },
             )
             .await?;
@@ -1203,6 +1207,7 @@ async fn export_all_from_pool(
     .fetch(pool);
     let mut skill_rows = sqlx::query(
         "SELECT s.id, s.name, s.description, s.content, s.tags, s.created_at, s.updated_at, s.deleted_at,
+                s.source, s.source_subpath,
                 COALESCE((SELECT json_group_array(ps.project_id) FROM project_skill ps WHERE ps.skill_id = s.id), '[]') AS project_ids
          FROM skill s
          ORDER BY s.id",
@@ -1266,6 +1271,8 @@ async fn export_all_from_pool(
             created_at: skill_row.get("created_at"),
             updated_at: skill_row.get("updated_at"),
             deleted_at: skill_row.get("deleted_at"),
+            source: skill_row.get("source"),
+            source_subpath: skill_row.get("source_subpath"),
         })?;
     }
 

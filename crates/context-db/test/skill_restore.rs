@@ -27,6 +27,8 @@ fn make_skill(id: &str, name: &str) -> Skill {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     }
 }
 

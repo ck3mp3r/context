@@ -412,6 +412,8 @@ Test instructions
         created_at: None,
         updated_at: None,
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     let skill2 = Skill {
         id: "skill002".to_string(),
@@ -435,6 +437,8 @@ Test instructions
         created_at: None,
         updated_at: None,
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill1).await.unwrap();
     db.skills().create(&skill2).await.unwrap();
@@ -493,6 +497,8 @@ description: Skill 1
             created_at: None,
             updated_at: None,
             deleted_at: None,
+            source: None,
+            source_subpath: None,
         },
         CoreSkill {
             id: "skill002".to_string(),
@@ -514,6 +520,8 @@ description: Skill 2
             created_at: None,
             updated_at: None,
             deleted_at: None,
+            source: None,
+            source_subpath: None,
         },
         CoreSkill {
             id: "skill003".to_string(),
@@ -535,6 +543,8 @@ description: Skill 3
             created_at: None,
             updated_at: None,
             deleted_at: None,
+            source: None,
+            source_subpath: None,
         },
     ];
     write_jsonl(&temp_dir.path().join("skills.jsonl"), &skills).unwrap();

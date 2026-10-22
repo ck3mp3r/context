@@ -586,6 +586,8 @@ fn link_skill(id: &str, project_ids: &[&str], updated_at: &str) -> Skill {
         created_at: Some(LINK_CREATED_AT.to_string()),
         updated_at: Some(updated_at.to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     }
 }
 

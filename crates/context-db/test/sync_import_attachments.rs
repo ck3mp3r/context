@@ -70,6 +70,8 @@ This skill has attachments.
         created_at: Some("2024-01-01T10:00:00Z".to_string()),
         updated_at: Some("2024-01-01T10:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
 
     let attachments = vec![
