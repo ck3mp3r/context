@@ -79,7 +79,7 @@ pub fn SkillCard(
         set_refresh_pending.set(true);
         spawn_local(async move {
             if let Err(e) = skills::refresh(&id).await {
-                web_sys::console::log_1(&format!("Failed to refresh skill {}: {}", id, e).into());
+                web_sys::console::log_1(&format!("Failed to update skill {}: {}", id, e).into());
             }
             // Cleared on both paths: the `if let` above has no early return.
             set_refresh_pending.set(false);
@@ -135,7 +135,7 @@ pub fn SkillCard(
                                 <button
                                     on:click=on_refresh
                                     class="flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full border border-ctp-surface2 cursor-pointer bg-ctp-surface1 text-ctp-subtext0 hover:bg-ctp-surface2 hover:text-ctp-text transition-colors"
-                                    title="Refresh skill"
+                                    title="Update skill"
                                 >
                                     {move || if refresh_pending.get() {
                                         view! {
@@ -152,7 +152,7 @@ pub fn SkillCard(
                                             </svg>
                                         }.into_any()
                                     }}
-                                    <span>"Refresh"</span>
+                                    <span>"Update"</span>
                                 </button>
                             }
                         })}
