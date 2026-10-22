@@ -657,7 +657,8 @@ async fn import_all_with_transaction(
             }
 
             // `task_transition_log` has no `updated_at` column, so it cannot carry
-            // a LWW guard. Re-importing writes identical values.
+            // a LWW guard. The compare-on-conflict guard skips the rewrite when
+            // the stored row already holds the file's values.
             batched_upsert(
                 tx,
                 &transitions,
@@ -666,7 +667,10 @@ async fn import_all_with_transaction(
                 " ON CONFLICT(id) DO UPDATE SET
                     task_id = excluded.task_id,
                     status = excluded.status,
-                    transitioned_at = excluded.transitioned_at",
+                    transitioned_at = excluded.transitioned_at
+                  WHERE excluded.task_id <> task_transition_log.task_id
+                     OR excluded.status <> task_transition_log.status
+                     OR excluded.transitioned_at <> task_transition_log.transitioned_at",
                 |separated, transition| {
                     separated
                         .push_bind(&transition.id)

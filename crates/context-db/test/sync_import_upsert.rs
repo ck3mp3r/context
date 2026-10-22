@@ -15,6 +15,16 @@ async fn setup_test_db() -> SqliteDatabase {
     db
 }
 
+/// Read every transition row, ordered by id.
+async fn transition_rows(pool: &sqlx::SqlitePool) -> Vec<(String, String, String, String)> {
+    sqlx::query_as(
+        "SELECT id, task_id, status, transitioned_at FROM task_transition_log ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("transition rows should be readable")
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_import_batch_idempotent() {
     let db1 = setup_test_db().await;
@@ -81,6 +91,11 @@ async fn test_import_batch_idempotent() {
     };
     db1.tasks().create(&task).await.unwrap();
 
+    // A status change adds a second transition to the exported file.
+    let mut transitioned = task.clone();
+    transitioned.status = TaskStatus::InProgress;
+    db1.tasks().update(&transitioned).await.unwrap();
+
     let note = Note {
         id: "noteidem".to_string(),
         title: "Idempotent Note".to_string(),
@@ -129,7 +144,19 @@ async fn test_import_batch_idempotent() {
     }
 
     // Importing the same JSONL a second time must not change any row.
+    let transitions_before = transition_rows(db2.pool()).await;
+    assert_eq!(
+        transitions_before.len(),
+        2,
+        "the fixture must export the create and update transitions"
+    );
     db2.sync().import_all(temp_dir.path()).await.unwrap();
+
+    assert_eq!(
+        transition_rows(db2.pool()).await,
+        transitions_before,
+        "second import must not change task_transition_log rows"
+    );
 
     for ((table, id), expected) in entities.iter().zip(before.iter()) {
         let after = crate::helpers::read_updated_at(db2.pool(), table, id).await;
