@@ -7,6 +7,9 @@ mod repos;
 #[path = "../../../test/api/v1/restore.rs"]
 mod restore_test;
 mod skills;
+#[cfg(test)]
+#[path = "../../../test/api/v1/skills.rs"]
+mod skills_test;
 mod sync;
 #[cfg(test)]
 #[path = "../../../test/api/v1/sync.rs"]

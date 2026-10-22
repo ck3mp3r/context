@@ -12,6 +12,8 @@ pub fn SkillCard(
     skill: Skill,
     #[prop(optional)] on_click: Option<Callback<String>>,
 ) -> impl IntoView {
+    use leptos::task::spawn_local;
+
     // Create a preview of the description (first 200 chars)
     let preview_content = if skill.description.chars().count() > 200 {
         let truncated: String = skill.description.chars().take(200).collect();
@@ -25,6 +27,79 @@ pub fn SkillCard(
         "#".to_string()
     } else {
         format!("/skills/{}", skill.id)
+    };
+
+    // Local mirror of the server-side enabled flag, so a toggle shows
+    // immediately instead of waiting for the WebSocket refetch.
+    let (enabled, set_enabled) = signal(skill.enabled);
+    // One in-flight flag per control, so each shows its own spinner and
+    // ignores re-entrant clicks.
+    let (toggle_pending, set_toggle_pending) = signal(false);
+    let (refresh_pending, set_refresh_pending) = signal(false);
+    let has_source = skill
+        .source
+        .as_deref()
+        .is_some_and(|source| !source.is_empty());
+
+    // Tooltip for the Update pill: name the source when there is one, with the
+    // value truncated so a long URL cannot blow up the tooltip.
+    let update_title = match skill.source.as_deref() {
+        Some(source) if !source.is_empty() => {
+            let truncated = if source.chars().count() > 80 {
+                let mut truncated: String = source.chars().take(80).collect();
+                truncated.push('…');
+                truncated
+            } else {
+                source.to_string()
+            };
+            format!("Update skill — from {}", truncated)
+        }
+        _ => "Update skill".to_string(),
+    };
+
+    let toggle_id = skill.id.clone();
+    let on_toggle = move |ev: leptos::ev::MouseEvent| {
+        ev.prevent_default();
+        ev.stop_propagation();
+        if toggle_pending.get() {
+            return;
+        }
+        let id = toggle_id.clone();
+        let was_enabled = enabled.get();
+        set_toggle_pending.set(true);
+        spawn_local(async move {
+            let result = if was_enabled {
+                skills::disable(&id).await
+            } else {
+                skills::enable(&id).await
+            };
+            match result {
+                Ok(_) => set_enabled.set(!was_enabled),
+                Err(e) => {
+                    web_sys::console::log_1(&format!("Failed to toggle skill {}: {}", id, e).into())
+                }
+            }
+            // Cleared on both paths: the match above has no early return.
+            set_toggle_pending.set(false);
+        });
+    };
+
+    let refresh_id = skill.id.clone();
+    let on_refresh = move |ev: leptos::ev::MouseEvent| {
+        ev.prevent_default();
+        ev.stop_propagation();
+        if refresh_pending.get() {
+            return;
+        }
+        let id = refresh_id.clone();
+        set_refresh_pending.set(true);
+        spawn_local(async move {
+            if let Err(e) = skills::refresh(&id).await {
+                web_sys::console::log_1(&format!("Failed to update skill {}: {}", id, e).into());
+            }
+            // Cleared on both paths: the `if let` above has no early return.
+            set_refresh_pending.set(false);
+        });
     };
 
     view! {
@@ -47,6 +122,57 @@ pub fn SkillCard(
                         <CopyableId id=skill.id.clone()/>
                     </div>
                     <h3 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">{skill.name.clone()}</h3>
+                    <button
+                        on:click=on_toggle
+                        class=move || if enabled.get() {
+                            "flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full border border-ctp-surface2 cursor-pointer bg-ctp-green text-ctp-base hover:border-ctp-green transition-colors"
+                        } else {
+                            "flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full border border-ctp-surface2 cursor-pointer bg-ctp-surface1 text-ctp-overlay0 hover:bg-ctp-surface2 hover:text-ctp-text transition-colors"
+                        }
+                        title=move || if enabled.get() { "Disable skill" } else { "Enable skill" }
+                    >
+                        {move || {
+                            toggle_pending
+                                .get()
+                                .then(|| {
+                                    view! {
+                                        <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                                            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+                                        </svg>
+                                    }
+                                })
+                        }}
+                        {move || if enabled.get() { "Enabled" } else { "Disabled" }}
+                    </button>
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                        {has_source.then(|| {
+                            view! {
+                                <button
+                                    on:click=on_refresh
+                                    class="flex items-center gap-1 flex-shrink-0 text-xs px-2 py-1 rounded-full border border-ctp-surface2 cursor-pointer bg-ctp-surface1 text-ctp-subtext0 hover:bg-ctp-surface2 hover:text-ctp-text transition-colors"
+                                    title=update_title
+                                >
+                                    {move || if refresh_pending.get() {
+                                        view! {
+                                            <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                                                <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+                                            </svg>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="23 4 23 10 17 10"></polyline>
+                                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                            </svg>
+                                        }.into_any()
+                                    }}
+                                    <span>"Update"</span>
+                                </button>
+                            }
+                        })}
+                    </div>
                 </div>
 
             <div class="relative flex-grow mb-4">
@@ -237,6 +363,18 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                                             <div class="flex flex-col gap-1 text-sm text-ctp-overlay0 text-right">
                                                 <span>"Created: " {skill.created_at.clone()}</span>
                                                 <span>"Updated: " {skill.updated_at.clone()}</span>
+                                                {skill
+                                                    .source
+                                                    .clone()
+                                                    .map(|source| {
+                                                        let subpath = skill.source_subpath.clone();
+                                                        view! {
+                                                            <span class="break-all font-mono">
+                                                                "Source: " {source}
+                                                                {subpath.map(|subpath| format!(" ({})", subpath))}
+                                                            </span>
+                                                        }
+                                                    })}
                                             </div>
                                         </div>
                                     </div>

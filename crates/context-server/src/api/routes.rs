@@ -96,6 +96,7 @@ macro_rules! routes {
          super::v1::patch_skill,
          super::v1::delete_skill,
          super::v1::restore_skill,
+         super::v1::refresh_skill,
          super::v1::init_sync,
         super::v1::export_sync,
         super::v1::import_sync,
@@ -236,6 +237,7 @@ pub fn create_router<D: Database + 'static, G: context_sync::GitOps + Send + Syn
         patch "/skills/{id}" => super::v1::patch_skill,
         delete "/skills/{id}" => super::v1::delete_skill,
         post "/skills/{id}/restore" => super::v1::restore_skill,
+        post "/skills/{id}/refresh" => super::v1::refresh_skill,
         // Sync
         post "/sync/init" => super::v1::init_sync,
         post "/sync/export" => super::v1::export_sync,

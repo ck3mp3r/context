@@ -60,6 +60,8 @@ Do something useful with this skill.
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
+        source: Some("git+https://github.com/test/skill".to_string()),
+        source_subpath: Some("skills/test-skill".to_string()),
     };
     db1.skills().create(&skill).await.unwrap();
 
@@ -132,6 +134,16 @@ Do something useful with this skill.
     assert!(imported_skill.content.contains("Do something"));
     assert_eq!(imported_skill.tags, vec!["test"]);
     assert_eq!(imported_skill.project_ids, vec!["proj0001"]);
+    assert_eq!(
+        imported_skill.source,
+        Some("git+https://github.com/test/skill".to_string()),
+        "source must survive export then import"
+    );
+    assert_eq!(
+        imported_skill.source_subpath,
+        Some("skills/test-skill".to_string()),
+        "source_subpath must survive export then import"
+    );
 
     // Verify attachments were imported
     let imported_attachments = db2.skills().get_attachments("skill001").await.unwrap();
@@ -213,6 +225,8 @@ Test instructions for multi-project skill.
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db1.skills().create(&skill).await.unwrap();
 
@@ -272,6 +286,8 @@ Original instructions for the skill.
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T10:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill_v1).await.unwrap();
 
@@ -298,6 +314,8 @@ Updated instructions for the skill.
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-02T15:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
 
     // Write to JSONL
@@ -331,5 +349,42 @@ Updated instructions for the skill.
         updated_skill.updated_at,
         Some("2024-01-02T15:00:00Z".to_string()),
         "CRITICAL: updated_at must be preserved during import!"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_import_skills_without_source_fields_stores_null() {
+    let db = setup_test_db().await;
+    let temp_dir = TempDir::new().unwrap();
+
+    // A pre-migration export has no source or source_subpath keys.
+    let legacy = serde_json::json!({
+        "id": "skilllg1",
+        "name": "legacy-skill",
+        "description": "Legacy skill",
+        "content": "---\nname: legacy-skill\ndescription: Legacy skill\n---\n\n# Legacy\n",
+        "tags": [],
+        "project_ids": [],
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "deleted_at": null
+    });
+    std::fs::write(
+        temp_dir.path().join("skills.jsonl"),
+        format!("{}\n", legacy),
+    )
+    .unwrap();
+
+    db.sync().import_all(temp_dir.path()).await.unwrap();
+
+    let imported = db.skills().get("skilllg1").await.unwrap();
+    assert_eq!(imported.name, "legacy-skill");
+    assert_eq!(
+        imported.source, None,
+        "a missing source key must import as NULL"
+    );
+    assert_eq!(
+        imported.source_subpath, None,
+        "a missing source_subpath key must import as NULL"
     );
 }

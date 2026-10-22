@@ -72,6 +72,8 @@ Test instructions.
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
 
@@ -98,6 +100,8 @@ Test instructions.
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill_no_projects).await.unwrap();
 
@@ -160,6 +164,8 @@ origin:
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db.skills().create(&skill).await.unwrap();
 

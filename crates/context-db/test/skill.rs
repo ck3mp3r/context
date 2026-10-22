@@ -39,6 +39,8 @@ Use Rust book for learning systems programming.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
 
     skills.create(&skill).await.expect("Create should succeed");
@@ -92,6 +94,8 @@ Test instructions for the first skill.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill1).await.unwrap();
 
@@ -117,6 +121,8 @@ Test instructions for the second skill.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill2).await.unwrap();
 
@@ -151,6 +157,8 @@ Test instructions for original skill.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill).await.expect("Create should succeed");
 
@@ -192,6 +200,8 @@ Test instructions.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill).await.expect("Create should succeed");
 
@@ -242,6 +252,8 @@ async fn skill_delete_cascades_to_relationships_and_attachments() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill).await.expect("Create should succeed");
 
@@ -309,6 +321,8 @@ async fn delete_already_deleted_is_noop() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill).await.expect("Create should succeed");
 
@@ -365,6 +379,8 @@ async fn delete_attachment_soft_deletes_and_is_idempotent() {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill).await.expect("Create should succeed");
 
@@ -449,6 +465,8 @@ Test instructions for API design.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill1).await.unwrap();
 
@@ -474,6 +492,8 @@ Test instructions for database.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill2).await.unwrap();
 
@@ -499,6 +519,8 @@ Test instructions for frontend.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill3).await.unwrap();
 
@@ -553,6 +575,8 @@ Test instructions.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill1).await.unwrap();
 
@@ -578,6 +602,8 @@ Test instructions.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill2).await.unwrap();
 
@@ -603,6 +629,8 @@ Test instructions.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill3).await.unwrap();
 
@@ -670,6 +698,8 @@ Test instructions for API design.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill1).await.unwrap();
 
@@ -695,6 +725,8 @@ Test instructions for API testing.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill2).await.unwrap();
 
@@ -720,6 +752,8 @@ Test instructions for frontend APIs.
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     skills.create(&skill3).await.unwrap();
 
@@ -784,6 +818,8 @@ name: test
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
 
     let skill_id = skill.id.clone();
@@ -821,6 +857,8 @@ fn make_skill(id: &str, name: &str) -> Skill {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     }
 }
 
@@ -1052,6 +1090,8 @@ fn make_purge_skill(id: &str) -> Skill {
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     }
 }
 
@@ -1118,5 +1158,105 @@ async fn test_purge_deleted_preserves_recent_tombstones() {
         count_rows(db.pool(), "skill", "id = ?", "sklprg02").await,
         1,
         "a tombstone inside the retention period must be kept"
+    );
+}
+
+// ========== Import source tests ==========
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skill_table_has_nullable_source_columns() {
+    use sqlx::Row;
+
+    let db = setup_db().await;
+
+    let rows = sqlx::query("PRAGMA table_info(skill)")
+        .fetch_all(db.pool())
+        .await
+        .expect("table info should be readable");
+
+    let mut found = Vec::new();
+    for row in &rows {
+        let name: String = row.get("name");
+        if name == "source" || name == "source_subpath" {
+            let not_null: i64 = row.get("notnull");
+            assert_eq!(not_null, 0, "{name} must be nullable");
+            found.push(name);
+        }
+    }
+
+    assert_eq!(
+        found.len(),
+        2,
+        "skill table must have source and source_subpath columns"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skill_create_and_get_preserves_source() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    let mut skill = make_skill("sklsrc01", "sourced-skill");
+    skill.source = Some("git+https://github.com/test/sourced".to_string());
+    skill.source_subpath = Some("skills/sourced".to_string());
+
+    skills.create(&skill).await.expect("Create should succeed");
+
+    let retrieved = skills.get("sklsrc01").await.expect("Get should succeed");
+    assert_eq!(
+        retrieved.source,
+        Some("git+https://github.com/test/sourced".to_string()),
+        "create must persist source"
+    );
+    assert_eq!(
+        retrieved.source_subpath,
+        Some("skills/sourced".to_string()),
+        "create must persist source_subpath"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skill_create_without_source_stores_null() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    skills
+        .create(&make_skill("sklsrc02", "unsourced-skill"))
+        .await
+        .expect("Create should succeed");
+
+    let retrieved = skills.get("sklsrc02").await.expect("Get should succeed");
+    assert_eq!(retrieved.source, None, "an absent source must read as NULL");
+    assert_eq!(retrieved.source_subpath, None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn skill_update_replaces_source() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    let mut skill = make_skill("sklsrc03", "updated-source-skill");
+    skill.source = Some("git+https://github.com/test/old".to_string());
+    skill.source_subpath = Some("skills/old".to_string());
+    skills.create(&skill).await.expect("Create should succeed");
+
+    let mut updated = skill.clone();
+    updated.source = Some("git+https://github.com/test/new".to_string());
+    updated.source_subpath = Some("skills/new".to_string());
+    skills
+        .update(&updated)
+        .await
+        .expect("Update should succeed");
+
+    let retrieved = skills.get("sklsrc03").await.expect("Get should succeed");
+    assert_eq!(
+        retrieved.source,
+        Some("git+https://github.com/test/new".to_string()),
+        "update must replace source"
+    );
+    assert_eq!(
+        retrieved.source_subpath,
+        Some("skills/new".to_string()),
+        "update must replace source_subpath"
     );
 }

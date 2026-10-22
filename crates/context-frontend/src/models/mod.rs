@@ -111,6 +111,15 @@ pub struct Skill {
     pub assets: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Whether the skill's cache directory exists
+    #[serde(default)]
+    pub enabled: bool,
+    /// Source the skill was imported from (absent when unknown)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Subpath inside the source that holds the skill (absent when unknown)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_subpath: Option<String>,
 }
 
 /// Paginated response wrapper

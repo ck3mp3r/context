@@ -13,11 +13,11 @@ pub struct SqliteSkillRepository<'a> {
 }
 
 /// Standard column list for SELECT queries (without table alias)
-const SKILL_COLS: &str = "id, name, description, content, tags, created_at, updated_at";
+const SKILL_COLS: &str =
+    "id, name, description, content, tags, created_at, updated_at, source, source_subpath";
 
 /// Standard column list for SELECT queries (with 's.' table alias)
-const SKILL_COLS_ALIASED: &str =
-    "s.id, s.name, s.description, s.content, s.tags, s.created_at, s.updated_at";
+const SKILL_COLS_ALIASED: &str = "s.id, s.name, s.description, s.content, s.tags, s.created_at, s.updated_at, s.source, s.source_subpath";
 
 /// Parse a database row into a Skill struct (without project_ids)
 fn row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Skill {
@@ -37,6 +37,8 @@ fn row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Skill {
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         deleted_at: None,
+        source: row.get("source"),
+        source_subpath: row.get("source_subpath"),
     }
 }
 
@@ -117,8 +119,8 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             r#"
             INSERT INTO skill (
                 id, name, description, content, tags,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, source, source_subpath
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -128,6 +130,8 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         .bind(tags_json)
         .bind(&created_at)
         .bind(&updated_at)
+        .bind(&skill.source)
+        .bind(&skill.source_subpath)
         .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database {
@@ -164,6 +168,8 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             created_at: Some(created_at),
             updated_at: Some(updated_at),
             deleted_at: None,
+            source: skill.source.clone(),
+            source_subpath: skill.source_subpath.clone(),
         })
     }
 
@@ -347,7 +353,7 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
             r#"
             UPDATE skill
             SET name = ?, description = ?, content = ?, tags = ?,
-                updated_at = ?
+                updated_at = ?, source = ?, source_subpath = ?
             WHERE id = ?
             "#,
         )
@@ -356,6 +362,8 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
         .bind(&skill.content)
         .bind(tags_json)
         .bind(&updated_at)
+        .bind(&skill.source)
+        .bind(&skill.source_subpath)
         .bind(&skill.id)
         .execute(&mut *tx)
         .await

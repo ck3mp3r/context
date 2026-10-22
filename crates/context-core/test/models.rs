@@ -37,6 +37,8 @@ Run the deployment scripts...
         created_at: Some("2026-01-31T10:00:00Z".to_string()),
         updated_at: Some("2026-01-31T10:00:00Z".to_string()),
         deleted_at: None,
+        source: Some("git+https://github.com/user/repo".to_string()),
+        source_subpath: Some("skills/deploy".to_string()),
     };
 
     // Test serialization
@@ -76,6 +78,8 @@ description: Deploy applications to Kubernetes cluster
         created_at: Some("2026-01-31T10:00:00Z".to_string()),
         updated_at: Some("2026-01-31T10:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
 
     // Test serialization

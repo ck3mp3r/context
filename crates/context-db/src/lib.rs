@@ -54,6 +54,9 @@ mod repo_restore_test;
 #[path = "../test/repo.rs"]
 mod repo_test;
 #[cfg(test)]
+#[path = "../test/skill_import.rs"]
+mod skill_import_test;
+#[cfg(test)]
 #[path = "../test/skill_restore.rs"]
 mod skill_restore_test;
 #[cfg(test)]

@@ -38,6 +38,14 @@ pub struct SkillResponse {
     pub assets: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
+    #[schema(example = false)]
+    pub enabled: bool,
+    /// Source the skill was imported from (null when unknown)
+    #[schema(example = "git+https://github.com/user/repo")]
+    pub source: Option<String>,
+    /// Subpath inside the source that holds the skill (null when unknown)
+    #[schema(example = "skills/deploy")]
+    pub source_subpath: Option<String>,
 }
 
 impl From<Skill> for SkillResponse {
@@ -54,6 +62,9 @@ impl From<Skill> for SkillResponse {
             assets: s.assets,
             created_at: s.created_at.unwrap_or_default(),
             updated_at: s.updated_at.unwrap_or_default(),
+            enabled: false,
+            source: s.source,
+            source_subpath: s.source_subpath,
         }
     }
 }
@@ -273,8 +284,19 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    let skills_dir = state.skills_dir();
+    let items = results
+        .items
+        .into_iter()
+        .map(|skill| {
+            let mut response = SkillResponse::from(skill);
+            response.enabled = is_skill_enabled(skills_dir, &response.content);
+            response
+        })
+        .collect();
+
     Ok(Json(PaginatedSkills {
-        items: results.items.into_iter().map(SkillResponse::from).collect(),
+        items,
         total: results.total,
         limit: results.limit.unwrap_or(50),
         offset: results.offset,
@@ -313,7 +335,9 @@ pub async fn get_skill<D: Database, G: GitOps + Send + Sync>(
             }),
         ),
     })?;
-    Ok(Json(SkillResponse::from(skill)))
+    let mut response = SkillResponse::from(skill);
+    response.enabled = is_skill_enabled(state.skills_dir(), &response.content);
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -347,6 +371,8 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
         created_at: None,
         updated_at: None,
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     let created = repo.create(&skill).await.map_err(|e| match e {
         DbError::Validation { .. } => (
@@ -766,6 +792,11 @@ pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillUpdated {
+        skill_id: skill.id.clone(),
+    });
+
     Ok(Json(EnableSkillResponse {
         skill_id: skill.id,
         skill_name,
@@ -865,8 +896,172 @@ pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
             )
         })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillUpdated {
+        skill_id: skill.id.clone(),
+    });
+
     Ok(Json(DisableSkillResponse {
         skill_id: skill.id,
         skill_name,
     }))
+}
+
+// =============================================================================
+// Refresh
+// =============================================================================
+
+/// Refresh a skill by re-importing it from its stored source
+///
+/// Re-runs the import against the source recorded when the skill was imported.
+/// When the skill was enabled, its cache directory is wiped before the import
+/// and re-extracted afterwards, so the cache holds only the refreshed content
+/// and the attachments present in the refreshed source.
+#[utoipa::path(
+    post,
+    path = "/api/v1/skills/{id}/refresh",
+    tag = "skills",
+    params(("id" = String, Path, description = "Skill ID")),
+    responses(
+        (status = 200, description = "Skill refreshed", body = SkillResponse),
+        (status = 400, description = "Skill has no import source, or the import failed", body = ErrorResponse),
+        (status = 404, description = "Skill not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn refresh_skill<D: Database, G: GitOps + Send + Sync>(
+    State(state): State<AppState<D, G>>,
+    Path(skill_id): Path<String>,
+) -> Result<Json<SkillResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db();
+    let repo = db.skills();
+
+    let skill = repo.get(&skill_id).await.map_err(|e| match e {
+        DbError::NotFound { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Skill '{}' not found", skill_id),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        ),
+    })?;
+
+    let Some(source) = skill.source.as_deref().filter(|source| !source.is_empty()) else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Skill '{}' has no import source", skill_id),
+            }),
+        ));
+    };
+
+    // The cache directory name comes from the content frontmatter. Content
+    // without a parseable name is treated as disabled.
+    let was_enabled = is_skill_enabled(state.skills_dir(), &skill.content);
+
+    // Wipe the cache before importing. Overwriting alone would leave files that
+    // disappeared from the source behind, so the wipe is what guarantees the
+    // re-extract produces only the refreshed content.
+    if was_enabled {
+        let skill_name =
+            context_skills::parse_skill_name_from_content(&skill.content).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Failed to parse skill name: {}", e),
+                    }),
+                )
+            })?;
+        context_skills::SkillCache::new(state.skills_dir().clone())
+            .invalidate(&skill_name)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Failed to invalidate cache: {}", e),
+                    }),
+                )
+            })?;
+    }
+
+    // `None` for tags and project_ids preserves the stored values.
+    let refreshed = context_skills::import_skill(
+        db,
+        source,
+        skill.source_subpath.as_deref(),
+        None,
+        None,
+        true,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Import failed: {}", e),
+            }),
+        )
+    })?;
+
+    if was_enabled {
+        let skill_name = context_skills::parse_skill_name_from_content(&refreshed.content)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Failed to parse skill name: {}", e),
+                    }),
+                )
+            })?;
+        let attachments = repo.get_attachments(&refreshed.id).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to get attachments: {}", e),
+                }),
+            )
+        })?;
+        context_skills::extract_attachments(
+            state.skills_dir(),
+            &skill_name,
+            &refreshed.content,
+            &attachments,
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to extract attachments: {}", e),
+                }),
+            )
+        })?;
+    }
+
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillUpdated {
+        skill_id: refreshed.id.clone(),
+    });
+
+    let mut response = SkillResponse::from(refreshed);
+    response.enabled = was_enabled;
+    Ok(Json(response))
+}
+
+// =============================================================================
+// Support
+// =============================================================================
+
+/// Report whether a skill is enabled, meaning its cache directory exists.
+///
+/// The cache directory name comes from the `name` field in the skill content
+/// frontmatter. Content without a parseable name is reported as disabled.
+fn is_skill_enabled(skills_dir: &std::path::Path, content: &str) -> bool {
+    context_skills::parse_skill_name_from_content(content)
+        .map(|name| skills_dir.join(name).exists())
+        .unwrap_or(false)
 }

@@ -125,6 +125,8 @@ async fn test_import_batch_idempotent() {
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
+        source: None,
+        source_subpath: None,
     };
     db1.skills().create(&skill).await.unwrap();
 
@@ -422,6 +424,8 @@ async fn test_import_batches_multiple_rows() {
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             updated_at: Some("2024-01-01T00:00:00Z".to_string()),
             deleted_at: None,
+            source: None,
+            source_subpath: None,
         })
         .collect();
 
@@ -586,6 +590,8 @@ fn full_replica(updated_at: &str, label: &str) -> Replica {
             created_at: created_at.clone(),
             updated_at: updated_at.clone(),
             deleted_at: None,
+            source: None,
+            source_subpath: None,
         }],
         attachments: vec![SkillAttachment {
             id: "attagat1".to_string(),

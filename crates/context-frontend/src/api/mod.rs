@@ -380,4 +380,22 @@ pub mod skills {
             Err(ApiClientError::Server(error))
         }
     }
+
+    /// Enable a skill by extracting it to the cache.
+    pub async fn enable(id_or_name: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/skills/{}/enable", API_BASE, id_or_name);
+        handle_response(Request::post(&url)).await
+    }
+
+    /// Disable a skill by removing it from the cache.
+    pub async fn disable(id_or_name: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/skills/{}/disable", API_BASE, id_or_name);
+        handle_response(Request::post(&url)).await
+    }
+
+    /// Re-import a skill from its stored source.
+    pub async fn refresh(id: &str) -> Result<Skill> {
+        let url = format!("{}/skills/{}/refresh", API_BASE, id);
+        handle_response(Request::post(&url)).await
+    }
 }

@@ -452,6 +452,8 @@ fn write_full_replica(temp_dir: &TempDir, count: usize) {
             created_at: created_at.clone(),
             updated_at: updated_at.clone(),
             deleted_at: None,
+            source: None,
+            source_subpath: None,
         })
         .collect();
 

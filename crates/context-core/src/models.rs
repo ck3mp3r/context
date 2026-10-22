@@ -454,6 +454,12 @@ pub struct Skill {
     /// Timestamp when the skill was soft-deleted (NULL = not deleted)
     #[serde(default)]
     pub deleted_at: Option<String>,
+    /// Source URL or path the skill was imported from (NULL = unknown)
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Subpath inside the source that holds the skill (NULL = source root)
+    #[serde(default)]
+    pub source_subpath: Option<String>,
 }
 
 /// A skill attachment (script, reference, or asset file).
