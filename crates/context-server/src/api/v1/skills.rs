@@ -38,6 +38,8 @@ pub struct SkillResponse {
     pub assets: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
+    #[schema(example = false)]
+    pub enabled: bool,
 }
 
 impl From<Skill> for SkillResponse {
@@ -54,6 +56,7 @@ impl From<Skill> for SkillResponse {
             assets: s.assets,
             created_at: s.created_at.unwrap_or_default(),
             updated_at: s.updated_at.unwrap_or_default(),
+            enabled: false,
         }
     }
 }
@@ -273,8 +276,19 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    let skills_dir = state.skills_dir();
+    let items = results
+        .items
+        .into_iter()
+        .map(|skill| {
+            let mut response = SkillResponse::from(skill);
+            response.enabled = is_skill_enabled(skills_dir, &response.content);
+            response
+        })
+        .collect();
+
     Ok(Json(PaginatedSkills {
-        items: results.items.into_iter().map(SkillResponse::from).collect(),
+        items,
         total: results.total,
         limit: results.limit.unwrap_or(50),
         offset: results.offset,
@@ -313,7 +327,9 @@ pub async fn get_skill<D: Database, G: GitOps + Send + Sync>(
             }),
         ),
     })?;
-    Ok(Json(SkillResponse::from(skill)))
+    let mut response = SkillResponse::from(skill);
+    response.enabled = is_skill_enabled(state.skills_dir(), &response.content);
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -766,6 +782,11 @@ pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillUpdated {
+        skill_id: skill.id.clone(),
+    });
+
     Ok(Json(EnableSkillResponse {
         skill_id: skill.id,
         skill_name,
@@ -865,8 +886,27 @@ pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
             )
         })?;
 
+    // Broadcast notification
+    state.notifier().notify(UpdateMessage::SkillUpdated {
+        skill_id: skill.id.clone(),
+    });
+
     Ok(Json(DisableSkillResponse {
         skill_id: skill.id,
         skill_name,
     }))
+}
+
+// =============================================================================
+// Support
+// =============================================================================
+
+/// Report whether a skill is enabled, meaning its cache directory exists.
+///
+/// The cache directory name comes from the `name` field in the skill content
+/// frontmatter. Content without a parseable name is reported as disabled.
+fn is_skill_enabled(skills_dir: &std::path::Path, content: &str) -> bool {
+    context_skills::parse_skill_name_from_content(content)
+        .map(|name| skills_dir.join(name).exists())
+        .unwrap_or(false)
 }
