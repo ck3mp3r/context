@@ -1099,6 +1099,9 @@
     .hover\:border-ctp-blue:hover {
       border-color: var(--ctp-blue);
     }
+    .hover\:border-ctp-green:hover {
+      border-color: var(--ctp-green);
+    }
     .hover\:bg-ctp-surface0\/80:hover {
       background-color: var(--ctp-surface0);
     }
