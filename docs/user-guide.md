@@ -777,12 +777,6 @@ c5t task transitions task123 --json
 curl http://localhost:3737/api/v1/tasks/{id}/transitions
 ```
 
-**MCP:**
-```javascript
-// AI agents can query state history
-get_task_transitions({ task_id: "task123" })
-```
-
 ### Sync Compatibility
 
 **Backward Compatible:**

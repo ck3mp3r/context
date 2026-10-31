@@ -57,53 +57,58 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 
 ## Tools
 
-### Projects (5 tools)
-- `create_project` - Create new project
-- `list_projects` - List all projects
-- `get_project` - Get project by ID
-- `update_project` - Update project
-- `delete_project` - Delete project
+### Projects (6 tools)
+- `projects_list` - List projects with pagination and sorting
+- `project_get` - Get project by ID
+- `project_create` - Create new project
+- `project_update` - Update project
+- `project_delete` - Delete project (soft delete)
+- `project_restore` - Restore a soft-deleted project
 
-### Repositories (5 tools)
-- `create_repo` - Register git repository
-- `list_repos` - List all repositories
-- `get_repo` - Get repository by ID
-- `update_repo` - Update repository
-- `delete_repo` - Delete repository
+### Repositories (6 tools)
+- `repos_list` - List repositories with pagination and sorting
+- `repo_get` - Get repository by ID
+- `repo_create` - Register git repository
+- `repo_update` - Update repository
+- `repo_delete` - Delete repository (soft delete)
+- `repo_restore` - Restore a soft-deleted repository
 
-### Task Lists (5 tools)
-- `create_task_list` - Create new task list
-- `list_task_lists` - List task lists (filter by status/tags/project)
-- `get_task_list` - Get task list with relationships
-- `update_task_list` - Update task list
-- `delete_task_list` - Delete task list
+### Task Lists (7 tools)
+- `task_lists_list` - List task lists (filter by status/tags/project)
+- `task_list_get` - Get task list with relationships
+- `task_list_create` - Create new task list
+- `task_list_update` - Update task list
+- `task_list_delete` - Delete task list (soft delete)
+- `task_list_restore` - Restore a soft-deleted task list
+- `task_list_stats_get` - Get task counts by status for a task list
 
 ### Tasks (7 tools)
-- `create_task` - Create new task
-- `list_tasks` - List tasks (filter by status/parent)
-- `get_task` - Get task by ID
-- `get_task_transitions` - Get task state transition history
-- `update_task` - Update task (including status changes)
-- `transition_tasks` - Transition one or more tasks to new status
-- `delete_task` - Delete task
+- `tasks_list` - List tasks (filter by status/parent)
+- `task_get` - Get task by ID
+- `task_create` - Create new task (always backlog)
+- `task_update` - Update task content (title, description, priority, tags, relationships)
+- `task_transition` - Transition one or more tasks to a new status
+- `task_delete` - Delete task (soft delete)
+- `task_restore` - Restore a soft-deleted task
 
 ### Notes (6 tools)
-- `create_note` - Create new note
-- `list_notes` - List notes (filter by tags/type)
-- `get_note` - Get note by ID
-- `update_note` - Update note
-- `delete_note` - Delete note
-- `search_notes` - Full-text search notes (FTS5)
+- `notes_list` - List notes (filter by tags/type, optional FTS5 query)
+- `note_create` - Create new note
+- `note_read` - Read note content (TOON or JSON, optional line ranges)
+- `note_edit` - Update note metadata and/or apply line-range patches
+- `note_delete` - Delete note (soft delete)
+- `note_restore` - Restore a soft-deleted note
 
-### Skills (3 tools)
-- `list_skills` - List/search skills with FTS5 (optional query parameter)
-- `get_skill` - Get skill by ID with attachment cache
-- `update_skill` - Update skill tags and/or project_ids (partial updates)
+### Skills (4 tools)
+- `skills_list` - List/search skills with FTS5 (optional query parameter)
+- `skill_get` - Get skill by ID with attachment cache
+- `skill_update` - Update skill tags and/or project_ids (partial updates)
+- `skill_restore` - Restore a soft-deleted skill
 
 ### Sync (1 tool)
 - `sync` - Git-based sync operations (init/export/import/status)
 
-**Total: 34 MCP tools**
+**Total: 37 MCP tools**
 
 ## Tag Conventions
 
@@ -155,13 +160,13 @@ Special tags that link notes together using note IDs:
 **Querying Note Chains**:
 ```javascript
 // Find all notes that continue note abc123ef
-list_notes({ tags: ["parent:abc123ef"] })
+notes_list({ tags: ["parent:abc123ef"] })
 
 // Find all related notes
-list_notes({ tags: ["related:abc123ef"] })
+notes_list({ tags: ["related:abc123ef"] })
 
 // Find both children and related
-list_notes({ tags: ["parent:abc123ef", "related:abc123ef"] })
+notes_list({ tags: ["parent:abc123ef", "related:abc123ef"] })
 ```
 
 **Benefits**:
@@ -214,20 +219,19 @@ To prevent context overflow when retrieving notes:
 
 ```rust
 // List notes without content (lighter, better for browsing)
-list_notes({
-  "include_content": false  // Default for list_notes
+notes_list({
+  "include_content": false  // Default for notes_list
 })
 
-// Get note metadata only
-get_note({
-  "note_id": "abc12345",
-  "include_content": false
+// Read note with line numbers (TOON format, default)
+note_read({
+  "note_id": "abc12345"
 })
 
-// Get full note with content
-get_note({
+// Read note as plain content
+note_read({
   "note_id": "abc12345",
-  "include_content": true  // Default for get_note
+  "format": "json"
 })
 ```
 
@@ -235,7 +239,7 @@ get_note({
 
 ```rust
 // Create parent note
-create_note({
+note_create({
   "title": "Project Overview",
   "content": "High-level summary...",
   "tags": ["project", "overview"]
@@ -243,14 +247,14 @@ create_note({
 // Returns: { "id": "parent123", ... }
 
 // Create child note referencing parent
-create_note({
+note_create({
   "title": "Project Implementation Details",
   "content": "Detailed implementation...",
   "tags": ["project", "details", "parent:parent123"]
 })
 
 // Create related note
-create_note({
+note_create({
   "title": "Project Testing Strategy",
   "content": "Testing approach...",
   "tags": ["project", "testing", "related:parent123"]
@@ -261,19 +265,19 @@ create_note({
 
 ```rust
 // Small note - no warnings
-create_note({
+note_create({
   "title": "Quick Note",
   "content": "Short content"  // < 10k chars
 })
 
 // Large note - warning but succeeds
-create_note({
+note_create({
   "title": "Large Note",
   "content": "x".repeat(20000)  // 10k-50k chars: warning
 })
 
 // Too large - fails
-create_note({
+note_create({
   "title": "Huge Note",
   "content": "x".repeat(101000)  // > 100k chars: error
 })
@@ -537,23 +541,23 @@ Skills support full-text search (FTS5) across all fields:
 
 ```javascript
 // Find deployment-related skills
-search_skills({
+skills_list({
   query: "kubernetes AND deployment"
 })
 
 // Find testing skills
-search_skills({
+skills_list({
   query: "test* OR tdd"
 })
 
 // Combine search with tag filter
-search_skills({
+skills_list({
   query: "rust",
   tags: ["workflow", "best-practices"]
 })
 
 // Find skills for a specific project
-list_skills({
+skills_list({
   project_id: "a1b2c3d4",
   tags: ["deployment"]
 })
@@ -561,7 +565,7 @@ list_skills({
 
 ### Updating Skills
 
-The `update_skill` tool allows you to update skill metadata (tags and project associations) without modifying the content. This is useful for reorganizing skills, updating categorization, or linking skills to new projects.
+The `skill_update` tool allows you to update skill metadata (tags and project associations) without modifying the content. This is useful for reorganizing skills, updating categorization, or linking skills to new projects.
 
 **Supported Updates:**
 - `tags` - Replace all tags with new set
@@ -570,7 +574,7 @@ The `update_skill` tool allows you to update skill metadata (tags and project as
 
 **Tool Signature:**
 ```javascript
-update_skill({
+skill_update({
   skill_id: string,        // Required: 8-char hex ID
   tags?: string[],         // Optional: New tags (replaces all existing)
   project_ids?: string[]   // Optional: New project IDs (replaces all existing)
@@ -580,7 +584,7 @@ update_skill({
 **Example 1: Update Tags Only**
 ```javascript
 // Reorganize skill tags after reviewing categorization
-update_skill({
+skill_update({
   skill_id: "skill123",
   tags: ["deployment", "kubernetes", "production", "automation"]
 })
@@ -590,7 +594,7 @@ update_skill({
 **Example 2: Update Project Links Only**
 ```javascript
 // Link skill to additional projects
-update_skill({
+skill_update({
   skill_id: "skill123",
   project_ids: ["a1b2c3d4", "e5f6a7b8"]
 })
@@ -600,7 +604,7 @@ update_skill({
 **Example 3: Update Both Tags and Projects**
 ```javascript
 // Reorganize skill completely
-update_skill({
+skill_update({
   skill_id: "skill123",
   tags: ["docker", "containerization", "best-practices"],
   project_ids: ["newproj1", "newproj2"]
@@ -634,11 +638,11 @@ update_skill({
 **Example: Preserving Existing Values**
 ```javascript
 // Get current skill
-const skill = get_skill({ skill_id: "skill123" });
+const skill = skill_get({ skill_id: "skill123" });
 // Returns: { tags: ["old-tag", "keep-this"], project_ids: ["proj1"], ... }
 
 // Add new tag while preserving existing
-update_skill({
+skill_update({
   skill_id: "skill123",
   tags: [...skill.tags, "new-tag"]  // Merge manually
 })
@@ -695,23 +699,23 @@ Skills work seamlessly with session notes and task lists. Agents receive the ful
 
 ```javascript
 // 1. Find relevant skill for current task
-search_skills({ query: "deployment kubernetes" })
+skills_list({ query: "deployment kubernetes" })
 // Returns: [{ id: "skill123", name: "Deploy to K8s", content: "---\nname: ...", ... }]
 
 // 2. Get full skill with content
-get_skill({ skill_id: "skill123" })
+skill_get({ skill_id: "skill123" })
 // Returns: { id: "skill123", content: "---\nname: Deploy to K8s\n...\n# Instructions\n..." }
 
 // 3. Agent parses frontmatter from content field
 // Example parsing (pseudo-code):
-const skill = get_skill({ skill_id: "skill123" });
+const skill = skill_get({ skill_id: "skill123" });
 const [frontmatter, body] = parseFrontmatter(skill.content);
 // frontmatter.license => "MIT"
 // frontmatter.compatibility => ["linux", "macos"]
 // body => "# Deploy to K8s\n\n## Prerequisites..."
 
 // 4. Update session note with skill reference
-update_note({
+note_edit({
   note_id: "session_note_id",
   content: `
 ## Current Task
@@ -731,7 +735,7 @@ Following skill 'Deploy to K8s' (skill123)
 })
 
 // 5. Create task list based on skill
-create_task_list({
+task_list_create({
   title: "Deploy Microservice",
   description: "Following Deploy to K8s skill (skill123)",
   tags: ["deployment", "skill:skill123"]
@@ -791,7 +795,7 @@ Use c5t MCP tools to create **persistent, autonomous workflows** that survive co
 
 ```javascript
 // 1. CREATE SESSION NOTE (tagged 'session', linked to project)
-create_note({
+note_create({
   title: "Auth System Implementation - Session",
   content: `
 ## Goal
@@ -820,7 +824,7 @@ Last completed: task 3e7d9a4f (Research)
 // Returns: { id: "9c8d7e6f" }  // All IDs are 8-character hex strings
 
 // 2. CREATE TASK LIST
-create_task_list({
+task_list_create({
   title: "Auth System Implementation",
   description: "JWT authentication with OAuth support",
   project_id: "a1b2c3d4",  // REQUIRED (8-char hex ID)
@@ -830,7 +834,7 @@ create_task_list({
 // Returns: { id: "2d4e6f8a" }
 
 // 3. BREAK DOWN WORK INTO TASKS
-create_task({
+task_create({
   list_id: "2d4e6f8a",
   title: "Research auth libraries and approaches",
   description: "Evaluate Passport.js, jsonwebtoken, OAuth options",
@@ -838,7 +842,7 @@ create_task({
 })
 // Returns: { id: "3e7d9a4f" }
 
-create_task({
+task_create({
   list_id: "2d4e6f8a",
   title: "Write authentication middleware tests",
   description: "TDD: Write tests before implementation",
@@ -846,14 +850,14 @@ create_task({
 })
 // Returns: { id: "5f8a2b1c" }
 
-create_task({
+task_create({
   list_id: "2d4e6f8a",
   title: "Implement JWT token generation",
   priority: 2
 })
 // Returns: { id: "7a9b3c4d" }
 
-create_task({
+task_create({
   list_id: "2d4e6f8a",
   title: "Add refresh token support",
   priority: 3
@@ -861,14 +865,14 @@ create_task({
 // Returns: { id: "8b0c4d5e" }
 
 // 4. EXECUTE & UPDATE (Task 1 - Research)
-transition_task({ task_id: "3e7d9a4f", status: "in_progress" })
+task_transition({ task_id: "3e7d9a4f", status: "in_progress" })
 
 // ... do research work ...
 
-transition_task({ task_id: "3e7d9a4f", status: "done" })
+task_transition({ task_id: "3e7d9a4f", status: "done" })
 
 // Update session note with findings
-update_note({
+note_edit({
   note_id: "9c8d7e6f",
   content: `
 ## Goal
@@ -901,18 +905,18 @@ Next: task 5f8a2b1c - Write auth middleware tests
 
 // 6. RESUME AFTER COMPACTION
 // CRITICAL: Re-read session note to restore state
-get_note({ note_id: "9c8d7e6f" })
+note_read({ note_id: "9c8d7e6f" })
 // Returns full session note with all context
 
 // Check what tasks remain
-list_tasks({
+tasks_list({
   list_id: "2d4e6f8a",
   status: ["todo", "in_progress"]
 })
 // Returns: [{ id: "5f8a2b1c", ... }, { id: "7a9b3c4d", ... }, { id: "8b0c4d5e", ... }]
 
 // Continue from where we left off
-transition_task({ task_id: "5f8a2b1c", status: "in_progress" })
+task_transition({ task_id: "5f8a2b1c", status: "in_progress" })
 // ... continue work ...
 ```
 
@@ -922,7 +926,7 @@ If you don't have the note ID after context compaction:
 
 ```javascript
 // Find session notes for a specific project
-list_notes({
+notes_list({
   tags: ["session"],
   project_id: "a1b2c3d4",  // 8-char hex ID
   include_content: true,  // Get full content
@@ -931,7 +935,7 @@ list_notes({
 })
 
 // Find session notes by topic
-search_notes({
+notes_list({
   query: "auth AND session",
   tags: ["session"]
 })
@@ -941,7 +945,7 @@ search_notes({
 
 ```javascript
 // Find task lists for a project
-list_task_lists({
+task_lists_list({
   project_id: "a1b2c3d4",  // 8-char hex ID
   status: "active",
   sort: "updated_at",
@@ -949,7 +953,7 @@ list_task_lists({
 })
 
 // Find by tags
-list_task_lists({
+task_lists_list({
   tags: "auth,backend",
   status: "active"
 })
