@@ -755,6 +755,7 @@ note_edit({
 task_list_create({
   title: "Deploy Microservice",
   description: "Following Deploy to K8s skill (skill123)",
+  project_id: "a1b2c3d4",  // REQUIRED (8-char hex ID)
   tags: ["deployment", "skill:skill123"]
 })
 ```
@@ -882,11 +883,11 @@ task_create({
 // Returns: { id: "8b0c4d5e" }
 
 // 4. EXECUTE & UPDATE (Task 1 - Research)
-task_transition({ task_id: "3e7d9a4f", status: "in_progress" })
+task_transition({ task_ids: ["3e7d9a4f"], status: "in_progress" })
 
 // ... do research work ...
 
-task_transition({ task_id: "3e7d9a4f", status: "done" })
+task_transition({ task_ids: ["3e7d9a4f"], status: "done" })
 
 // Update session note with findings
 // note_edit REQUIRES the etag returned by a fresh note_read
@@ -944,7 +945,7 @@ tasks_list({
 // Returns: [{ id: "5f8a2b1c", ... }, { id: "7a9b3c4d", ... }, { id: "8b0c4d5e", ... }]
 
 // Continue from where we left off
-task_transition({ task_id: "5f8a2b1c", status: "in_progress" })
+task_transition({ task_ids: ["5f8a2b1c"], status: "in_progress" })
 // ... continue work ...
 ```
 
