@@ -42,7 +42,7 @@ async fn create_test_project(db: &SqliteDatabase) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_task_lists_list_empty() {
+async fn test_task_list_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
@@ -58,7 +58,7 @@ async fn test_task_lists_list_empty() {
         order: None,
     };
 
-    let result = tools.task_lists_list(Parameters(params)).await;
+    let result = tools.task_list_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result: CallToolResult = result.unwrap();
@@ -347,7 +347,7 @@ async fn test_task_list_stats_get() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_task_lists_list_with_data() {
+async fn test_task_list_list_with_data() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let task_list = TaskList {
@@ -380,7 +380,7 @@ async fn test_task_lists_list_with_data() {
         order: None,
     };
 
-    let result = tools.task_lists_list(Parameters(params)).await;
+    let result = tools.task_list_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -393,7 +393,7 @@ async fn test_task_lists_list_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_task_lists_list_pagination() {
+async fn test_task_list_list_pagination() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     for i in 0..3 {
@@ -428,7 +428,7 @@ async fn test_task_lists_list_pagination() {
         order: None,
     };
 
-    let result = tools.task_lists_list(Parameters(params)).await;
+    let result = tools.task_list_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -442,7 +442,7 @@ async fn test_task_lists_list_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_task_lists_list_search() {
+async fn test_task_list_list_search() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let task_list = TaskList {
@@ -475,7 +475,7 @@ async fn test_task_lists_list_search() {
         order: None,
     };
 
-    let result = tools.task_lists_list(Parameters(params)).await;
+    let result = tools.task_list_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();

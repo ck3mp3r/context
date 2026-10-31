@@ -84,11 +84,11 @@ impl<D: Database + 'static> McpServer<D> {
     // =========================================================================
 
     #[tool(description = "List projects with pagination (default: 10, max: 20)")]
-    pub async fn projects_list(
+    pub async fn project_list(
         &self,
         params: Parameters<ListProjectsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.project_tools.projects_list(params).await
+        self.project_tools.project_list(params).await
     }
 
     #[tool(description = "Get a project by ID")]
@@ -138,11 +138,11 @@ impl<D: Database + 'static> McpServer<D> {
     // =========================================================================
 
     #[tool(description = "List repositories with pagination (default: 10, max: 20)")]
-    pub async fn repos_list(
+    pub async fn repo_list(
         &self,
         params: Parameters<ListReposParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.repo_tools.repos_list(params).await
+        self.repo_tools.repo_list(params).await
     }
 
     #[tool(description = "Get a repository by ID")]
@@ -190,11 +190,11 @@ impl<D: Database + 'static> McpServer<D> {
     // =========================================================================
 
     #[tool(description = "List all task lists with optional filtering")]
-    pub async fn task_lists_list(
+    pub async fn task_list_list(
         &self,
         params: Parameters<ListTaskListsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.task_list_tools.task_lists_list(params).await
+        self.task_list_tools.task_list_list(params).await
     }
 
     #[tool(description = "Get a task list by ID")]
@@ -252,11 +252,11 @@ impl<D: Database + 'static> McpServer<D> {
     // =========================================================================
 
     #[tool(description = "List tasks for a task list with optional filtering")]
-    pub async fn tasks_list(
+    pub async fn task_list(
         &self,
         params: Parameters<ListTasksParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.task_tools.tasks_list(params).await
+        self.task_tools.task_list(params).await
     }
 
     #[tool(description = "Get a task by ID")]
@@ -316,11 +316,11 @@ impl<D: Database + 'static> McpServer<D> {
     // =========================================================================
 
     #[tool(description = "List notes with optional filtering")]
-    pub async fn notes_list(
+    pub async fn note_list(
         &self,
         params: Parameters<ListNotesParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.note_tools.notes_list(params).await
+        self.note_tools.note_list(params).await
     }
 
     #[tool(description = "Create a new note")]
@@ -372,11 +372,11 @@ impl<D: Database + 'static> McpServer<D> {
     // =========================================================================
 
     #[tool(description = "List skills with optional filtering")]
-    pub async fn skills_list(
+    pub async fn skill_list(
         &self,
         params: Parameters<ListSkillsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.skill_tools.skills_list(params).await
+        self.skill_tools.skill_list(params).await
     }
 
     #[tool(description = "Get a skill by ID")]

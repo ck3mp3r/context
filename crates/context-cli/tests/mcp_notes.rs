@@ -21,7 +21,7 @@ async fn setup_db() -> SqliteDatabase {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_empty() {
+async fn test_note_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -39,7 +39,7 @@ async fn test_notes_list_empty() {
         order: None,
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -285,7 +285,7 @@ async fn test_note_edit_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_with_data() {
+async fn test_note_list_with_data() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -319,7 +319,7 @@ async fn test_notes_list_with_data() {
         order: None,
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -332,7 +332,7 @@ async fn test_notes_list_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_search() {
+async fn test_note_list_search() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -366,7 +366,7 @@ async fn test_notes_list_search() {
         order: None,
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -379,7 +379,7 @@ async fn test_notes_list_search() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_pagination() {
+async fn test_note_list_pagination() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -415,7 +415,7 @@ async fn test_notes_list_pagination() {
         order: None,
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -429,7 +429,7 @@ async fn test_notes_list_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_tag_filter() {
+async fn test_note_list_tag_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -463,7 +463,7 @@ async fn test_notes_list_tag_filter() {
         order: None,
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -476,7 +476,7 @@ async fn test_notes_list_tag_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_with_project_id_filter() {
+async fn test_note_list_with_project_id_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -526,7 +526,7 @@ async fn test_notes_list_with_project_id_filter() {
         order: None,
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -539,7 +539,7 @@ async fn test_notes_list_with_project_id_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_with_parent_id_filter() {
+async fn test_note_list_with_parent_id_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -589,7 +589,7 @@ async fn test_notes_list_with_parent_id_filter() {
         order: None,
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -603,7 +603,7 @@ async fn test_notes_list_with_parent_id_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_with_note_type_filter() {
+async fn test_note_list_with_note_type_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -653,12 +653,12 @@ async fn test_notes_list_with_note_type_filter() {
         order: None,
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_notes_list_sorting() {
+async fn test_note_list_sorting() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -698,7 +698,7 @@ async fn test_notes_list_sorting() {
         order: Some("asc".to_string()),
     };
 
-    let result = tools.notes_list(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();

@@ -72,7 +72,7 @@ pub struct CreateTaskListParams {
     #[schemars(description = "Repository IDs related to this workstream (optional)")]
     pub repo_ids: Option<Vec<String>>,
     #[schemars(
-        description = "Project ID this list belongs to (REQUIRED - ask user if unclear). Use projects_list to find available projects."
+        description = "Project ID this list belongs to (REQUIRED - ask user if unclear). Use project_list to find available projects."
     )]
     pub project_id: String,
 }
@@ -152,7 +152,7 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     #[tool(
         description = "List task lists with filtering by project, status, or tags. Use this to find existing lists before creating new ones."
     )]
-    pub async fn task_lists_list(
+    pub async fn task_list_list(
         &self,
         params: Parameters<ListTaskListsParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -228,7 +228,7 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     }
 
     #[tool(
-        description = "Create a new task list. ALWAYS call task_lists_list first to check for an existing suitable list before creating a new one. Only create when no existing list fits the workstream. MUST specify project_id - ask user which project if unclear."
+        description = "Create a new task list. ALWAYS call task_list_list first to check for an existing suitable list before creating a new one. Only create when no existing list fits the workstream. MUST specify project_id - ask user which project if unclear."
     )]
     pub async fn task_list_create(
         &self,

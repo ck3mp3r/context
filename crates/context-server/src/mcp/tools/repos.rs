@@ -117,7 +117,7 @@ impl<D: HasRepos + 'static> RepoTools<D> {
     #[tool(
         description = "List repositories with pagination and sorting. Sort by remote, path, or created_at. Default limit: 10, max: 20 to prevent context overflow."
     )]
-    pub async fn repos_list(
+    pub async fn repo_list(
         &self,
         params: Parameters<ListReposParams>,
     ) -> Result<CallToolResult, McpError> {

@@ -76,7 +76,7 @@ pub struct GetTaskParams {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTaskParams {
     #[schemars(
-        description = "Task list ID this task belongs to. Use task_lists_list to find existing lists."
+        description = "Task list ID this task belongs to. Use task_list_list to find existing lists."
     )]
     pub list_id: String,
     #[schemars(description = "Task title (short summary)")]
@@ -184,7 +184,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     #[tool(
         description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, or updated_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
     )]
-    pub async fn tasks_list(
+    pub async fn task_list(
         &self,
         params: Parameters<ListTasksParams>,
     ) -> Result<CallToolResult, McpError> {

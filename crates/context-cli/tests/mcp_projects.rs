@@ -18,7 +18,7 @@ async fn setup_db() -> SqliteDatabase {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_projects_list_empty() {
+async fn test_project_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -27,7 +27,7 @@ async fn test_projects_list_empty() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .projects_list(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -52,7 +52,7 @@ async fn test_projects_list_empty() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_projects_list_with_data() {
+async fn test_project_list_with_data() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -77,7 +77,7 @@ async fn test_projects_list_with_data() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .projects_list(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -326,7 +326,7 @@ async fn test_project_delete_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_projects_list_pagination() {
+async fn test_project_list_pagination() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -352,7 +352,7 @@ async fn test_projects_list_pagination() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .projects_list(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: Some(1),
             offset: None,
@@ -373,7 +373,7 @@ async fn test_projects_list_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_projects_list_search() {
+async fn test_project_list_search() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -397,7 +397,7 @@ async fn test_projects_list_search() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .projects_list(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: Some("rust".to_string()),
             limit: None,
             offset: None,
@@ -417,7 +417,7 @@ async fn test_projects_list_search() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_projects_list_sorting() {
+async fn test_project_list_sorting() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -447,7 +447,7 @@ async fn test_projects_list_sorting() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .projects_list(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -473,7 +473,7 @@ async fn test_projects_list_sorting() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_projects_list_tag_filter() {
+async fn test_project_list_tag_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -497,7 +497,7 @@ async fn test_projects_list_tag_filter() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .projects_list(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -552,7 +552,7 @@ async fn test_project_create_duplicate_title() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_projects_list_with_project_ids_filter() {
+async fn test_project_list_with_project_ids_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -576,7 +576,7 @@ async fn test_projects_list_with_project_ids_filter() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .projects_list(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,

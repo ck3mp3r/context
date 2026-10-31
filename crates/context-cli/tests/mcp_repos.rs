@@ -20,13 +20,13 @@ async fn setup_db() -> SqliteDatabase {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_repos_list_empty() {
+async fn test_repo_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .repos_list(Parameters(ListReposParams {
+        .repo_list(Parameters(ListReposParams {
             query: None,
             project_id: None,
             limit: None,
@@ -232,7 +232,7 @@ async fn test_repo_delete_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_repos_list_with_data() {
+async fn test_repo_list_with_data() {
     let db = setup_db().await;
     let repo = Repo {
         id: "12345678".to_string(),
@@ -249,7 +249,7 @@ async fn test_repos_list_with_data() {
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .repos_list(Parameters(ListReposParams {
+        .repo_list(Parameters(ListReposParams {
             query: None,
             project_id: None,
             limit: None,
@@ -270,7 +270,7 @@ async fn test_repos_list_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_repos_list_pagination() {
+async fn test_repo_list_pagination() {
     let db = setup_db().await;
     for i in 0..3 {
         let repo = Repo {
@@ -289,7 +289,7 @@ async fn test_repos_list_pagination() {
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .repos_list(Parameters(ListReposParams {
+        .repo_list(Parameters(ListReposParams {
             query: None,
             project_id: None,
             limit: Some(1),

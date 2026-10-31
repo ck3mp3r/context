@@ -90,7 +90,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
     #[tool(
         description = "List skills with optional full-text search. Provide 'query' parameter to search, omit to list all. Supports filtering, sorting, and pagination."
     )]
-    pub async fn skills_list(
+    pub async fn skill_list(
         &self,
         params: Parameters<ListSkillsParams>,
     ) -> Result<CallToolResult, McpError> {

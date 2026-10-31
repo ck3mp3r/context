@@ -22,7 +22,7 @@ async fn setup_db() -> SqliteDatabase {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_skills_list_empty() {
+async fn test_skill_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = SkillTools::new(
@@ -41,7 +41,7 @@ async fn test_skills_list_empty() {
         order: None,
     };
 
-    let result = tools.skills_list(Parameters(params)).await;
+    let result = tools.skill_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -278,7 +278,7 @@ async fn test_skill_update_only_changes_tags_and_project_ids() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_skills_list_with_data() {
+async fn test_skill_list_with_data() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -314,7 +314,7 @@ async fn test_skills_list_with_data() {
         order: None,
     };
 
-    let result = tools.skills_list(Parameters(params)).await;
+    let result = tools.skill_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -327,7 +327,7 @@ async fn test_skills_list_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_skills_list_search() {
+async fn test_skill_list_search() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -363,7 +363,7 @@ async fn test_skills_list_search() {
         order: None,
     };
 
-    let result = tools.skills_list(Parameters(params)).await;
+    let result = tools.skill_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -376,7 +376,7 @@ async fn test_skills_list_search() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_skills_list_pagination() {
+async fn test_skill_list_pagination() {
     let db = setup_db().await;
     for i in 0..3 {
         let skill = Skill {
@@ -414,7 +414,7 @@ async fn test_skills_list_pagination() {
         order: None,
     };
 
-    let result = tools.skills_list(Parameters(params)).await;
+    let result = tools.skill_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -428,7 +428,7 @@ async fn test_skills_list_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_skills_list_tag_filter() {
+async fn test_skill_list_tag_filter() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -464,7 +464,7 @@ async fn test_skills_list_tag_filter() {
         order: None,
     };
 
-    let result = tools.skills_list(Parameters(params)).await;
+    let result = tools.skill_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -477,7 +477,7 @@ async fn test_skills_list_tag_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_skills_list_project_filter() {
+async fn test_skill_list_project_filter() {
     let db = setup_db().await;
 
     // Create the project first to satisfy FK constraint
@@ -530,7 +530,7 @@ async fn test_skills_list_project_filter() {
         order: None,
     };
 
-    let result = tools.skills_list(Parameters(params)).await;
+    let result = tools.skill_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();

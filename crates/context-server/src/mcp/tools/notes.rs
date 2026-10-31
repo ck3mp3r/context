@@ -252,7 +252,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     #[tool(
         description = "List notes. Query for FTS search. Default: metadata only (use include_content=true for full). Filter by tags/project_id/parent_id/note_type. Limit: 10 (max 20)."
     )]
-    pub async fn notes_list(
+    pub async fn note_list(
         &self,
         params: Parameters<ListNotesParams>,
     ) -> Result<CallToolResult, McpError> {

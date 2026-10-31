@@ -117,7 +117,7 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
     #[tool(
         description = "List projects with pagination and sorting. Sort by title, created_at, or updated_at. Default limit: 10, max: 20 to prevent context overflow."
     )]
-    pub async fn projects_list(
+    pub async fn project_list(
         &self,
         params: Parameters<ListProjectsParams>,
     ) -> Result<CallToolResult, McpError> {
