@@ -162,7 +162,7 @@ Facts the agent needs. Do not make the agent discover these.
 
 ## FILES
 Exact file paths the agent will read or modify. For each file: the path, the line number, what is at that location, and what about it changes (or stays the same for regression targets).
-- src/api/v1/tasks.rs:42 — task_create handler; validates title and calls repo; add empty-title validation before repo call
+- src/api/v1/tasks.rs:42 — REST create_task handler; validates title and calls repo; add empty-title validation before repo call
 - test/api/v1/tasks.rs — unit tests for the task handlers in the crate-root test/ tree; add a test for empty-title rejection
 - src/db/sqlite/task.rs:118 — TaskRepository::create; inserts row; no changes, must continue to accept non-empty titles
 
@@ -207,7 +207,7 @@ For bugfix tasks, verify in this order:
 - No regression: <command that runs the existing test suite for the affected module and shows all pass>
 ```
 
-The `<system>` in EARS is the specific component, endpoint, function, or module the criterion applies to. Use the exact name from the codebase: `THE API`, `THE TaskRepository::create function`, `THE task_create handler`. Do not use generic names like "the system" or "the application".
+The `<system>` in EARS is the specific component, endpoint, function, or module the criterion applies to. Use the exact name from the codebase: `THE API`, `THE TaskRepository::create function`, `THE REST create_task handler`. Do not use generic names like "the system" or "the application".
 
 #### EARS Notation for Acceptance Criteria
 
@@ -247,7 +247,7 @@ Each criterion maps to one verification: the trigger/state/condition is how you 
 6. **Give exact verification commands.** Do not write "run the tests". Write `cargo test --lib api::v1::tasks_test`. The agent must not figure out commands.
 7. **Reference code, do not copy code.** Write `src/api/v1/tasks.rs:42` so the agent reads the real code. Pasted snippets go stale.
 8. **Use EARS for criteria.** Every criterion starts with WHEN, WHILE, WHERE, IF...THEN, or no keyword (ubiquitous), followed by THE `<system>` SHALL. No exceptions.
-9. **Name the system in EARS.** Use the exact component name from the codebase: `THE task_create handler`, `THE TaskRepository::create function`, `THE POST /api/v1/tasks endpoint`. Do not use generic names like "the system".
+9. **Name the system in EARS.** Use the exact component name from the codebase: `THE REST create_task handler`, `THE TaskRepository::create function`, `THE POST /api/v1/tasks endpoint`. Do not use generic names like "the system".
 10. **List what is out of scope.** Scope creep is the top cause of unintended changes. State what the agent must not touch.
 11. **If the spec does not fit, the task is too big.** Break it into subtasks. Each subtask gets its own complete spec in its own `description` field.
 
