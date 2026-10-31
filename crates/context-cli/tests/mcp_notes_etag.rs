@@ -1,8 +1,8 @@
 //! Tests for the note etag contract
 //!
 //! Covers etag length, determinism, distinctness across updated_at values,
-//! stale-etag rejection in edit_note, the stale-etag error payload, and the
-//! empty-ranges rejection in read_note. Uses the test harness in common::setup_db().
+//! stale-etag rejection in note_edit, the stale-etag error payload, and the
+//! empty-ranges rejection in note_read. Uses the test harness in common::setup_db().
 
 mod common;
 
@@ -25,18 +25,18 @@ async fn read_etag<D: HasNotes + 'static>(tools: &NoteTools<D>, note_id: &str) -
         ranges: None,
     };
     let result = tools
-        .read_note(Parameters(params))
+        .note_read(Parameters(params))
         .await
-        .expect("read_note should succeed for an existing note");
+        .expect("note_read should succeed for an existing note");
     let content_text = match &result.content[0] {
         ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
     };
     let response: serde_json::Value =
-        serde_json::from_str(content_text).expect("read_note output should be valid JSON");
+        serde_json::from_str(content_text).expect("note_read output should be valid JSON");
     response["etag"]
         .as_str()
-        .expect("read_note response should contain an etag")
+        .expect("note_read response should contain an etag")
         .to_string()
 }
 
@@ -58,7 +58,7 @@ fn make_note(id: &str, updated_at: &str) -> Note {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_read_note_etag_is_eight_characters() {
+async fn test_note_read_etag_is_eight_characters() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -78,7 +78,7 @@ async fn test_read_note_etag_is_eight_characters() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_read_note_etag_is_deterministic() {
+async fn test_note_read_etag_is_deterministic() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -102,7 +102,7 @@ async fn test_read_note_etag_is_deterministic() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_read_note_etag_differs_for_different_updated_at() {
+async fn test_note_read_etag_differs_for_different_updated_at() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -126,7 +126,7 @@ async fn test_read_note_etag_differs_for_different_updated_at() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_edit_note_rejects_stale_etag() {
+async fn test_note_edit_rejects_stale_etag() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -149,9 +149,9 @@ async fn test_edit_note_rejects_stale_etag() {
     };
 
     let error = tools
-        .edit_note(Parameters(params))
+        .note_edit(Parameters(params))
         .await
-        .expect_err("edit_note should reject a stale etag");
+        .expect_err("note_edit should reject a stale etag");
 
     assert!(
         error.message.contains("re-read"),
@@ -171,7 +171,7 @@ async fn test_edit_note_rejects_stale_etag() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_read_note_rejects_empty_ranges() {
+async fn test_note_read_rejects_empty_ranges() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -188,9 +188,9 @@ async fn test_read_note_rejects_empty_ranges() {
     };
 
     let error = tools
-        .read_note(Parameters(params))
+        .note_read(Parameters(params))
         .await
-        .expect_err("read_note should reject an empty ranges array");
+        .expect_err("note_read should reject an empty ranges array");
 
     assert_eq!(
         error.code,
@@ -209,7 +209,7 @@ async fn test_read_note_rejects_empty_ranges() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_edit_note_error_payload_omits_expected_etag() {
+async fn test_note_edit_error_payload_omits_expected_etag() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -232,9 +232,9 @@ async fn test_edit_note_error_payload_omits_expected_etag() {
     };
 
     let error = tools
-        .edit_note(Parameters(params))
+        .note_edit(Parameters(params))
         .await
-        .expect_err("edit_note should reject a stale etag");
+        .expect_err("note_edit should reject a stale etag");
 
     assert_eq!(
         error.message.as_ref(),

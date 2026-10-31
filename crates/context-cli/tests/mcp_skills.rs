@@ -22,7 +22,7 @@ async fn setup_db() -> SqliteDatabase {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_skills_empty() {
+async fn test_skills_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = SkillTools::new(
@@ -41,7 +41,7 @@ async fn test_list_skills_empty() {
         order: None,
     };
 
-    let result = tools.list_skills(Parameters(params)).await;
+    let result = tools.skills_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -54,7 +54,7 @@ async fn test_list_skills_empty() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_skill_rejects_name_lookup() {
+async fn test_skill_get_rejects_name_lookup() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -80,17 +80,17 @@ async fn test_get_skill_rejects_name_lookup() {
         get_data_dir().join("skills"),
     );
 
-    // get_skill only supports ID lookup, not name lookup
+    // skill_get only supports ID lookup, not name lookup
     let params = GetSkillParams {
         skill_id: "test-skill".to_string(), // This is a name, not an ID
     };
 
-    let result = tools.get_skill(Parameters(params)).await;
-    assert!(result.is_err(), "get_skill should reject name lookup");
+    let result = tools.skill_get(Parameters(params)).await;
+    assert!(result.is_err(), "skill_get should reject name lookup");
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_skill() {
+async fn test_skill_get() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -120,7 +120,7 @@ async fn test_get_skill() {
         skill_id: "skill001".to_string(),
     };
 
-    let result = tools.get_skill(Parameters(params)).await;
+    let result = tools.skill_get(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -133,7 +133,7 @@ async fn test_get_skill() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_skill_extracts_attachments_to_cache() {
+async fn test_skill_get_extracts_attachments_to_cache() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -176,7 +176,7 @@ async fn test_get_skill_extracts_attachments_to_cache() {
         skill_id: "skill001".to_string(),
     };
 
-    let result = tools.get_skill(Parameters(params)).await;
+    let result = tools.skill_get(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -210,7 +210,7 @@ async fn test_get_skill_extracts_attachments_to_cache() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_skill_not_found() {
+async fn test_skill_get_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = SkillTools::new(
@@ -223,12 +223,12 @@ async fn test_get_skill_not_found() {
         skill_id: "nonexist".to_string(),
     };
 
-    let result = tools.get_skill(Parameters(params)).await;
+    let result = tools.skill_get(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_skill_only_changes_tags_and_project_ids() {
+async fn test_skill_update_only_changes_tags_and_project_ids() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -256,7 +256,7 @@ async fn test_update_skill_only_changes_tags_and_project_ids() {
 
     // Update only tags and project_ids
     let result = tools
-        .update_skill(Parameters(UpdateSkillParams {
+        .skill_update(Parameters(UpdateSkillParams {
             skill_id: "skill001".to_string(),
             tags: Some(vec!["updated".to_string()]),
             project_ids: Some(vec![]),
@@ -278,7 +278,7 @@ async fn test_update_skill_only_changes_tags_and_project_ids() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_skills_with_data() {
+async fn test_skills_list_with_data() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -314,7 +314,7 @@ async fn test_list_skills_with_data() {
         order: None,
     };
 
-    let result = tools.list_skills(Parameters(params)).await;
+    let result = tools.skills_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -327,7 +327,7 @@ async fn test_list_skills_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_skills_search() {
+async fn test_skills_list_search() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -363,7 +363,7 @@ async fn test_list_skills_search() {
         order: None,
     };
 
-    let result = tools.list_skills(Parameters(params)).await;
+    let result = tools.skills_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -376,7 +376,7 @@ async fn test_list_skills_search() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_skills_pagination() {
+async fn test_skills_list_pagination() {
     let db = setup_db().await;
     for i in 0..3 {
         let skill = Skill {
@@ -414,7 +414,7 @@ async fn test_list_skills_pagination() {
         order: None,
     };
 
-    let result = tools.list_skills(Parameters(params)).await;
+    let result = tools.skills_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -428,7 +428,7 @@ async fn test_list_skills_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_skills_tag_filter() {
+async fn test_skills_list_tag_filter() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -464,7 +464,7 @@ async fn test_list_skills_tag_filter() {
         order: None,
     };
 
-    let result = tools.list_skills(Parameters(params)).await;
+    let result = tools.skills_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -477,7 +477,7 @@ async fn test_list_skills_tag_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_skills_project_filter() {
+async fn test_skills_list_project_filter() {
     let db = setup_db().await;
 
     // Create the project first to satisfy FK constraint
@@ -530,7 +530,7 @@ async fn test_list_skills_project_filter() {
         order: None,
     };
 
-    let result = tools.list_skills(Parameters(params)).await;
+    let result = tools.skills_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -543,7 +543,7 @@ async fn test_list_skills_project_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_skill() {
+async fn test_skill_update() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -570,7 +570,7 @@ async fn test_update_skill() {
     );
 
     let result = tools
-        .update_skill(Parameters(UpdateSkillParams {
+        .skill_update(Parameters(UpdateSkillParams {
             skill_id: "skill001".to_string(),
             tags: Some(vec!["updated".to_string()]),
             project_ids: Some(vec![]),
@@ -583,7 +583,7 @@ async fn test_update_skill() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_skill_not_found() {
+async fn test_skill_update_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = SkillTools::new(
@@ -593,7 +593,7 @@ async fn test_update_skill_not_found() {
     );
 
     let result = tools
-        .update_skill(Parameters(UpdateSkillParams {
+        .skill_update(Parameters(UpdateSkillParams {
             skill_id: "nonexist".to_string(),
             tags: None,
             project_ids: None,
@@ -603,7 +603,7 @@ async fn test_update_skill_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_skill_invalidates_cache() {
+async fn test_skill_update_invalidates_cache() {
     let db = setup_db().await;
     let skill = Skill {
         id: "skill001".to_string(),
@@ -646,11 +646,11 @@ async fn test_update_skill_invalidates_cache() {
         skills_dir.path().to_path_buf(),
     );
 
-    // First, call get_skill to populate the cache
+    // First, call skill_get to populate the cache
     let get_params = GetSkillParams {
         skill_id: "skill001".to_string(),
     };
-    let get_result = tools.get_skill(Parameters(get_params)).await;
+    let get_result = tools.skill_get(Parameters(get_params)).await;
     assert!(get_result.is_ok());
 
     let call_result = get_result.unwrap();
@@ -661,11 +661,11 @@ async fn test_update_skill_invalidates_cache() {
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
     let cache_path = response["cache_path"].as_str().unwrap();
     let cache_dir = std::path::Path::new(cache_path);
-    assert!(cache_dir.exists(), "Cache should exist after get_skill");
+    assert!(cache_dir.exists(), "Cache should exist after skill_get");
 
     // Now update the skill - this should invalidate the cache
     let update_result = tools
-        .update_skill(Parameters(UpdateSkillParams {
+        .skill_update(Parameters(UpdateSkillParams {
             skill_id: "skill001".to_string(),
             tags: Some(vec!["updated".to_string()]),
             project_ids: Some(vec![]),

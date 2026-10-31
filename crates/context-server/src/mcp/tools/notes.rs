@@ -199,7 +199,7 @@ pub struct EditNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "ETag from read_note (REQUIRED). Validates note unchanged since read. If fails, re-read first."
+        description = "ETag from note_read (REQUIRED). Validates note unchanged since read. If fails, re-read first."
     )]
     pub etag: String,
     #[schemars(description = "Note title (optional)")]
@@ -252,7 +252,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     #[tool(
         description = "List notes. Query for FTS search. Default: metadata only (use include_content=true for full). Filter by tags/project_id/parent_id/note_type. Limit: 10 (max 20)."
     )]
-    pub async fn list_notes(
+    pub async fn notes_list(
         &self,
         params: Parameters<ListNotesParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -302,7 +302,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     #[tool(
         description = "Create note (Markdown). Keep under 10k chars. For larger: split & link with parent:NOTE_ID tag."
     )]
-    pub async fn create_note(
+    pub async fn note_create(
         &self,
         params: Parameters<CreateNoteParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -338,7 +338,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     }
 
     #[tool(description = "Delete note permanently. Consider archiving with tags instead.")]
-    pub async fn delete_note(
+    pub async fn note_delete(
         &self,
         params: Parameters<DeleteNoteParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -360,7 +360,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     }
 
     #[tool(description = "Restore a soft-deleted note")]
-    pub async fn restore_note(
+    pub async fn note_restore(
         &self,
         params: Parameters<RestoreNoteParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -390,9 +390,9 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Read note. Returns etag (for edit_note) and content in TOON format (line numbers). Ranges: omit=full, or specify; an empty array is an error. Use format='json' for plain content."
+        description = "Read note. Returns etag (for note_edit) and content in TOON format (line numbers). Ranges: omit=full, or specify; an empty array is an error. Use format='json' for plain content."
     )]
-    pub async fn read_note(
+    pub async fn note_read(
         &self,
         params: Parameters<ReadNoteParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -483,9 +483,9 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Edit note. REQUIRES etag from read_note. Updates metadata and/or applies line patches. If etag fails, re-read first."
+        description = "Edit note. REQUIRES etag from note_read. Updates metadata and/or applies line patches. If etag fails, re-read first."
     )]
-    pub async fn edit_note(
+    pub async fn note_edit(
         &self,
         params: Parameters<EditNoteParams>,
     ) -> Result<CallToolResult, McpError> {

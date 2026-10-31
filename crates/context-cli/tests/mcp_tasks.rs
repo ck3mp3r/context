@@ -62,7 +62,7 @@ async fn create_test_task_list(db: &SqliteDatabase, project_id: &str) -> String 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_empty() {
+async fn test_tasks_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
@@ -80,7 +80,7 @@ async fn test_list_tasks_empty() {
         order: None,
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -93,7 +93,7 @@ async fn test_list_tasks_empty() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_task() {
+async fn test_task_create() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -110,7 +110,7 @@ async fn test_create_task() {
         external_refs: None,
     };
 
-    let result = tools.create_task(Parameters(params)).await;
+    let result = tools.task_create(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -123,7 +123,7 @@ async fn test_create_task() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_task_empty_title() {
+async fn test_task_create_empty_title() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -140,12 +140,12 @@ async fn test_create_task_empty_title() {
         external_refs: None,
     };
 
-    let result = tools.create_task(Parameters(params)).await;
+    let result = tools.task_create(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_task() {
+async fn test_task_get() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -171,7 +171,7 @@ async fn test_get_task() {
         task_id: "task0001".to_string(),
     };
 
-    let result = tools.get_task(Parameters(params)).await;
+    let result = tools.task_get(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -184,7 +184,7 @@ async fn test_get_task() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_task_not_found() {
+async fn test_task_get_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
@@ -193,12 +193,12 @@ async fn test_get_task_not_found() {
         task_id: "nonexist".to_string(),
     };
 
-    let result = tools.get_task(Parameters(params)).await;
+    let result = tools.task_get(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_task() {
+async fn test_task_update() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -231,7 +231,7 @@ async fn test_update_task() {
         external_refs: None,
     };
 
-    let result = tools.update_task(Parameters(params)).await;
+    let result = tools.task_update(Parameters(params)).await;
     assert!(result.is_ok());
 
     let updated = db.tasks().get("task0001").await.unwrap();
@@ -240,7 +240,7 @@ async fn test_update_task() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_task_not_found() {
+async fn test_task_update_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
@@ -256,12 +256,12 @@ async fn test_update_task_not_found() {
         external_refs: None,
     };
 
-    let result = tools.update_task(Parameters(params)).await;
+    let result = tools.task_update(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_task() {
+async fn test_task_delete() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -287,7 +287,7 @@ async fn test_delete_task() {
         task_id: "task0001".to_string(),
     };
 
-    let result = tools.delete_task(Parameters(params)).await;
+    let result = tools.task_delete(Parameters(params)).await;
     assert!(result.is_ok());
 
     let deleted_at: Option<String> = sqlx::query_scalar("SELECT deleted_at FROM task WHERE id = ?")
@@ -299,7 +299,7 @@ async fn test_delete_task() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_task_not_found() {
+async fn test_task_delete_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
@@ -308,12 +308,12 @@ async fn test_delete_task_not_found() {
         task_id: "nonexist".to_string(),
     };
 
-    let result = tools.delete_task(Parameters(params)).await;
+    let result = tools.task_delete(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_transition_task() {
+async fn test_task_transition() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -340,7 +340,7 @@ async fn test_transition_task() {
         status: "in_progress".to_string(),
     };
 
-    let result = tools.transition_task(Parameters(params)).await;
+    let result = tools.task_transition(Parameters(params)).await;
     assert!(result.is_ok());
 
     let updated = db.tasks().get("task0001").await.unwrap();
@@ -348,7 +348,7 @@ async fn test_transition_task() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_transition_task_invalid() {
+async fn test_task_transition_invalid() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -375,12 +375,12 @@ async fn test_transition_task_invalid() {
         status: "invalid_status".to_string(),
     };
 
-    let result = tools.transition_task(Parameters(params)).await;
+    let result = tools.task_transition(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_with_data() {
+async fn test_tasks_list_with_data() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -415,7 +415,7 @@ async fn test_list_tasks_with_data() {
         order: None,
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -428,7 +428,7 @@ async fn test_list_tasks_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_status_filter() {
+async fn test_tasks_list_status_filter() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -463,7 +463,7 @@ async fn test_list_tasks_status_filter() {
         order: None,
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -476,7 +476,7 @@ async fn test_list_tasks_status_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_pagination() {
+async fn test_tasks_list_pagination() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -513,7 +513,7 @@ async fn test_list_tasks_pagination() {
         order: None,
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -527,7 +527,7 @@ async fn test_list_tasks_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_search() {
+async fn test_tasks_list_search() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -562,7 +562,7 @@ async fn test_list_tasks_search() {
         order: None,
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -607,7 +607,7 @@ async fn test_create_subtask() {
         external_refs: None,
     };
 
-    let result = tools.create_task(Parameters(params)).await;
+    let result = tools.task_create(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -621,7 +621,7 @@ async fn test_create_subtask() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_with_parent_filter() {
+async fn test_tasks_list_with_parent_filter() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -671,7 +671,7 @@ async fn test_list_tasks_with_parent_filter() {
         order: None,
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -685,7 +685,7 @@ async fn test_list_tasks_with_parent_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_type_filter() {
+async fn test_tasks_list_type_filter() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -735,7 +735,7 @@ async fn test_list_tasks_type_filter() {
         order: None,
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -749,7 +749,7 @@ async fn test_list_tasks_type_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_sorting() {
+async fn test_tasks_list_sorting() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -790,7 +790,7 @@ async fn test_list_tasks_sorting() {
         order: Some("asc".to_string()),
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -809,7 +809,7 @@ async fn test_list_tasks_sorting() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_tasks_tag_filter() {
+async fn test_tasks_list_tag_filter() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -844,7 +844,7 @@ async fn test_list_tasks_tag_filter() {
         order: None,
     };
 
-    let result = tools.list_tasks(Parameters(params)).await;
+    let result = tools.tasks_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
