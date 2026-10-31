@@ -29,9 +29,9 @@ All entity IDs are **8-character lowercase hex strings** (e.g. `a1b2c3d4`).
 
 **Always check for existing entities before creating new ones:**
 
-- Before `task_list_create` → call `task_lists_list` to find an existing list
-- Before `project_create` → call `projects_list` to find an existing project
-- Before `note_create` → call `notes_list` to find an existing note to update
+- Before `task_list_create` → call `task_list_list` to find an existing list
+- Before `project_create` → call `project_list` to find an existing project
+- Before `note_create` → call `note_list` to find an existing note to update
 
 ### Task Hierarchy
 
@@ -84,7 +84,7 @@ Allowed transitions:
 ### Task Workflow Pattern
 
 ```
-1. task_lists_list — find existing list or confirm none fits
+1. task_list_list — find existing list or confirm none fits
 2. task_list_create — only if no suitable list exists
 3. task_create — add tasks with priority 1-5
 4. task_create (parent_id=...) — add subtasks (1 level only)
@@ -378,7 +378,7 @@ note_create(
 - Tag the note with `session` — this makes it findable after context compaction
 - Always link the note to a project via `project_ids`
 - Keep the content under 10k characters
-- After a context compaction: call `notes_list(tags=["session"])` to restore state
+- After a context compaction: call `note_list(tags=["session"])` to restore state
 - Reference task IDs in notes — do not duplicate task lists in markdown
 
 ## Notes
@@ -430,7 +430,7 @@ sync(operation="import")   — restore from git
 
 ## Common Mistakes to Avoid
 
-- Creating a task list without calling `task_lists_list` first
+- Creating a task list without calling `task_list_list` first
 - Marking a parent task `done` before you transition or cancel all in-flight subtasks
 - Nesting subtasks more than 1 level deep
 - Batching status updates instead of transitioning each task in real-time

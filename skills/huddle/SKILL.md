@@ -78,7 +78,7 @@ As decisions are settled, persist them as c5t notes. Load the `context` skill fo
 ### Resuming a Huddle
 
 If a huddle spans multiple conversations, find the existing parent note by:
-- Searching notes with the `huddle` tag via `c5t__notes_list`
+- Searching notes with the `huddle` tag via `c5t__note_list`
 - Using the note ID directly if known
 
 Continue adding subnotes to the existing parent note.
