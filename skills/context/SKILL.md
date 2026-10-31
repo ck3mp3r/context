@@ -338,6 +338,31 @@ Refinement checks:
 
 Run refinement after all tasks in the set pass the individual quality checklist. If refinement finds issues, fix the affected tasks and re-run the individual checklist on them, then re-run refinement. Transition tasks to `todo` only when both passes are clean.
 
+## Context Selection at Delegation — Obligation of the Sender
+
+Applies when you hand a task to a subagent (a *send*) and choose whether it continues an earlier conversation (*context id*) or starts fresh. Context selection happens at exactly one point: the delegator's send. The receiver cannot refuse a context and is never accountable for one. The discipline is the sender's alone.
+
+- **Default: omit the context id.** Every send starts fresh.
+- **A context id goes on the send in exactly two cases:**
+  1. Resuming a still-in-flight task with the same agent.
+  2. The task exists only to fix that agent's own output because a reviewer rejected it with findings.
+- **Nothing else justifies continuation** — not the same branch, not the same workstream, not "it already has the repo loaded", not efficiency. The task spec and the delegation message carry all state.
+- **Before every send, one check:** is this an in-flight resume or a reviewer-mandated self-fix? If neither, omit.
+- **If a defect is later traced to a stale context, the failure is the sender's**, regardless of who executed the task.
+
+**Two tasks count as related only when they share files and spec sections** — not branch, workstream, repository, or intent. Same workstream ≠ same context.
+
+### What Context Reuse Costs (Sender-Side)
+
+This section exists so the sender understands the cost of reuse. It is not a manual for receivers.
+
+- A pattern verified in task N becomes settled knowledge in task N+2 without being re-derived — including patterns that were wrong all along. The failure is silent: you cannot feel what you stopped checking.
+- Coverage verified on ONE path metastasizes into coverage assumed on ALL paths.
+- A fresh context re-derives; a stale context remembers. Reviewers with fresh eyes catch what stale executors inherit.
+- Token savings from reuse are trivial. One propagated defect costs a follow-up task, a review cycle, and trust. The asymmetry always resolves to fresh.
+
+*Origin: five developer tasks chained in one context produced an unrunnable recorded pattern (`nu -c` invocation), a per-mode coverage blind spot (`turn_started`), and a rework cycle — all caught by fresh-eyes review, none by the stale executor.*
+
 ## Session Notes (Multi-Session Work)
 
 For work spanning multiple sessions or surviving context compaction:
