@@ -358,9 +358,12 @@ echo "Hello"
 
 ### Use Cases
 
+Skills are authored as `SKILL.md` files and persisted through `sync`; the MCP tools read and update them. The records below show the shape returned by `skill_get`.
+
 **1. Deployment Workflows**
 ```javascript
-create_skill({
+// Stored skill record (as returned by skill_get)
+const stored = {
   name: "Deploy to Kubernetes",
   description: "Standard deployment workflow for K8s applications",
   content: `---
@@ -391,12 +394,13 @@ version: 1.0.0
   `,
   tags: ["deployment", "kubernetes", "docker"],
   project_ids: ["a1b2c3d4"]
-})
+};
 ```
 
 **2. Testing Strategies**
 ```javascript
-create_skill({
+// Stored skill record (as returned by skill_get)
+const stored = {
   name: "TDD Workflow - Rust",
   description: "Test-Driven Development process for Rust projects",
   content: `---
@@ -435,12 +439,13 @@ version: 1.0.0
   `,
   tags: ["testing", "tdd", "rust", "workflow"],
   project_ids: ["a1b2c3d4"]
-})
+};
 ```
 
 **3. Code Review Guidelines**
 ```javascript
-create_skill({
+// Stored skill record (as returned by skill_get)
+const stored = {
   name: "Code Review Checklist",
   description: "Comprehensive code review process",
   content: `---
@@ -478,12 +483,13 @@ version: 1.0.0
 - [ ] README updated if needed
   `,
   tags: ["code-review", "best-practices", "checklist"]
-})
+};
 ```
 
 **4. API Integration Patterns**
 ```javascript
-create_skill({
+// Stored skill record (as returned by skill_get)
+const stored = {
   name: "REST API Client - Best Practices",
   description: "Resilient HTTP client implementation patterns",
   content: `---
@@ -532,7 +538,7 @@ loop {
 \`\`\`
   `,
   tags: ["api", "http", "patterns", "rust"]
-})
+};
 ```
 
 ### Searching Skills
@@ -715,23 +721,34 @@ const [frontmatter, body] = parseFrontmatter(skill.content);
 // body => "# Deploy to K8s\n\n## Prerequisites..."
 
 // 4. Update session note with skill reference
+// note_edit REQUIRES the etag returned by a fresh note_read
+const { etag } = note_read({ note_id: "session_note_id", format: "json" });
+
+// Each patch replaces lines [start, end] (1-indexed, inclusive)
 note_edit({
   note_id: "session_note_id",
-  content: `
-## Current Task
-Deploying microservice to K8s cluster
-
-## Using Skill
-Following skill 'Deploy to K8s' (skill123)
-- License: ${frontmatter.license}
-- Compatibility: ${frontmatter.compatibility}
-
-## Progress
-- [x] Build Docker image
-- [x] Push to registry
-- [ ] Update manifests
-- [ ] Apply to cluster
-  `
+  etag,
+  patches: [
+    {
+      start: 1,
+      end: 3,
+      content: [
+        "## Current Task",
+        "Deploying microservice to K8s cluster",
+        "",
+        "## Using Skill",
+        "Following skill 'Deploy to K8s' (skill123)",
+        `- License: ${frontmatter.license}`,
+        `- Compatibility: ${frontmatter.compatibility}`,
+        "",
+        "## Progress",
+        "- [x] Build Docker image",
+        "- [x] Push to registry",
+        "- [ ] Update manifests",
+        "- [ ] Apply to cluster"
+      ].join("\n")
+    }
+  ]
 })
 
 // 5. Create task list based on skill
@@ -872,31 +889,42 @@ task_transition({ task_id: "3e7d9a4f", status: "in_progress" })
 task_transition({ task_id: "3e7d9a4f", status: "done" })
 
 // Update session note with findings
+// note_edit REQUIRES the etag returned by a fresh note_read
+const { etag } = note_read({ note_id: "9c8d7e6f", format: "json" });
+
+// Each patch replaces lines [start, end] (1-indexed, inclusive)
 note_edit({
   note_id: "9c8d7e6f",
-  content: `
-## Goal
-Implement JWT-based authentication system for API
-
-## Current Status
-Completed task 3e7d9a4f (Research) ✅
-Next: task 5f8a2b1c - Write auth middleware tests
-
-## Decisions
-- Chose Passport.js for middleware (supports JWT + OAuth)
-- Using bcrypt for password hashing (10 rounds)
-- Access token: 15min expiry, Refresh token: 7 days
-
-## Research Findings
-- Passport.js: Most popular, well-maintained, excellent docs
-- Alternative considered: jsonwebtoken (lower-level, more manual)
-- OAuth 2.0 support needed for future GitHub/Google login
-
-## Next Steps
-1. Write auth middleware tests (task 5f8a2b1c) ← NEXT
-2. Implement JWT token generation
-3. Add refresh token support
-  `
+  etag,
+  patches: [
+    {
+      start: 1,
+      end: 5,
+      content: [
+        "## Goal",
+        "Implement JWT-based authentication system for API",
+        "",
+        "## Current Status",
+        "Completed task 3e7d9a4f (Research) ✅",
+        "Next: task 5f8a2b1c - Write auth middleware tests",
+        "",
+        "## Decisions",
+        "- Chose Passport.js for middleware (supports JWT + OAuth)",
+        "- Using bcrypt for password hashing (10 rounds)",
+        "- Access token: 15min expiry, Refresh token: 7 days",
+        "",
+        "## Research Findings",
+        "- Passport.js: Most popular, well-maintained, excellent docs",
+        "- Alternative considered: jsonwebtoken (lower-level, more manual)",
+        "- OAuth 2.0 support needed for future GitHub/Google login",
+        "",
+        "## Next Steps",
+        "1. Write auth middleware tests (task 5f8a2b1c) ← NEXT",
+        "2. Implement JWT token generation",
+        "3. Add refresh token support"
+      ].join("\n")
+    }
+  ]
 })
 
 // 5. CONTEXT COMPACTION HAPPENS HERE
