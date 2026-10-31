@@ -31,7 +31,10 @@ in
     buildInputs = [
       toolchain
       pkgs.prek
-      pkgs.cargo-llvm-cov
+      # cargo-llvm-cov's own test suite segfaults instrumented binaries inside
+      # the nix sandbox (nixpkgs cargo-llvm-cov, upstream not fixed yet),
+      # which fails the whole dev shell build. Skip its self-test.
+      (pkgs.cargo-llvm-cov.overrideAttrs (_: {doCheck = false;}))
       pkgs.cargo-nextest
       pkgs.trunk
       (pkgs.callPackage ./wasm-bindgen-cli.nix {})
