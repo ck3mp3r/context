@@ -29,9 +29,9 @@ All entity IDs are **8-character lowercase hex strings** (e.g. `a1b2c3d4`).
 
 **Always check for existing entities before creating new ones:**
 
-- Before `create_task_list` → call `list_task_lists` to find an existing list
-- Before `create_project` → call `list_projects` to find an existing project
-- Before `create_note` → call `list_notes` to find an existing note to update
+- Before `task_list_create` → call `task_lists_list` to find an existing list
+- Before `project_create` → call `projects_list` to find an existing project
+- Before `note_create` → call `notes_list` to find an existing note to update
 
 ### Task Hierarchy
 
@@ -84,13 +84,13 @@ Allowed transitions:
 ### Task Workflow Pattern
 
 ```
-1. list_task_lists — find existing list or confirm none fits
-2. create_task_list — only if no suitable list exists
-3. create_task — add tasks with priority 1-5
-4. create_task (parent_id=...) — add subtasks (1 level only)
-5. transition_task → in_progress — when starting a task
-6. transition_task → done — when complete
-7. get_task_list_stats — check progress
+1. task_lists_list — find existing list or confirm none fits
+2. task_list_create — only if no suitable list exists
+3. task_create — add tasks with priority 1-5
+4. task_create (parent_id=...) — add subtasks (1 level only)
+5. task_transition → in_progress — when starting a task
+6. task_transition → done — when complete
+7. task_list_stats_get — check progress
 ```
 
 ### Writing Tasks and Notes
@@ -162,7 +162,7 @@ Facts the agent needs. Do not make the agent discover these.
 
 ## FILES
 Exact file paths the agent will read or modify. For each file: the path, the line number, what is at that location, and what about it changes (or stays the same for regression targets).
-- src/api/v1/tasks.rs:42 — create_task handler; validates title and calls repo; add empty-title validation before repo call
+- src/api/v1/tasks.rs:42 — task_create handler; validates title and calls repo; add empty-title validation before repo call
 - test/api/v1/tasks.rs — unit tests for the task handlers in the crate-root test/ tree; add a test for empty-title rejection
 - src/db/sqlite/task.rs:118 — TaskRepository::create; inserts row; no changes, must continue to accept non-empty titles
 
@@ -207,7 +207,7 @@ For bugfix tasks, verify in this order:
 - No regression: <command that runs the existing test suite for the affected module and shows all pass>
 ```
 
-The `<system>` in EARS is the specific component, endpoint, function, or module the criterion applies to. Use the exact name from the codebase: `THE API`, `THE TaskRepository::create function`, `THE create_task handler`. Do not use generic names like "the system" or "the application".
+The `<system>` in EARS is the specific component, endpoint, function, or module the criterion applies to. Use the exact name from the codebase: `THE API`, `THE TaskRepository::create function`, `THE task_create handler`. Do not use generic names like "the system" or "the application".
 
 #### EARS Notation for Acceptance Criteria
 
@@ -247,7 +247,7 @@ Each criterion maps to one verification: the trigger/state/condition is how you 
 6. **Give exact verification commands.** Do not write "run the tests". Write `cargo test --lib api::v1::tasks_test`. The agent must not figure out commands.
 7. **Reference code, do not copy code.** Write `src/api/v1/tasks.rs:42` so the agent reads the real code. Pasted snippets go stale.
 8. **Use EARS for criteria.** Every criterion starts with WHEN, WHILE, WHERE, IF...THEN, or no keyword (ubiquitous), followed by THE `<system>` SHALL. No exceptions.
-9. **Name the system in EARS.** Use the exact component name from the codebase: `THE create_task handler`, `THE TaskRepository::create function`, `THE POST /api/v1/tasks endpoint`. Do not use generic names like "the system".
+9. **Name the system in EARS.** Use the exact component name from the codebase: `THE task_create handler`, `THE TaskRepository::create function`, `THE POST /api/v1/tasks endpoint`. Do not use generic names like "the system".
 10. **List what is out of scope.** Scope creep is the top cause of unintended changes. State what the agent must not touch.
 11. **If the spec does not fit, the task is too big.** Break it into subtasks. Each subtask gets its own complete spec in its own `description` field.
 
@@ -368,7 +368,7 @@ This section exists so the sender understands the cost of reuse. It is not a man
 For work spanning multiple sessions or surviving context compaction:
 
 ```
-create_note(
+note_create(
   title="Session: <feature>",
   tags=["session", ...],
   project_ids=[...]   ← REQUIRED
@@ -378,40 +378,40 @@ create_note(
 - Tag the note with `session` — this makes it findable after context compaction
 - Always link the note to a project via `project_ids`
 - Keep the content under 10k characters
-- After a context compaction: call `list_notes(tags=["session"])` to restore state
+- After a context compaction: call `notes_list(tags=["session"])` to restore state
 - Reference task IDs in notes — do not duplicate task lists in markdown
 
 ## Notes
 
 - Hierarchical via `parent_id` — use subnotes for detail, parent notes for summary
 - Use `include_content: false` when you list notes to avoid context bloat
-- **TOON format is the default** — `read_note` returns line-numbered content for accurate patching (use `format="json"` to opt out)
+- **TOON format is the default** — `note_read` returns line-numbered content for accurate patching (use `format="json"` to opt out)
 - **No H1 headings in note content** — the note `title` field renders as the heading; start content with `##` or lower
 
 ### Note Editing - CRITICAL
 
 **🚨 ETag Required: Always read before editing**
 
-- `read_note` returns an `etag` field (an entity tag for concurrency control)
-- `edit_note` REQUIRES the `etag` from your most recent `read_note` call
+- `note_read` returns an `etag` field (an entity tag for concurrency control)
+- `note_edit` REQUIRES the `etag` from your most recent `note_read` call
 - If the etag does not match, the edit will fail with: "Note has been modified since last read. Please re-read the note before editing."
 
 **Workflow:**
-1. `read_note()` → get note content with line numbers AND etag
+1. `note_read()` → get note content with line numbers AND etag
 2. Identify ALL lines to edit
-3. Make ONE `edit_note(etag=..., patches=[...])` call with all patches
+3. Make ONE `note_edit(etag=..., patches=[...])` call with all patches
 
-**🚨 DANGER: Always batch multiple edits into a single `edit_note` call**
+**🚨 DANGER: Always batch multiple edits into a single `note_edit` call**
 
-- **WRONG:** Multiple sequential `edit_note` calls
+- **WRONG:** Multiple sequential `note_edit` calls
   ```
-  edit_note(etag=..., patches: [[10, 12, "new"]])  // Line numbers change!
-  edit_note(etag=..., patches: [[20, 22, "new"]])  // Now editing wrong lines!
+  note_edit(etag=..., patches: [[10, 12, "new"]])  // Line numbers change!
+  note_edit(etag=..., patches: [[20, 22, "new"]])  // Now editing wrong lines!
   ```
 
-- **CORRECT:** Single `edit_note` with all patches
+- **CORRECT:** Single `note_edit` with all patches
   ```
-  edit_note(etag=..., patches: [
+  note_edit(etag=..., patches: [
     [[10, 12, "new"]],
     [[20, 22, "new"]],
     [[50, 55, "new"]]
@@ -430,11 +430,11 @@ sync(operation="import")   — restore from git
 
 ## Common Mistakes to Avoid
 
-- Creating a task list without calling `list_task_lists` first
+- Creating a task list without calling `task_lists_list` first
 - Marking a parent task `done` before you transition or cancel all in-flight subtasks
 - Nesting subtasks more than 1 level deep
 - Batching status updates instead of transitioning each task in real-time
 - Forgetting to promote a parent task to `in_progress` when you start subtask work
 - Linking a session note without a `project_ids` value — the note becomes unfindable
-- **Editing a note without the etag from `read_note` (the edit will fail with a validation error)**
-- **Making sequential `edit_note` calls instead of batching all patches in one call (causes line number misalignment)**
+- **Editing a note without the etag from `note_read` (the edit will fail with a validation error)**
+- **Making sequential `note_edit` calls instead of batching all patches in one call (causes line number misalignment)**
