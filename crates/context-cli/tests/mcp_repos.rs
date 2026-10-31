@@ -20,13 +20,13 @@ async fn setup_db() -> SqliteDatabase {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_repos_empty() {
+async fn test_repo_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .list_repos(Parameters(ListReposParams {
+        .repo_list(Parameters(ListReposParams {
             query: None,
             project_id: None,
             limit: None,
@@ -47,13 +47,13 @@ async fn test_list_repos_empty() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_repo() {
+async fn test_repo_create() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .create_repo(Parameters(CreateRepoParams {
+        .repo_create(Parameters(CreateRepoParams {
             remote: "https://github.com/test/repo".to_string(),
             path: Some("/test/path".to_string()),
             tags: Some(vec!["test".to_string()]),
@@ -72,13 +72,13 @@ async fn test_create_repo() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_repo_empty_remote() {
+async fn test_repo_create_empty_remote() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .create_repo(Parameters(CreateRepoParams {
+        .repo_create(Parameters(CreateRepoParams {
             remote: "".to_string(),
             path: None,
             tags: None,
@@ -89,7 +89,7 @@ async fn test_create_repo_empty_remote() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_repo() {
+async fn test_repo_get() {
     let db = setup_db().await;
     let repo = Repo {
         id: "12345678".to_string(),
@@ -106,7 +106,7 @@ async fn test_get_repo() {
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .get_repo(Parameters(GetRepoParams {
+        .repo_get(Parameters(GetRepoParams {
             id: "12345678".to_string(),
         }))
         .await;
@@ -122,13 +122,13 @@ async fn test_get_repo() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_repo_not_found() {
+async fn test_repo_get_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .get_repo(Parameters(GetRepoParams {
+        .repo_get(Parameters(GetRepoParams {
             id: "nonexist".to_string(),
         }))
         .await;
@@ -136,7 +136,7 @@ async fn test_get_repo_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_repo() {
+async fn test_repo_update() {
     let db = setup_db().await;
     let repo = Repo {
         id: "12345678".to_string(),
@@ -153,7 +153,7 @@ async fn test_update_repo() {
 
     let tools = RepoTools::new(db.clone(), ChangeNotifier::new());
     let result = tools
-        .update_repo(Parameters(UpdateRepoParams {
+        .repo_update(Parameters(UpdateRepoParams {
             id: "12345678".to_string(),
             remote: Some("https://github.com/test/updated".to_string()),
             path: Some("/updated/path".to_string()),
@@ -168,13 +168,13 @@ async fn test_update_repo() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_repo_not_found() {
+async fn test_repo_update_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .update_repo(Parameters(UpdateRepoParams {
+        .repo_update(Parameters(UpdateRepoParams {
             id: "nonexist".to_string(),
             remote: Some("https://github.com/test/repo".to_string()),
             path: None,
@@ -186,7 +186,7 @@ async fn test_update_repo_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_repo() {
+async fn test_repo_delete() {
     let db = setup_db().await;
     let repo = Repo {
         id: "12345678".to_string(),
@@ -203,7 +203,7 @@ async fn test_delete_repo() {
 
     let tools = RepoTools::new(db.clone(), ChangeNotifier::new());
     let result = tools
-        .delete_repo(Parameters(DeleteRepoParams {
+        .repo_delete(Parameters(DeleteRepoParams {
             id: "12345678".to_string(),
         }))
         .await;
@@ -218,13 +218,13 @@ async fn test_delete_repo() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_repo_not_found() {
+async fn test_repo_delete_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
     let tools = RepoTools::new(db.clone(), ChangeNotifier::new());
     let result = tools
-        .delete_repo(Parameters(DeleteRepoParams {
+        .repo_delete(Parameters(DeleteRepoParams {
             id: "nonexist".to_string(),
         }))
         .await;
@@ -232,7 +232,7 @@ async fn test_delete_repo_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_repos_with_data() {
+async fn test_repo_list_with_data() {
     let db = setup_db().await;
     let repo = Repo {
         id: "12345678".to_string(),
@@ -249,7 +249,7 @@ async fn test_list_repos_with_data() {
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .list_repos(Parameters(ListReposParams {
+        .repo_list(Parameters(ListReposParams {
             query: None,
             project_id: None,
             limit: None,
@@ -270,7 +270,7 @@ async fn test_list_repos_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_repos_pagination() {
+async fn test_repo_list_pagination() {
     let db = setup_db().await;
     for i in 0..3 {
         let repo = Repo {
@@ -289,7 +289,7 @@ async fn test_list_repos_pagination() {
 
     let tools = RepoTools::new(db, ChangeNotifier::new());
     let result = tools
-        .list_repos(Parameters(ListReposParams {
+        .repo_list(Parameters(ListReposParams {
             query: None,
             project_id: None,
             limit: Some(1),

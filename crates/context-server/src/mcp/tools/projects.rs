@@ -117,7 +117,7 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
     #[tool(
         description = "List projects with pagination and sorting. Sort by title, created_at, or updated_at. Default limit: 10, max: 20 to prevent context overflow."
     )]
-    pub async fn list_projects(
+    pub async fn project_list(
         &self,
         params: Parameters<ListProjectsParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -166,7 +166,7 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
 
     /// Get a project by ID
     #[tool(description = "Get a project by ID")]
-    pub async fn get_project(
+    pub async fn project_get(
         &self,
         params: Parameters<GetProjectParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -189,7 +189,7 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
 
     /// Create a new project
     #[tool(description = "Create a new project")]
-    pub async fn create_project(
+    pub async fn project_create(
         &self,
         params: Parameters<CreateProjectParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -230,7 +230,7 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
 
     /// Update a project
     #[tool(description = "Update a project")]
-    pub async fn update_project(
+    pub async fn project_update(
         &self,
         params: Parameters<UpdateProjectParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -289,7 +289,7 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
 
     /// Delete a project
     #[tool(description = "Delete a project")]
-    pub async fn delete_project(
+    pub async fn project_delete(
         &self,
         params: Parameters<DeleteProjectParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -317,7 +317,7 @@ impl<D: HasProjects + 'static> ProjectTools<D> {
     #[tool(
         description = "Restore a soft-deleted project (cascades to children deleted in the same delete)"
     )]
-    pub async fn restore_project(
+    pub async fn project_restore(
         &self,
         params: Parameters<RestoreProjectParams>,
     ) -> Result<CallToolResult, McpError> {

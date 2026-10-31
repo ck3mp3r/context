@@ -90,7 +90,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
     #[tool(
         description = "List skills with optional full-text search. Provide 'query' parameter to search, omit to list all. Supports filtering, sorting, and pagination."
     )]
-    pub async fn list_skills(
+    pub async fn skill_list(
         &self,
         params: Parameters<ListSkillsParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -143,7 +143,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
     }
 
     #[tool(description = "Get a skill by ID")]
-    pub async fn get_skill(
+    pub async fn skill_get(
         &self,
         params: Parameters<GetSkillParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -224,7 +224,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
     #[tool(
         description = "Update skill tags and/or project_ids. Allows partial updates - update tags without changing projects, or vice versa."
     )]
-    pub async fn update_skill(
+    pub async fn skill_update(
         &self,
         params: Parameters<UpdateSkillParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -298,7 +298,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
     }
 
     #[tool(description = "Restore a soft-deleted skill")]
-    pub async fn restore_skill(
+    pub async fn skill_restore(
         &self,
         params: Parameters<RestoreSkillParams>,
     ) -> Result<CallToolResult, McpError> {

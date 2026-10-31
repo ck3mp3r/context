@@ -18,7 +18,7 @@ async fn setup_db() -> SqliteDatabase {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_projects_empty() {
+async fn test_project_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -27,7 +27,7 @@ async fn test_list_projects_empty() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -52,7 +52,7 @@ async fn test_list_projects_empty() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_projects_with_data() {
+async fn test_project_list_with_data() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -77,7 +77,7 @@ async fn test_list_projects_with_data() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -102,7 +102,7 @@ async fn test_list_projects_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_project() {
+async fn test_project_get() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -126,7 +126,7 @@ async fn test_get_project() {
     use context_server::mcp::tools::projects::GetProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .get_project(Parameters(GetProjectParams {
+        .project_get(Parameters(GetProjectParams {
             id: "12345678".to_string(),
         }))
         .await;
@@ -142,7 +142,7 @@ async fn test_get_project() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_get_project_not_found() {
+async fn test_project_get_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -151,7 +151,7 @@ async fn test_get_project_not_found() {
     use context_server::mcp::tools::projects::GetProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .get_project(Parameters(GetProjectParams {
+        .project_get(Parameters(GetProjectParams {
             id: "nonexist".to_string(),
         }))
         .await;
@@ -159,7 +159,7 @@ async fn test_get_project_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_project() {
+async fn test_project_create() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -168,7 +168,7 @@ async fn test_create_project() {
     use context_server::mcp::tools::projects::CreateProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .create_project(Parameters(CreateProjectParams {
+        .project_create(Parameters(CreateProjectParams {
             title: "New Project".to_string(),
             description: Some("A test project".to_string()),
             tags: Some(vec!["test".to_string()]),
@@ -188,7 +188,7 @@ async fn test_create_project() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_project_empty_title() {
+async fn test_project_create_empty_title() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -197,7 +197,7 @@ async fn test_create_project_empty_title() {
     use context_server::mcp::tools::projects::CreateProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .create_project(Parameters(CreateProjectParams {
+        .project_create(Parameters(CreateProjectParams {
             title: "".to_string(),
             description: None,
             tags: None,
@@ -208,7 +208,7 @@ async fn test_create_project_empty_title() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_project() {
+async fn test_project_update() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -232,7 +232,7 @@ async fn test_update_project() {
     use context_server::mcp::tools::projects::UpdateProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .update_project(Parameters(UpdateProjectParams {
+        .project_update(Parameters(UpdateProjectParams {
             id: "12345678".to_string(),
             title: Some("Updated".to_string()),
             description: Some("Updated desc".to_string()),
@@ -248,7 +248,7 @@ async fn test_update_project() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_update_project_not_found() {
+async fn test_project_update_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -257,7 +257,7 @@ async fn test_update_project_not_found() {
     use context_server::mcp::tools::projects::UpdateProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .update_project(Parameters(UpdateProjectParams {
+        .project_update(Parameters(UpdateProjectParams {
             id: "nonexist".to_string(),
             title: Some("Updated".to_string()),
             description: None,
@@ -269,7 +269,7 @@ async fn test_update_project_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_project() {
+async fn test_project_delete() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -293,7 +293,7 @@ async fn test_delete_project() {
     use context_server::mcp::tools::projects::DeleteProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .delete_project(Parameters(DeleteProjectParams {
+        .project_delete(Parameters(DeleteProjectParams {
             id: "12345678".to_string(),
         }))
         .await;
@@ -309,7 +309,7 @@ async fn test_delete_project() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_project_not_found() {
+async fn test_project_delete_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -318,7 +318,7 @@ async fn test_delete_project_not_found() {
     use context_server::mcp::tools::projects::DeleteProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .delete_project(Parameters(DeleteProjectParams {
+        .project_delete(Parameters(DeleteProjectParams {
             id: "nonexist".to_string(),
         }))
         .await;
@@ -326,7 +326,7 @@ async fn test_delete_project_not_found() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_projects_pagination() {
+async fn test_project_list_pagination() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -352,7 +352,7 @@ async fn test_list_projects_pagination() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: Some(1),
             offset: None,
@@ -373,7 +373,7 @@ async fn test_list_projects_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_projects_search() {
+async fn test_project_list_search() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -397,7 +397,7 @@ async fn test_list_projects_search() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: Some("rust".to_string()),
             limit: None,
             offset: None,
@@ -417,7 +417,7 @@ async fn test_list_projects_search() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_projects_sorting() {
+async fn test_project_list_sorting() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -447,7 +447,7 @@ async fn test_list_projects_sorting() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -473,7 +473,7 @@ async fn test_list_projects_sorting() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_projects_tag_filter() {
+async fn test_project_list_tag_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -497,7 +497,7 @@ async fn test_list_projects_tag_filter() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -519,7 +519,7 @@ async fn test_list_projects_tag_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_project_duplicate_title() {
+async fn test_project_create_duplicate_title() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -530,7 +530,7 @@ async fn test_create_project_duplicate_title() {
 
     // First creation should succeed
     let result = tools
-        .create_project(Parameters(CreateProjectParams {
+        .project_create(Parameters(CreateProjectParams {
             title: "Same Title".to_string(),
             description: None,
             tags: None,
@@ -541,7 +541,7 @@ async fn test_create_project_duplicate_title() {
 
     // Second creation with same title should also succeed (titles not unique)
     let result = tools
-        .create_project(Parameters(CreateProjectParams {
+        .project_create(Parameters(CreateProjectParams {
             title: "Same Title".to_string(),
             description: None,
             tags: None,
@@ -552,7 +552,7 @@ async fn test_create_project_duplicate_title() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_projects_with_project_ids_filter() {
+async fn test_project_list_with_project_ids_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -576,7 +576,7 @@ async fn test_list_projects_with_project_ids_filter() {
     use context_server::mcp::tools::projects::ListProjectsParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .list_projects(Parameters(ListProjectsParams {
+        .project_list(Parameters(ListProjectsParams {
             query: None,
             limit: None,
             offset: None,
@@ -598,7 +598,7 @@ async fn test_list_projects_with_project_ids_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_restore_project() {
+async fn test_project_restore() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -625,7 +625,7 @@ async fn test_restore_project() {
     use context_server::mcp::tools::projects::RestoreProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .restore_project(Parameters(RestoreProjectParams {
+        .project_restore(Parameters(RestoreProjectParams {
             id: "12345678".to_string(),
         }))
         .await;
@@ -653,7 +653,7 @@ async fn test_restore_project() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_restore_project_not_found() {
+async fn test_project_restore_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
 
@@ -662,7 +662,7 @@ async fn test_restore_project_not_found() {
     use context_server::mcp::tools::projects::RestoreProjectParams;
     use rmcp::handler::server::wrapper::Parameters;
     let result = tools
-        .restore_project(Parameters(RestoreProjectParams {
+        .project_restore(Parameters(RestoreProjectParams {
             id: "nonexist".to_string(),
         }))
         .await;

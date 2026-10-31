@@ -1,7 +1,7 @@
 //! Cache management for skill attachments.
 //!
 //! Skills can have attachments stored as base64-encoded content in the database.
-//! When a skill is loaded via `c5t_get_skill`, attachments are extracted to a local
+//! When a skill is loaded via `skill_get`, attachments are extracted to a local
 //! cache directory using the skill name (per Agent Skills spec) and preserving the
 //! exact directory structure from the source.
 //!

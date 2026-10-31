@@ -76,7 +76,7 @@ pub struct GetTaskParams {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateTaskParams {
     #[schemars(
-        description = "Task list ID this task belongs to. Use list_task_lists to find existing lists."
+        description = "Task list ID this task belongs to. Use task_list_list to find existing lists."
     )]
     pub list_id: String,
     #[schemars(description = "Task title (short summary)")]
@@ -184,7 +184,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     #[tool(
         description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, or updated_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
     )]
-    pub async fn list_tasks(
+    pub async fn task_list(
         &self,
         params: Parameters<ListTasksParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -233,7 +233,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     #[tool(
         description = "Get a task by ID with full details including status, timestamps, and relationships."
     )]
-    pub async fn get_task(
+    pub async fn task_get(
         &self,
         params: Parameters<GetTaskParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -250,9 +250,9 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Create a new task (always status='backlog'). WORKFLOW: 1) create_task (backlog), 2) transition_task to change status. Use transition_task for ALL status changes. For subtasks use parent_id (max ONE level deep)."
+        description = "Create a new task (always status='backlog'). WORKFLOW: 1) task_create (backlog), 2) task_transition to change status. Use task_transition for ALL status changes. For subtasks use parent_id (max ONE level deep)."
     )]
-    pub async fn create_task(
+    pub async fn task_create(
         &self,
         params: Parameters<CreateTaskParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -290,7 +290,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     #[tool(
         description = "Transition task between statuses. No-ops silently if already at target. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]. Blocked if subtasks are still in flight when targeting done/cancelled. Max task depth is 1 level (subtasks cannot have subtasks)."
     )]
-    pub async fn transition_task(
+    pub async fn task_transition(
         &self,
         params: Parameters<TransitionTaskParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -366,9 +366,9 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Update task content ONLY (title, description, priority, tags, parent_id, list_id). Does NOT change status - use transition_task for status changes. All fields optional."
+        description = "Update task content ONLY (title, description, priority, tags, parent_id, list_id). Does NOT change status - use task_transition for status changes. All fields optional."
     )]
-    pub async fn update_task(
+    pub async fn task_update(
         &self,
         params: Parameters<UpdateTaskParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -385,7 +385,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
             )
         })?;
 
-        // Update fields (content only - use transition_task for status changes)
+        // Update fields (content only - use task_transition for status changes)
         if let Some(title) = &params.0.title {
             task.title = title.clone();
         }
@@ -430,9 +430,9 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Delete a task permanently. Consider using transition_task with status='cancelled' instead to preserve history."
+        description = "Delete a task permanently. Consider using task_transition with status='cancelled' instead to preserve history."
     )]
-    pub async fn delete_task(
+    pub async fn task_delete(
         &self,
         params: Parameters<DeleteTaskParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -460,7 +460,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     #[tool(
         description = "Restore a soft-deleted task (cascades to descendants deleted in the same delete). Fails when the parent task list is still deleted."
     )]
-    pub async fn restore_task(
+    pub async fn task_restore(
         &self,
         params: Parameters<RestoreTaskParams>,
     ) -> Result<CallToolResult, McpError> {

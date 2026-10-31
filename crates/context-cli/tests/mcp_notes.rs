@@ -21,7 +21,7 @@ async fn setup_db() -> SqliteDatabase {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_empty() {
+async fn test_note_list_empty() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -39,7 +39,7 @@ async fn test_list_notes_empty() {
         order: None,
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -52,7 +52,7 @@ async fn test_list_notes_empty() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_note() {
+async fn test_note_create() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -67,7 +67,7 @@ async fn test_create_note() {
         idx: None,
     };
 
-    let result = tools.create_note(Parameters(params)).await;
+    let result = tools.note_create(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -81,7 +81,7 @@ async fn test_create_note() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_create_note_empty_title() {
+async fn test_note_create_empty_title() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -96,7 +96,7 @@ async fn test_create_note_empty_title() {
         idx: None,
     };
 
-    let result = tools.create_note(Parameters(params)).await;
+    let result = tools.note_create(Parameters(params)).await;
     assert!(result.is_err());
 }
 
@@ -128,7 +128,7 @@ async fn test_get_note() {
         ranges: None,
     };
 
-    let result = tools.read_note(Parameters(params)).await;
+    let result = tools.note_read(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -152,12 +152,12 @@ async fn test_get_note_not_found() {
         ranges: None,
     };
 
-    let result = tools.read_note(Parameters(params)).await;
+    let result = tools.note_read(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_note() {
+async fn test_note_delete() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -182,7 +182,7 @@ async fn test_delete_note() {
         note_id: "note0001".to_string(),
     };
 
-    let result = tools.delete_note(Parameters(params)).await;
+    let result = tools.note_delete(Parameters(params)).await;
     assert!(result.is_ok());
 
     let deleted_at: Option<String> = sqlx::query_scalar("SELECT deleted_at FROM note WHERE id = ?")
@@ -194,7 +194,7 @@ async fn test_delete_note() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_delete_note_not_found() {
+async fn test_note_delete_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -203,12 +203,12 @@ async fn test_delete_note_not_found() {
         note_id: "nonexist".to_string(),
     };
 
-    let result = tools.delete_note(Parameters(params)).await;
+    let result = tools.note_delete(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_edit_note() {
+async fn test_note_edit() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -235,7 +235,7 @@ async fn test_edit_note() {
         format: Some("json".to_string()),
         ranges: None,
     };
-    let read_result = tools.read_note(Parameters(read_params)).await.unwrap();
+    let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
         ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
@@ -255,7 +255,7 @@ async fn test_edit_note() {
         patches: vec![],
     };
 
-    let result = tools.edit_note(Parameters(params)).await;
+    let result = tools.note_edit(Parameters(params)).await;
     assert!(result.is_ok());
 
     let updated = db.notes().get("note0001").await.unwrap();
@@ -263,7 +263,7 @@ async fn test_edit_note() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_edit_note_not_found() {
+async fn test_note_edit_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -280,12 +280,12 @@ async fn test_edit_note_not_found() {
         patches: vec![],
     };
 
-    let result = tools.edit_note(Parameters(params)).await;
+    let result = tools.note_edit(Parameters(params)).await;
     assert!(result.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_with_data() {
+async fn test_note_list_with_data() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -319,7 +319,7 @@ async fn test_list_notes_with_data() {
         order: None,
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -332,7 +332,7 @@ async fn test_list_notes_with_data() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_search() {
+async fn test_note_list_search() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -366,7 +366,7 @@ async fn test_list_notes_search() {
         order: None,
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -379,7 +379,7 @@ async fn test_list_notes_search() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_pagination() {
+async fn test_note_list_pagination() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -415,7 +415,7 @@ async fn test_list_notes_pagination() {
         order: None,
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -429,7 +429,7 @@ async fn test_list_notes_pagination() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_tag_filter() {
+async fn test_note_list_tag_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -463,7 +463,7 @@ async fn test_list_notes_tag_filter() {
         order: None,
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -476,7 +476,7 @@ async fn test_list_notes_tag_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_with_project_id_filter() {
+async fn test_note_list_with_project_id_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -526,7 +526,7 @@ async fn test_list_notes_with_project_id_filter() {
         order: None,
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -539,7 +539,7 @@ async fn test_list_notes_with_project_id_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_with_parent_id_filter() {
+async fn test_note_list_with_parent_id_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -589,7 +589,7 @@ async fn test_list_notes_with_parent_id_filter() {
         order: None,
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -603,7 +603,7 @@ async fn test_list_notes_with_parent_id_filter() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_with_note_type_filter() {
+async fn test_note_list_with_note_type_filter() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -653,12 +653,12 @@ async fn test_list_notes_with_note_type_filter() {
         order: None,
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_notes_sorting() {
+async fn test_note_list_sorting() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -698,7 +698,7 @@ async fn test_list_notes_sorting() {
         order: Some("asc".to_string()),
     };
 
-    let result = tools.list_notes(Parameters(params)).await;
+    let result = tools.note_list(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -717,7 +717,7 @@ async fn test_list_notes_sorting() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_read_note_toon_format() {
+async fn test_note_read_toon_format() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -744,7 +744,7 @@ async fn test_read_note_toon_format() {
         ranges: None,
     };
 
-    let result = tools.read_note(Parameters(params)).await;
+    let result = tools.note_read(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -757,7 +757,7 @@ async fn test_read_note_toon_format() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_read_note_json_format() {
+async fn test_note_read_json_format() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -784,7 +784,7 @@ async fn test_read_note_json_format() {
         ranges: None,
     };
 
-    let result = tools.read_note(Parameters(params)).await;
+    let result = tools.note_read(Parameters(params)).await;
     assert!(result.is_ok());
 
     let call_result = result.unwrap();
@@ -798,7 +798,7 @@ async fn test_read_note_json_format() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_read_note_with_ranges() {
+async fn test_note_read_with_ranges() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -825,12 +825,12 @@ async fn test_read_note_with_ranges() {
         ranges: Some(vec![LineRange { start: 2, end: 3 }]),
     };
 
-    let result = tools.read_note(Parameters(params)).await;
+    let result = tools.note_read(Parameters(params)).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_edit_note_with_patches() {
+async fn test_note_edit_with_patches() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -857,7 +857,7 @@ async fn test_edit_note_with_patches() {
         format: Some("json".to_string()),
         ranges: None,
     };
-    let read_result = tools.read_note(Parameters(read_params)).await.unwrap();
+    let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
         ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
@@ -877,12 +877,12 @@ async fn test_edit_note_with_patches() {
         patches: vec![],
     };
 
-    let result = tools.edit_note(Parameters(params)).await;
+    let result = tools.note_edit(Parameters(params)).await;
     assert!(result.is_ok());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_edit_note_with_etag() {
+async fn test_note_edit_with_etag() {
     let db = setup_db().await;
     let db = Arc::new(db);
     let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
@@ -909,7 +909,7 @@ async fn test_edit_note_with_etag() {
         format: Some("json".to_string()),
         ranges: None,
     };
-    let read_result = tools.read_note(Parameters(read_params)).await.unwrap();
+    let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
         ContentBlock::Text(text) => text.text.as_str(),
         _ => panic!("Expected text content"),
@@ -929,7 +929,7 @@ async fn test_edit_note_with_etag() {
         patches: vec![],
     };
 
-    let result = tools.edit_note(Parameters(params)).await;
+    let result = tools.note_edit(Parameters(params)).await;
     assert!(result.is_ok());
 
     let updated = db.notes().get("note0001").await.unwrap();

@@ -117,7 +117,7 @@ impl<D: HasRepos + 'static> RepoTools<D> {
     #[tool(
         description = "List repositories with pagination and sorting. Sort by remote, path, or created_at. Default limit: 10, max: 20 to prevent context overflow."
     )]
-    pub async fn list_repos(
+    pub async fn repo_list(
         &self,
         params: Parameters<ListReposParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -165,7 +165,7 @@ impl<D: HasRepos + 'static> RepoTools<D> {
 
     /// Get a repository by ID
     #[tool(description = "Get a repository by ID")]
-    pub async fn get_repo(
+    pub async fn repo_get(
         &self,
         params: Parameters<GetRepoParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -188,7 +188,7 @@ impl<D: HasRepos + 'static> RepoTools<D> {
 
     /// Create a new repository
     #[tool(description = "Create a new repository")]
-    pub async fn create_repo(
+    pub async fn repo_create(
         &self,
         params: Parameters<CreateRepoParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -221,7 +221,7 @@ impl<D: HasRepos + 'static> RepoTools<D> {
 
     /// Update a repository
     #[tool(description = "Update a repository")]
-    pub async fn update_repo(
+    pub async fn repo_update(
         &self,
         params: Parameters<UpdateRepoParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -273,7 +273,7 @@ impl<D: HasRepos + 'static> RepoTools<D> {
 
     /// Delete a repository
     #[tool(description = "Delete a repository")]
-    pub async fn delete_repo(
+    pub async fn repo_delete(
         &self,
         params: Parameters<DeleteRepoParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -299,7 +299,7 @@ impl<D: HasRepos + 'static> RepoTools<D> {
 
     /// Restore a soft-deleted repository
     #[tool(description = "Restore a soft-deleted repository")]
-    pub async fn restore_repo(
+    pub async fn repo_restore(
         &self,
         params: Parameters<RestoreRepoParams>,
     ) -> Result<CallToolResult, McpError> {

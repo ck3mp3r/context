@@ -72,7 +72,7 @@ pub struct CreateTaskListParams {
     #[schemars(description = "Repository IDs related to this workstream (optional)")]
     pub repo_ids: Option<Vec<String>>,
     #[schemars(
-        description = "Project ID this list belongs to (REQUIRED - ask user if unclear). Use list_projects to find available projects."
+        description = "Project ID this list belongs to (REQUIRED - ask user if unclear). Use project_list to find available projects."
     )]
     pub project_id: String,
 }
@@ -152,7 +152,7 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     #[tool(
         description = "List task lists with filtering by project, status, or tags. Use this to find existing lists before creating new ones."
     )]
-    pub async fn list_task_lists(
+    pub async fn task_list_list(
         &self,
         params: Parameters<ListTaskListsParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -208,7 +208,7 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     #[tool(
         description = "Get a task list by ID with full details including metadata and relationships."
     )]
-    pub async fn get_task_list(
+    pub async fn task_list_get(
         &self,
         params: Parameters<GetTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -228,9 +228,9 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     }
 
     #[tool(
-        description = "Create a new task list. ALWAYS call list_task_lists first to check for an existing suitable list before creating a new one. Only create when no existing list fits the workstream. MUST specify project_id - ask user which project if unclear."
+        description = "Create a new task list. ALWAYS call task_list_list first to check for an existing suitable list before creating a new one. Only create when no existing list fits the workstream. MUST specify project_id - ask user which project if unclear."
     )]
-    pub async fn create_task_list(
+    pub async fn task_list_create(
         &self,
         params: Parameters<CreateTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -271,9 +271,9 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     }
 
     #[tool(
-        description = "Update task list metadata (name, description, status, etc). Use update_task for task-level changes. Archive completed lists with status='archived' instead of deleting."
+        description = "Update task list metadata (name, description, status, etc). Use task_update for task-level changes. Archive completed lists with status='archived' instead of deleting."
     )]
-    pub async fn update_task_list(
+    pub async fn task_list_update(
         &self,
         params: Parameters<UpdateTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -348,9 +348,9 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     }
 
     #[tool(
-        description = "Delete a task list permanently. RARELY needed - use update_task_list with status='archived' instead to preserve history."
+        description = "Delete a task list permanently. RARELY needed - use task_list_update with status='archived' instead to preserve history."
     )]
-    pub async fn delete_task_list(
+    pub async fn task_list_delete(
         &self,
         params: Parameters<DeleteTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -386,7 +386,7 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     #[tool(
         description = "Restore a soft-deleted task list (cascades to tasks deleted in the same delete). Fails when the parent project is still deleted."
     )]
-    pub async fn restore_task_list(
+    pub async fn task_list_restore(
         &self,
         params: Parameters<RestoreTaskListParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -417,7 +417,7 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     #[tool(
         description = "Get task statistics for a task list (counts by status: backlog, todo, in_progress, review, done, cancelled). Use to track progress."
     )]
-    pub async fn get_task_list_stats(
+    pub async fn task_list_stats_get(
         &self,
         params: Parameters<GetTaskListStatsParams>,
     ) -> Result<CallToolResult, McpError> {

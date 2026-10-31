@@ -539,7 +539,7 @@ Use `.clone().oneshot()` for each request:
 
 ```rust
 #[tokio::test(flavor = "multi_thread")]
-async fn test_list_projects() {
+async fn test_project_list() {
     let app = test_app().await;
 
     let response = app
