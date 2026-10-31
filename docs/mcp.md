@@ -58,7 +58,7 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 ## Tools
 
 ### Projects (6 tools)
-- `projects_list` - List projects with pagination and sorting
+- `project_list` - List projects with pagination and sorting
 - `project_get` - Get project by ID
 - `project_create` - Create new project
 - `project_update` - Update project
@@ -66,7 +66,7 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 - `project_restore` - Restore a soft-deleted project
 
 ### Repositories (6 tools)
-- `repos_list` - List repositories with pagination and sorting
+- `repo_list` - List repositories with pagination and sorting
 - `repo_get` - Get repository by ID
 - `repo_create` - Register git repository
 - `repo_update` - Update repository
@@ -74,7 +74,7 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 - `repo_restore` - Restore a soft-deleted repository
 
 ### Task Lists (7 tools)
-- `task_lists_list` - List task lists (filter by status/tags/project)
+- `task_list_list` - List task lists (filter by status/tags/project)
 - `task_list_get` - Get task list with relationships
 - `task_list_create` - Create new task list
 - `task_list_update` - Update task list
@@ -83,7 +83,7 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 - `task_list_stats_get` - Get task counts by status for a task list
 
 ### Tasks (7 tools)
-- `tasks_list` - List tasks (filter by status/parent)
+- `task_list` - List tasks (filter by status/parent)
 - `task_get` - Get task by ID
 - `task_create` - Create new task (always backlog)
 - `task_update` - Update task content (title, description, priority, tags, relationships)
@@ -92,7 +92,7 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 - `task_restore` - Restore a soft-deleted task
 
 ### Notes (6 tools)
-- `notes_list` - List notes (filter by tags/type, optional FTS5 query)
+- `note_list` - List notes (filter by tags/type, optional FTS5 query)
 - `note_create` - Create new note
 - `note_read` - Read note content (TOON or JSON, optional line ranges)
 - `note_edit` - Update note metadata and/or apply line-range patches
@@ -100,7 +100,7 @@ The c5t MCP server uses **Streamable HTTP with SSE** transport. Configure it as 
 - `note_restore` - Restore a soft-deleted note
 
 ### Skills (4 tools)
-- `skills_list` - List/search skills with FTS5 (optional query parameter)
+- `skill_list` - List/search skills with FTS5 (optional query parameter)
 - `skill_get` - Get skill by ID with attachment cache
 - `skill_update` - Update skill tags and/or project_ids (partial updates)
 - `skill_restore` - Restore a soft-deleted skill
@@ -160,13 +160,13 @@ Special tags that link notes together using note IDs:
 **Querying Note Chains**:
 ```javascript
 // Find all notes that continue note abc123ef
-notes_list({ tags: ["parent:abc123ef"] })
+note_list({ tags: ["parent:abc123ef"] })
 
 // Find all related notes
-notes_list({ tags: ["related:abc123ef"] })
+note_list({ tags: ["related:abc123ef"] })
 
 // Find both children and related
-notes_list({ tags: ["parent:abc123ef", "related:abc123ef"] })
+note_list({ tags: ["parent:abc123ef", "related:abc123ef"] })
 ```
 
 **Benefits**:
@@ -219,8 +219,8 @@ To prevent context overflow when retrieving notes:
 
 ```rust
 // List notes without content (lighter, better for browsing)
-notes_list({
-  "include_content": false  // Default for notes_list
+note_list({
+  "include_content": false  // Default for note_list
 })
 
 // Read note with line numbers (TOON format, default)
@@ -547,23 +547,23 @@ Skills support full-text search (FTS5) across all fields:
 
 ```javascript
 // Find deployment-related skills
-skills_list({
+skill_list({
   query: "kubernetes AND deployment"
 })
 
 // Find testing skills
-skills_list({
+skill_list({
   query: "test* OR tdd"
 })
 
 // Combine search with tag filter
-skills_list({
+skill_list({
   query: "rust",
   tags: ["workflow", "best-practices"]
 })
 
 // Find skills for a specific project
-skills_list({
+skill_list({
   project_id: "a1b2c3d4",
   tags: ["deployment"]
 })
@@ -705,7 +705,7 @@ Skills work seamlessly with session notes and task lists. Agents receive the ful
 
 ```javascript
 // 1. Find relevant skill for current task
-skills_list({ query: "deployment kubernetes" })
+skill_list({ query: "deployment kubernetes" })
 // Returns: [{ id: "skill123", name: "Deploy to K8s", content: "---\nname: ...", ... }]
 
 // 2. Get full skill with content
@@ -938,7 +938,7 @@ note_read({ note_id: "9c8d7e6f" })
 // Returns full session note with all context
 
 // Check what tasks remain
-tasks_list({
+task_list({
   list_id: "2d4e6f8a",
   status: ["todo", "in_progress"]
 })
@@ -955,7 +955,7 @@ If you don't have the note ID after context compaction:
 
 ```javascript
 // Find session notes for a specific project
-notes_list({
+note_list({
   tags: ["session"],
   project_id: "a1b2c3d4",  // 8-char hex ID
   include_content: true,  // Get full content
@@ -964,7 +964,7 @@ notes_list({
 })
 
 // Find session notes by topic
-notes_list({
+note_list({
   query: "auth AND session",
   tags: ["session"]
 })
@@ -974,7 +974,7 @@ notes_list({
 
 ```javascript
 // Find task lists for a project
-task_lists_list({
+task_list_list({
   project_id: "a1b2c3d4",  // 8-char hex ID
   status: "active",
   sort: "updated_at",
@@ -982,7 +982,7 @@ task_lists_list({
 })
 
 // Find by tags
-task_lists_list({
+task_list_list({
   tags: "auth,backend",
   status: "active"
 })
