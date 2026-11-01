@@ -6,6 +6,10 @@
 // Track rendered diagrams for re-rendering on theme change
 const __MERMAID_DIAGRAMS__ = new Map();
 
+// Stack of currently-open expand overlays, oldest first. The last entry is the
+// visible (topmost) overlay, so nested overlays close in order.
+const __MERMAID_OVERLAYS__ = [];
+
 /**
  * Initialize Mermaid with current Catppuccin CSS variable colors.
  * @param {boolean} isLight - true for Latte, false for Mocha/dark themes
@@ -123,6 +127,10 @@ window.mermaid_render_in_selector = async function(selector) {
 
       wrapper.appendChild(btn);
       wrapper.appendChild(div);
+
+      // Add per-diagram zoom controls (Zoom in, Zoom out, Fill)
+      mdBuildControls(wrapper);
+
       preEl.replaceWith(wrapper);
     } catch (e) {
       const errSpan = document.createElement('span');      errSpan.style.cssText = 'font-size:0.75em;font-weight:bold;';
@@ -130,6 +138,363 @@ window.mermaid_render_in_selector = async function(selector) {
     }
   }
 };
+
+/**
+ * Zoom controls for mermaid diagrams.
+ *
+ * Zoom scales the rendered svg with CSS transform: scale(). The scale is
+ * stored per diagram on the .mermaid-diagram div (dataset.scale). The
+ * data-zoom attribute gates the transform origin (top-left) in CSS. Fill
+ * (fit) sets the scale so the diagram viewBox fills the container.
+ */
+const ZOOM_STEP = 1.25;
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 8;
+
+/**
+ * Read the current zoom scale stored on a .mermaid-diagram div.
+ * @param {HTMLElement} diagram
+ * @returns {number}
+ */
+function mdGetScale(diagram) {
+  const stored = parseFloat(diagram.dataset.scale);
+  return Number.isFinite(stored) && stored > 0 ? stored : 1;
+}
+
+/**
+ * Apply a scale to a diagram's svg and record it on the diagram div.
+ * @param {HTMLElement} diagram - the .mermaid-diagram div
+ * @param {number} scale - the scale to apply
+ */
+function mdApplyScale(diagram, scale) {
+  diagram.dataset.scale = String(scale);
+  if (scale === 1) {
+    delete diagram.dataset.zoom;
+  } else {
+    diagram.dataset.zoom = 'true';
+  }
+  const svg = diagram.querySelector('svg');
+  if (svg) {
+    const offX = parseFloat(diagram.dataset.offX) || 0;
+    const offY = parseFloat(diagram.dataset.offY) || 0;
+    svg.style.transform = 'translate(' + offX + 'px, ' + offY + 'px) scale(' + scale + ')';
+  }
+}
+
+/**
+ * Zoom a diagram in by the step factor (clamped to the max scale).
+ * @param {HTMLElement} diagram
+ */
+window.mdZoomIn = function(diagram) {
+  if (!diagram) return;
+  const svg = diagram.querySelector('svg');
+  if (!svg) return;
+  mdApplyScale(diagram, Math.min(mdGetScale(diagram) * ZOOM_STEP, ZOOM_MAX));
+};
+
+/**
+ * Zoom a diagram out by the step factor (clamped to the min scale).
+ * @param {HTMLElement} diagram
+ */
+window.mdZoomOut = function(diagram) {
+  if (!diagram) return;
+  const svg = diagram.querySelector('svg');
+  if (!svg) return;
+  mdApplyScale(diagram, Math.max(mdGetScale(diagram) / ZOOM_STEP, ZOOM_MIN));
+};
+
+/**
+ * Fit a diagram to the container client area, then reset scroll to top-left.
+ * @param {HTMLElement} diagram
+ */
+window.mdFit = function(diagram) {
+  if (!diagram) return;
+  const svg = diagram.querySelector('svg');
+  if (!svg) return;
+
+  let vbW = 0;
+  let vbH = 0;
+  if (svg.viewBox && svg.viewBox.baseVal) {
+    vbW = svg.viewBox.baseVal.width;
+    vbH = svg.viewBox.baseVal.height;
+  } else {
+    const parts = (svg.getAttribute('viewBox') || '').split(' ');
+    vbW = parseFloat(parts[2] || 0);
+    vbH = parseFloat(parts[3] || 0);
+  }
+  if (!vbW || !vbH) return;
+
+  const scale = Math.min(diagram.clientWidth / vbW, diagram.clientHeight / vbH);
+  mdApplyScale(diagram, scale);
+  diagram.scrollLeft = 0;
+  diagram.scrollTop = 0;
+};
+
+function mdEnablePan(diagram) {
+  const svg = diagram.querySelector('svg');
+  if (!svg) return;
+
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let startOffX = 0;
+  let startOffY = 0;
+
+  const onMove = function(e) {
+    if (!dragging) return;
+    const s = mdGetScale(diagram);
+    const offX = startOffX + (e.clientX - startX) / s;
+    const offY = startOffY + (e.clientY - startY) / s;
+    diagram.dataset.offX = String(offX);
+    diagram.dataset.offY = String(offY);
+    mdApplyScale(diagram, s);
+  };
+
+  const onUp = function() {
+    dragging = false;
+    document.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  };
+
+  svg.addEventListener('mousedown', function(e) {
+    if (mdGetScale(diagram) <= 1) return;
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startOffX = parseFloat(diagram.dataset.offX) || 0;
+    startOffY = parseFloat(diagram.dataset.offY) || 0;
+    e.preventDefault();
+    document.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+}
+
+/**
+ * Reset a diagram's zoom to scale 1.0 (used after a theme re-render).
+ * @param {HTMLElement} diagram
+ */
+window.mdResetZoom = function(diagram) {
+  if (!diagram) return;
+  diagram.dataset.offX = '0';
+  diagram.dataset.offY = '0';
+  mdApplyScale(diagram, 1);
+  diagram.scrollLeft = 0;
+  diagram.scrollTop = 0;
+};
+
+const MD_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+
+const MD_ICON_ZOOM_IN =
+  MD_SVG +
+  '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>';
+
+const MD_ICON_ZOOM_OUT =
+  MD_SVG +
+  '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>';
+
+const MD_ICON_FIT =
+  MD_SVG +
+  '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+
+/**
+ * Build a per-diagram control strip (Zoom in, Zoom out, Fill) and insert it
+ * over the top-left corner of the .mermaid-wrapper frame. CSS positions the
+ * strip with position:absolute so it overlays the diagram without changing
+ * layout. Each button carries a visible inline <svg> glyph.
+ * @param {HTMLElement} wrapper - the .mermaid-wrapper div
+ */
+const MD_ICON_EXPAND =
+  MD_SVG +
+  '<polyline points="15 3 21 3 21 9"/>' +
+  '<polyline points="9 21 3 21 3 15"/>' +
+  '<line x1="21" y1="3" x2="14" y2="10"/>' +
+  '<line x1="3" y1="21" x2="10" y2="14"/>' +
+  '</svg>';
+
+/**
+ * Build a per-diagram zoom control strip (Zoom in, Zoom out, Fill) and insert
+ * it before a diagram inside a container. Shared by the in-note wrapper and the
+ * expand overlay so both use the same controls and zoom functions.
+ * @param {HTMLElement} container - element to insert the strip into
+ * @param {HTMLElement} diagram - the .mermaid-diagram div the controls act on
+ */
+function mdAppendZoomStrip(container, diagram) {
+  if (!container || !diagram) return;
+
+  const strip = document.createElement('div');
+  strip.className = 'mermaid-controls';
+
+  const makeButton = (ariaLabel, title, icon, onClick) => {
+    const btn = document.createElement('button');
+    btn.className =
+      'mermaid-control-btn bg-ctp-surface1 text-ctp-overlay0 border border-ctp-surface2 rounded-md cursor-pointer hover:bg-ctp-overlay0 hover:text-ctp-base active:scale-95';
+    btn.setAttribute('aria-label', ariaLabel);
+    btn.title = title;
+    btn.innerHTML = icon;
+    btn.addEventListener('click', onClick);
+    return btn;
+  };
+
+  strip.appendChild(
+    makeButton('Zoom in', 'Zoom in', MD_ICON_ZOOM_IN, () => window.mdZoomIn(diagram))
+  );
+  strip.appendChild(
+    makeButton('Zoom out', 'Zoom out', MD_ICON_ZOOM_OUT, () => window.mdZoomOut(diagram))
+  );
+  strip.appendChild(
+    makeButton('Fill', 'Fill', MD_ICON_FIT, () => window.mdFit(diagram))
+  );
+
+  container.insertBefore(strip, diagram);
+}
+
+/**
+ * Open a mermaid diagram in a near-fullscreen overlay, re-rendered from its
+ * stored source so theme and zoom state stay clean. Reuses the in-note zoom
+ * functions, so Zoom in / Zoom out / Fill work identically inside the overlay.
+ * Nested overlays stack and close in order via __MERMAID_OVERLAYS__.
+ * @param {HTMLElement} diagram - the .mermaid-diagram div in the note
+ */
+window.mdOpenDiagram = function(diagram) {
+  if (!diagram) return;
+  const entry = __MERMAID_DIAGRAMS__.get(diagram);
+  if (!entry) return;
+  const { source, id } = entry;
+  if (!window.mermaid) return;
+
+  // Hide any overlays already on the stack so this one is the only visible one.
+  for (const record of __MERMAID_OVERLAYS__) {
+    record.overlay.style.display = 'none';
+  }
+
+  // Scrim (fixed, full viewport, dark).
+  const overlay = document.createElement('div');
+  overlay.className = 'mermaid-overlay';
+
+  // Centered popup panel (Option B: fills most of the window, with a margin).
+  const panel = document.createElement('div');
+  panel.className = 'mermaid-overlay-panel';
+
+  // Top bar: title on the left, close button on the right.
+  const bar = document.createElement('div');
+  bar.className = 'mermaid-overlay-bar';
+
+  const title = document.createElement('span');
+  title.className = 'mermaid-overlay-title';
+  title.textContent = 'Expand diagram';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className =
+    'mermaid-overlay-close bg-ctp-surface1 text-ctp-overlay0 border border-ctp-surface2 rounded-md cursor-pointer hover:bg-ctp-overlay0 hover:text-ctp-base active:scale-95';
+  closeBtn.setAttribute('aria-label', 'Close overlay');
+  closeBtn.title = 'Close overlay';
+  closeBtn.innerHTML =
+    MD_SVG + '<line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>';
+  closeBtn.addEventListener('click', () => mdCloseDiagram(overlay));
+
+  bar.appendChild(title);
+  bar.appendChild(closeBtn);
+
+  // Scrollable body hosting a fresh, re-rendered diagram.
+  const body = document.createElement('div');
+  body.className = 'mermaid-overlay-body';
+  const fullDiagram = document.createElement('div');
+  fullDiagram.className = 'mermaid-diagram mermaid-diagram--fullscreen';
+  body.appendChild(fullDiagram);
+
+  panel.appendChild(bar);
+  panel.appendChild(body);
+  overlay.appendChild(panel);
+  // Close handlers: Escape (only when this overlay is the top one) and clicking
+  // the scrim directly (clicks inside the panel are ignored).
+  const onKeydown = function(e) {
+    const top = __MERMAID_OVERLAYS__[__MERMAID_OVERLAYS__.length - 1];
+    if (e.key === 'Escape' && top && top.overlay === overlay) {
+      mdCloseDiagram(overlay);
+    }
+  };
+  const onClick = function(e) {
+    if (e.target === overlay) {
+      mdCloseDiagram(overlay);
+    }
+  };
+  document.addEventListener('keydown', onKeydown);
+  overlay.addEventListener('click', onClick);
+
+  // Register on the stack and mount BEFORE the async render, so the overlay can
+  // always be closed while the render is pending and even if it fails.
+  __MERMAID_OVERLAYS__.push({ overlay, onKeydown, onClick });
+  document.body.appendChild(overlay);
+
+  // Reuse the same zoom controls/functions as the in-note diagram.
+  mdAppendZoomStrip(body, fullDiagram);
+
+  // Render the diagram from the stored source (kept separate from the live svg).
+  // mermaid v11 render() is async: it returns a Promise resolving to { svg }.
+  window.mermaid.render(id + '-fs', source)
+    .then((result) => {
+      fullDiagram.innerHTML = result.svg;
+    })
+    .catch((e) => {
+      console.error('Mermaid overlay render error:', e);
+    });
+}
+
+/**
+ * Close an expand overlay: remove it from the DOM, drop it from the stack, and
+ * make the previous overlay visible again if any remain.
+ * @param {HTMLElement} overlay
+ */
+window.mdCloseDiagram = function(overlay) {
+  if (!overlay) return;
+  const idx = __MERMAID_OVERLAYS__.findIndex((r) => r.overlay === overlay);
+  if (idx === -1) return;
+
+  const record = __MERMAID_OVERLAYS__.splice(idx, 1)[0];
+  if (record.onKeydown) document.removeEventListener('keydown', record.onKeydown);
+  if (record.onClick) overlay.removeEventListener('click', record.onClick);
+  if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+
+  // Reveal the previous overlay, if any remains.
+  const prev = __MERMAID_OVERLAYS__[__MERMAID_OVERLAYS__.length - 1];
+  if (prev) prev.overlay.style.display = '';
+}
+
+function mdBuildControls(wrapper) {
+  const diagram = wrapper.querySelector('.mermaid-diagram');
+  if (!diagram) return;
+
+  const strip = document.createElement('div');
+  strip.className = 'mermaid-controls';
+
+  const makeButton = (ariaLabel, title, icon, onClick) => {
+    const btn = document.createElement('button');
+    btn.className =
+      'mermaid-control-btn bg-ctp-surface1 text-ctp-overlay0 border border-ctp-surface2 rounded-md cursor-pointer hover:bg-ctp-overlay0 hover:text-ctp-base active:scale-95';
+    btn.setAttribute('aria-label', ariaLabel);
+    btn.title = title;
+    btn.innerHTML = icon;
+    btn.addEventListener('click', onClick);
+    return btn;
+  };
+
+  strip.appendChild(
+    makeButton('Zoom in', 'Zoom in', MD_ICON_ZOOM_IN, () => window.mdZoomIn(diagram))
+  );
+  strip.appendChild(
+    makeButton('Zoom out', 'Zoom out', MD_ICON_ZOOM_OUT, () => window.mdZoomOut(diagram))
+  );
+  strip.appendChild(
+    makeButton('Fill', 'Fill', MD_ICON_FIT, () => window.mdFit(diagram))
+  );
+  strip.appendChild(
+    makeButton('Open', 'Expand diagram', MD_ICON_EXPAND, () => window.mdOpenDiagram(diagram))
+  );
+
+  wrapper.insertBefore(strip, diagram);
+  mdEnablePan(diagram);
+}
 
 /**
  * Re-render ALL previously rendered mermaid diagrams with current theme colors.
@@ -149,6 +514,8 @@ window.mermaid_rerender_all = async function() {
     try {
       const { svg } = await window.mermaid.render(id, source);
       div.innerHTML = svg;
+      window.mdResetZoom(div);
+      mdEnablePan(div);
     } catch (e) {
       console.error('Mermaid re-render error:', e);
     }

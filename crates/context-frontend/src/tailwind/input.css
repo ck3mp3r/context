@@ -495,7 +495,7 @@ body {
   background: var(--ctp-surface0);
   border: 1px solid var(--ctp-surface1);
   border-radius: 0.5rem;
-  overflow-x: auto;
+  overflow: auto;
 }
 
 .mermaid-diagram svg {
@@ -517,6 +517,35 @@ body {
   background: var(--ctp-overlay0);
   border-radius: 3px;
   border-radius: 3px;
+}
+
+/* === Mermaid diagram zoom controls === */
+.mermaid-controls {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 10;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.25rem;
+}
+
+.mermaid-control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+/* Zoom origin: scale grows from the center of the diagram when zoomed. */
+.mermaid-diagram[data-zoom="true"] svg {
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 /* === Mermaid wrapper with copy button === */
@@ -553,9 +582,68 @@ body {
   background: var(--ctp-overlay0);
   color: var(--ctp-base);
 }
-  transform: scale(0.95);
+
 .mermaid-copy-btn:active {
   transform: scale(0.95);
+}
+
+/* === Mermaid diagram expand overlay === */
+.mermaid-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.mermaid-overlay-panel {
+  display: flex;
+  flex-direction: column;
+  width: 96vw;
+  height: 94vh;
+  background: var(--ctp-base);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.mermaid-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--ctp-surface1);
+}
+
+.mermaid-overlay-title {
+  font-weight: 600;
+  color: var(--ctp-text);
+}
+
+.mermaid-overlay-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.mermaid-overlay-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Fullscreen diagram keeps its in-note card border/background; reduce margin so it fills the overlay body while staying inside the scrollable area. */
+.mermaid-diagram--fullscreen {
+  margin: 0.5rem;
 }
 
 /* === Code block wrapper with copy button === */
