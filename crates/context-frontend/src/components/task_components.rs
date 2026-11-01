@@ -815,85 +815,49 @@ pub fn TaskDetailContent(
         });
     });
 
-    // Determine priority color for left border (matching kanban cards)
-    let priority_color = match task.priority {
-        Some(1) => "border-l-ctp-red",      // P1 - Highest
-        Some(2) => "border-l-ctp-peach",    // P2 - High
-        Some(3) => "border-l-ctp-yellow",   // P3 - Medium
-        Some(4) => "border-l-ctp-blue",     // P4 - Low
-        Some(5) => "border-l-ctp-overlay0", // P5 - Lowest
-        _ => "border-l-ctp-surface1",       // No priority
-    };
-
     view! {
-        <div>
-            // Main task - title and description first, metadata secondary
-            <div class=format!("mb-4 p-4 bg-ctp-surface0 rounded-lg border-l-4 {}", priority_color)>
-                // CopyableId + Task title (left-aligned)
-                <div class="flex items-start gap-2 mb-4 pb-4 border-b border-ctp-surface1">
+        <div class="flex flex-col">
+            // Sticky header - pinned while the body scrolls
+            <div class="sticky top-0 z-10 border-b border-ctp-surface1 bg-ctp-surface1/80 px-4 py-3">
+                <div class="flex items-center gap-3">
                     <div class="flex-shrink-0">
                         <CopyableId id=task.id.clone()/>
                     </div>
                     <h2 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">
                         {task.title.clone()}
                     </h2>
-                </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        // Priority badge (if exists)
+                        {task.priority.map(|p| {
+                            view! {
+                                <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
+                                    "P"{p}
+                                </span>
+                            }
+                        })}
 
-                // Task description (if present)
-                {task.description.as_ref().map(|desc| {
-                    view! {
-                        <div class="mb-4 prose prose-invert prose-sm max-w-none">
-                            <crate::components::note_components::MarkdownContent content=desc.clone()/>
-                        </div>
-                    }
-                })}
-
-                // Metadata - compact and less prominent
-                <div class="pt-3 border-t border-ctp-surface1">
-                    // Top row: Badges (left) | Timestamps (right)
-                    <div class="flex justify-between items-center gap-4 mb-3">
-                        // LEFT: Badges section
-                        <div class="flex items-center gap-2">
-                            // Priority badge (if exists)
-                            {task.priority.map(|p| {
-                                view! {
-                                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
-                                        "P"{p}
-                                    </span>
-                                }
-                            })}
-
-                            // Status badge
-                            <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&task.status))>
-                                {status_badge_label(&task.status)}
-                            </span>
-                        </div>
-
-                        // RIGHT: Timestamps section - right-aligned
-                        <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right">
-                            {task.created_at.clone().map(|created| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-overlay1">"Created: "</span>
-                                        <span>{created}</span>
-                                    </div>
-                                }
-                            })}
-
-                            {task.updated_at.clone().map(|updated| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-overlay1">"Updated: "</span>
-                                        <span>{updated}</span>
-                                    </div>
-                                }
-                            })}
-                        </div>
+                        // Status badge
+                        <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&task.status))>
+                            {status_badge_label(&task.status)}
+                        </span>
                     </div>
+                </div>
+            </div>
+
+            // Full-width body: description, tags, timestamps, refs, subtasks
+            <div class="flex flex-col gap-6 px-4 py-3">
+                // Markdown description
+                    {task.description.as_ref().map(|desc| {
+                        view! {
+                            <div class="mb-6 prose prose-invert prose-sm max-w-none">
+                                <crate::components::note_components::MarkdownContent content=desc.clone()/>
+                            </div>
+                        }
+                    })}
 
                     {(!task.tags.is_empty()).then(|| {
                         view! {
-                            <div class="flex flex-wrap gap-1 mt-2">
+                            <div class="flex flex-wrap gap-1">
                                 {task.tags.iter().map(|tag| {
                                     view! {
                                         <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
@@ -905,69 +869,89 @@ pub fn TaskDetailContent(
                         }
                     })}
 
+                // Timestamps, external refs, and subtasks
+                    <div class="flex flex-col gap-1 text-xs text-ctp-overlay0 mb-4">
+                        {task.created_at.clone().map(|created| {
+                            view! {
+                                <div>
+                                    <span class="text-ctp-overlay1">"Created: "</span>
+                                    <span>{created}</span>
+                                </div>
+                            }
+                        })}
+
+                        {task.updated_at.clone().map(|updated| {
+                            view! {
+                                <div>
+                                    <span class="text-ctp-overlay1">"Updated: "</span>
+                                    <span>{updated}</span>
+                                </div>
+                            }
+                        })}
+                    </div>
+
                     // External reference links (if present)
                     {(!task.external_refs.is_empty()).then(|| {
                         view! {
-                            <div class="mt-2 flex flex-wrap gap-1">
+                            <div class="mb-4 flex flex-wrap gap-1">
                                 {task.external_refs.iter().map(|ext_ref| {
                                     view! {
-                                        <ExternalRefLink external_ref=ext_ref.clone() />
+                                        <ExternalRefLink external_ref=ext_ref.clone()/>
                                     }
                                 }).collect::<Vec<_>>()}
                             </div>
                         }
                     })}
-                </div>
-            </div>
 
-            // SubtaskStack - custom collapsible stack (no accordion arrow, no duplicate content)
-            {move || {
-                    let tasks_list = subtasks.get();
-                    if !tasks_list.is_empty() {
-                        // Track which subtask is currently open (only one at a time)
-                        let open_subtask_id = RwSignal::new(initial_open_subtask_id.clone());
+                    // SubtaskStack - custom collapsible stack (no accordion arrow, no duplicate content)
+                    {move || {
+                            let tasks_list = subtasks.get();
+                            if !tasks_list.is_empty() {
+                                // Track which subtask is currently open (only one at a time)
+                                let open_subtask_id = RwSignal::new(initial_open_subtask_id.clone());
 
-                        let handle_click = move |id: String| {
-                            open_subtask_id.update(|current| {
-                                if current.as_ref() == Some(&id) {
-                                    *current = None; // Close if already open
-                                } else {
-                                    *current = Some(id); // Open clicked item
-                                }
-                            });
-                        };
-
-                        Some(view! {
-                            <div class="mb-4">
-                                <h3 class="text-sm font-semibold text-ctp-subtext0 mb-2">
-                                    {format!("Subtasks ({})", tasks_list.len())}
-                                </h3>
-                                <div class="max-h-[40vh] overflow-y-auto">
-                                    <For
-                                        each=move || subtasks.get()
-                                        key=|task| task.id.clone()
-                                        children=move |subtask| {
-                                            let subtask_id = subtask.id.clone();
-                                            let is_open = Signal::derive(move || {
-                                                open_subtask_id.get().as_ref() == Some(&subtask_id)
-                                            });
-
-                                            view! {
-                                                <SubtaskStackItem
-                                                    subtask=subtask
-                                                    is_open=is_open
-                                                    on_click=Callback::new(handle_click)
-                                                />
-                                            }
+                                let handle_click = move |id: String| {
+                                    open_subtask_id.update(|current| {
+                                        if current.as_ref() == Some(&id) {
+                                            *current = None; // Close if already open
+                                        } else {
+                                            *current = Some(id); // Open clicked item
                                         }
-                                    />
-                                </div>
-                            </div>
-                        })
-                    } else {
-                        None
-                    }
-                }}
+                                    });
+                                };
+
+                                Some(view! {
+                                    <div>
+                                        <h3 class="text-sm font-semibold text-ctp-subtext0 mb-2">
+                                            {format!("Subtasks ({})", tasks_list.len())}
+                                        </h3>
+                                        <div class="max-h-[40vh] overflow-y-auto">
+                                            <For
+                                                each=move || subtasks.get()
+                                                key=|task| task.id.clone()
+                                                children=move |subtask| {
+                                                    let subtask_id = subtask.id.clone();
+                                                    let is_open = Signal::derive(move || {
+                                                        open_subtask_id.get().as_ref() == Some(&subtask_id)
+                                                    });
+
+                                                    view! {
+                                                        <SubtaskStackItem
+                                                            subtask=subtask
+                                                            is_open=is_open
+                                                            on_click=Callback::new(handle_click)
+                                                        />
+                                                    }
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                })
+                            } else {
+                                None
+                            }
+                        }}
+            </div>
         </div>
     }
 }
@@ -997,7 +981,7 @@ pub fn TaskDetailDialog(
 
     view! {
         <Dialog open=open>
-            <DialogSurface class="task-detail-dialog-surface w-2/3 max-h-[85vh] overflow-hidden flex flex-col">
+            <DialogSurface class="task-detail-dialog-surface max-h-[90vh] overflow-hidden flex flex-col">
                 <DialogBody class="flex flex-col overflow-hidden">
                     <DialogContent class="flex-1 overflow-y-auto">
                         <Suspense fallback=move || {
