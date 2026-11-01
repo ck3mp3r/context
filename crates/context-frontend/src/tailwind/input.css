@@ -186,9 +186,9 @@ body {
 
 /* Task detail dialog - override thaw's max-width: 600px */
 .task-detail-dialog-surface {
-  width: 66vw !important;
-  max-width: 66vw !important;
-  max-height: 85vh !important;
+  width: 90vw !important;
+  max-width: 90vw !important;
+  max-height: 90vh !important;
   overflow: hidden !important;
 }
 
