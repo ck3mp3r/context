@@ -144,8 +144,10 @@ window.mermaid_render_in_selector = async function(selector) {
  *
  * Zoom scales the rendered svg with CSS transform: scale(). The scale is
  * stored per diagram on the .mermaid-diagram div (dataset.scale). The
- * data-zoom attribute gates the transform origin (top-left) in CSS. Fill
- * (fit) sets the scale so the diagram viewBox fills the container.
+ * data-zoom attribute gates the transform origin (center) in CSS. Fill
+ * (fit) uses fit-to-page semantics: the whole svg viewBox becomes visible
+ * (small diagrams may upscale above 1), with the resulting scale clamped to
+ * [ZOOM_MIN, ZOOM_MAX].
  */
 const ZOOM_STEP = 1.25;
 const ZOOM_MIN = 0.1;
@@ -204,13 +206,17 @@ window.mdZoomOut = function(diagram) {
 };
 
 /**
- * Fit a diagram to the container client area, then reset scroll to top-left.
+ * Fit a diagram to the container client area (fit-to-page: the whole viewBox
+ * becomes visible; small diagrams may upscale above 1). The resulting scale is
+ * clamped to [ZOOM_MIN, ZOOM_MAX], pan offsets are reset, and scroll returns 0/0.
  * @param {HTMLElement} diagram
+ * @returns {boolean} true when a scale was applied
  */
 window.mdFit = function(diagram) {
-  if (!diagram) return;
+  if (!diagram) return false;
   const svg = diagram.querySelector('svg');
-  if (!svg) return;
+  if (!svg) return false;
+  if (!diagram.clientWidth || !diagram.clientHeight) return false;
 
   let vbW = 0;
   let vbH = 0;
@@ -222,12 +228,18 @@ window.mdFit = function(diagram) {
     vbW = parseFloat(parts[2] || 0);
     vbH = parseFloat(parts[3] || 0);
   }
-  if (!vbW || !vbH) return;
+  if (!vbW || !vbH) return false;
 
-  const scale = Math.min(diagram.clientWidth / vbW, diagram.clientHeight / vbH);
+  const scale = Math.min(
+    Math.max(Math.min(diagram.clientWidth / vbW, diagram.clientHeight / vbH), ZOOM_MIN),
+    ZOOM_MAX
+  );
+  diagram.dataset.offX = '0';
+  diagram.dataset.offY = '0';
   mdApplyScale(diagram, scale);
   diagram.scrollLeft = 0;
   diagram.scrollTop = 0;
+  return true;
 };
 
 function mdEnablePan(diagram) {
@@ -435,6 +447,11 @@ window.mdOpenDiagram = function(diagram) {
   window.mermaid.render(id + '-fs', source)
     .then((result) => {
       fullDiagram.innerHTML = result.svg;
+      // Fit once on open. NO auto-refit on window resize: that would clobber a
+      // user's zoom state; the Fill button re-fits on demand.
+      if (!window.mdFit(fullDiagram)) {
+        requestAnimationFrame(function() { window.mdFit(fullDiagram); });
+      }
     })
     .catch((e) => {
       console.error('Mermaid overlay render error:', e);
