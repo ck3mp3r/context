@@ -635,6 +635,8 @@ body {
 }
 
 .mermaid-overlay-body {
+  display: flex;
+  flex-direction: column;
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
@@ -644,6 +646,8 @@ body {
 /* Fullscreen diagram keeps its in-note card border/background; reduce margin so it fills the overlay body while staying inside the scrollable area. */
 .mermaid-diagram--fullscreen {
   margin: 0.5rem;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* === Code block wrapper with copy button === */
