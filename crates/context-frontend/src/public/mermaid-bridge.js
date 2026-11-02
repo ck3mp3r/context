@@ -388,25 +388,14 @@ window.mdOpenDiagram = function(diagram) {
   const panel = document.createElement('div');
   panel.className = 'mermaid-overlay-panel';
 
-  // Top bar: title on the left, close button on the right.
-  const bar = document.createElement('div');
-  bar.className = 'mermaid-overlay-bar';
-
-  const title = document.createElement('span');
-  title.className = 'mermaid-overlay-title';
-  title.textContent = 'Expand diagram';
-
   const closeBtn = document.createElement('button');
   closeBtn.className =
     'mermaid-overlay-close bg-ctp-surface1 text-ctp-overlay0 border border-ctp-surface2 rounded-md cursor-pointer hover:bg-ctp-overlay0 hover:text-ctp-base active:scale-95';
-  closeBtn.setAttribute('aria-label', 'Close overlay');
-  closeBtn.title = 'Close overlay';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.title = 'Close';
   closeBtn.innerHTML =
     MD_SVG + '<line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>';
   closeBtn.addEventListener('click', () => mdCloseDiagram(overlay));
-
-  bar.appendChild(title);
-  bar.appendChild(closeBtn);
 
   // Scrollable body hosting a fresh, re-rendered diagram.
   const body = document.createElement('div');
@@ -414,8 +403,8 @@ window.mdOpenDiagram = function(diagram) {
   const fullDiagram = document.createElement('div');
   fullDiagram.className = 'mermaid-diagram mermaid-diagram--fullscreen';
   body.appendChild(fullDiagram);
+  body.appendChild(closeBtn);
 
-  panel.appendChild(bar);
   panel.appendChild(body);
   overlay.appendChild(panel);
   // Close handlers: Escape (only when this overlay is the top one) and clicking
