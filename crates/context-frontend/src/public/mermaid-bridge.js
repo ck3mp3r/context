@@ -436,7 +436,7 @@ window.mdOpenDiagram = function(diagram) {
 
   // Register on the stack and mount BEFORE the async render, so the overlay can
   // always be closed while the render is pending and even if it fails.
-  __MERMAID_OVERLAYS__.push({ overlay, onKeydown, onClick });
+  __MERMAID_OVERLAYS__.push({ overlay, onKeydown, onClick, diagram: fullDiagram });
   document.body.appendChild(overlay);
 
   // Reuse the same zoom controls/functions as the in-note diagram.
@@ -446,12 +446,21 @@ window.mdOpenDiagram = function(diagram) {
   // mermaid v11 render() is async: it returns a Promise resolving to { svg }.
   window.mermaid.render(id + '-fs', source)
     .then((result) => {
+      if (!overlay.parentNode) {
+        // Overlay was closed while the render was pending — do not register,
+        // fit, or arm a detached diagram.
+        return;
+      }
       fullDiagram.innerHTML = result.svg;
+      // Track the overlay diagram for theme re-renders (removed on close).
+      __MERMAID_DIAGRAMS__.set(fullDiagram, { source, id: id + '-fs' });
       // Fit once on open. NO auto-refit on window resize: that would clobber a
       // user's zoom state; the Fill button re-fits on demand.
       if (!window.mdFit(fullDiagram)) {
         requestAnimationFrame(function() { window.mdFit(fullDiagram); });
       }
+      // Arm drag-to-pan on the freshly rendered svg (same semantics as in-note).
+      mdEnablePan(fullDiagram);
     })
     .catch((e) => {
       console.error('Mermaid overlay render error:', e);
@@ -471,6 +480,7 @@ window.mdCloseDiagram = function(overlay) {
   const record = __MERMAID_OVERLAYS__.splice(idx, 1)[0];
   if (record.onKeydown) document.removeEventListener('keydown', record.onKeydown);
   if (record.onClick) overlay.removeEventListener('click', record.onClick);
+  __MERMAID_DIAGRAMS__.delete(record.diagram);
   if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
 
   // Reveal the previous overlay, if any remains.
@@ -531,7 +541,12 @@ window.mermaid_rerender_all = async function() {
     try {
       const { svg } = await window.mermaid.render(id, source);
       div.innerHTML = svg;
-      window.mdResetZoom(div);
+      if (div.classList.contains('mermaid-diagram--fullscreen')) {
+        // Open overlay: keep the user's fit/zoom scale and pan offsets.
+        window.mdApplyScale(div, window.mdGetScale(div));
+      } else {
+        window.mdResetZoom(div);
+      }
       mdEnablePan(div);
     } catch (e) {
       console.error('Mermaid re-render error:', e);
