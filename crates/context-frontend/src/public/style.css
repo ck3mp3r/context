@@ -1697,6 +1697,10 @@ body {
   margin: 0.5rem;
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+}
+.mermaid-diagram--fullscreen svg {
+  margin: auto;
 }
 .code-block-wrapper {
   position: relative;

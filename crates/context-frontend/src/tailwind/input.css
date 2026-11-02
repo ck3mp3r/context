@@ -648,6 +648,16 @@ body {
   margin: 0.5rem;
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+}
+
+/* Center the diagram in the fullscreen frame on both axes at rest (scale 1).
+   Auto margins (not align-items/justify-content: center, which would clip the
+   overflow start edge outside the scrollable range) collapse to 0 on overflow,
+   keeping the start edge scroll-reachable. Must stay after the base
+   .mermaid-diagram svg rule: equal specificity breaks by source order. */
+.mermaid-diagram--fullscreen svg {
+  margin: auto;
 }
 
 /* === Code block wrapper with copy button === */
