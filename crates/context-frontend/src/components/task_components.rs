@@ -1,4 +1,3 @@
-use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use thaw::*;
@@ -381,126 +380,6 @@ pub fn KanbanColumn(
     }
 }
 
-/// SubtaskStackItem - Individual collapsible subtask in the stack
-#[component]
-pub fn SubtaskStackItem(
-    subtask: Task,
-    is_open: Signal<bool>,
-    on_click: Callback<String>,
-) -> impl IntoView {
-    let subtask_id = subtask.id.clone();
-    let subtask_id_for_click = subtask.id.clone();
-    let border_color = priority_border_color(subtask.priority);
-    let is_expanded = move || is_open.get();
-
-    view! {
-        <div
-            class=format!(
-                "relative mb-2 p-3 bg-ctp-surface0 rounded-lg border-l-4 {} cursor-pointer hover:bg-ctp-surface0/80 transition-colors",
-                border_color
-            )
-            on:click=move |ev: ev::MouseEvent| {
-                ev.prevent_default();
-                ev.stop_propagation();
-                on_click.run(subtask_id_for_click.clone());
-            }
-        >
-            // Header: CopyableId + Title (left) | Badges (right: Priority → Status)
-            <div class="flex items-center justify-between gap-4">
-                // Left side: CopyableId + Title
-                <div class="flex items-center gap-2 flex-1 min-w-0">
-                    <div class="flex-shrink-0" on:click=|ev: ev::MouseEvent| {
-                        ev.stop_propagation();
-                    }>
-                        <CopyableId id=subtask_id.clone()/>
-                    </div>
-                    <div class="flex-1 min-w-0 text-sm text-ctp-text break-words font-medium">
-                        {move || {
-                            let title = &subtask.title;
-                            let truncated = !is_expanded() && title.len() > 60;
-                            if truncated {
-                                format!("{}...", &title[..60])
-                            } else {
-                                title.clone()
-                            }
-                        }}
-                    </div>
-                </div>
-
-                // Right side: Priority → Status badges
-                <div class="flex items-center gap-1 flex-shrink-0">
-                    {subtask.priority.map(|p| {
-                        view! {
-                            <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
-                                "P"{p}
-                            </span>
-                        }
-                    })}
-                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&subtask.status))>
-                        {status_badge_label(&subtask.status)}
-                    </span>
-                </div>
-            </div>
-
-            // Description (only when expanded, with separator)
-            {move || {
-                (is_expanded() && subtask.description.is_some()).then(|| {
-                    view! {
-                        <div class="mt-2 pt-2 border-t border-ctp-surface1">
-                            <div class="text-ctp-subtext0 text-xs prose prose-invert prose-xs max-w-none">
-                                <crate::components::note_components::MarkdownContent content=subtask.description.clone().unwrap_or_default()/>
-                            </div>
-                        </div>
-                    }
-                })
-            }}
-
-            // Metadata section (only when expanded)
-            {move || is_expanded().then(|| {
-                view! {
-                    <div class="pt-3 mt-3 border-t border-ctp-surface1">
-                        // Timestamps (right-aligned)
-                        <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right mb-2">
-                            {subtask.created_at.clone().map(|created| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-overlay1">"Created: "</span>
-                                        <span>{created}</span>
-                                    </div>
-                                }
-                            })}
-
-                            {subtask.updated_at.clone().map(|updated| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-overlay1">"Updated: "</span>
-                                        <span>{updated}</span>
-                                    </div>
-                                }
-                            })}
-                        </div>
-
-                        // Tags (below, left-aligned)
-                        {(!subtask.tags.is_empty()).then(|| {
-                            view! {
-                                <div class="flex flex-wrap gap-1">
-                                    {subtask.tags.iter().map(|tag| {
-                                        view! {
-                                            <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
-                                                {tag.clone()}
-                                            </span>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            }
-                        })}
-                    </div>
-                }
-            })}
-        </div>
-    }
-}
-
 #[component]
 pub fn TaskCard(
     task: Task,
@@ -819,43 +698,9 @@ pub fn MiniParentCard(
     }
 }
 
-/// TaskDetailContent component - reusable task detail content (used in both drawer and split view)
+/// TaskDetailContent component - renders one task's detail pane; it does not own subtask navigation
 #[component]
-pub fn TaskDetailContent(
-    task: Task,
-    #[prop(optional)] initial_open_subtask_id: Option<String>,
-) -> impl IntoView {
-    // Fetch subtasks
-    let (subtasks, set_subtasks) = signal(Vec::<Task>::new());
-    let task_id_for_fetch = task.id.clone();
-    let list_id_for_fetch = task.list_id.clone();
-
-    Effect::new(move || {
-        let task_id = task_id_for_fetch.clone();
-        let list_id = list_id_for_fetch.clone();
-        spawn_local(async move {
-            match tasks::list_for_task_list(
-                &list_id,
-                None,
-                None,
-                None,
-                Some("priority"),
-                Some("asc"),
-                Some(&task_id),
-                None, // task_type - we want subtasks here
-            )
-            .await
-            {
-                Ok(paginated) => {
-                    set_subtasks.set(paginated.items);
-                }
-                Err(_) => {
-                    set_subtasks.set(Vec::new());
-                }
-            }
-        });
-    });
-
+pub fn TaskDetailContent(task: Task) -> impl IntoView {
     view! {
         <div class="flex flex-col">
             // Sticky header - pinned while the body scrolls
@@ -885,7 +730,7 @@ pub fn TaskDetailContent(
                 </div>
             </div>
 
-            // Full-width body: description, tags, timestamps, refs, subtasks
+            // Full-width body: description, tags, timestamps, refs
             <div class="flex flex-col gap-6 px-4 py-3">
                 // Markdown description
                     {task.description.as_ref().map(|desc| {
@@ -910,7 +755,7 @@ pub fn TaskDetailContent(
                         }
                     })}
 
-                // Timestamps, external refs, and subtasks
+                // Timestamps and external refs
                     <div class="flex flex-col gap-1 text-xs text-ctp-overlay0 mb-4">
                         {task.created_at.clone().map(|created| {
                             view! {
@@ -943,55 +788,6 @@ pub fn TaskDetailContent(
                             </div>
                         }
                     })}
-
-                    // SubtaskStack - custom collapsible stack (no accordion arrow, no duplicate content)
-                    {move || {
-                            let tasks_list = subtasks.get();
-                            if !tasks_list.is_empty() {
-                                // Track which subtask is currently open (only one at a time)
-                                let open_subtask_id = RwSignal::new(initial_open_subtask_id.clone());
-
-                                let handle_click = move |id: String| {
-                                    open_subtask_id.update(|current| {
-                                        if current.as_ref() == Some(&id) {
-                                            *current = None; // Close if already open
-                                        } else {
-                                            *current = Some(id); // Open clicked item
-                                        }
-                                    });
-                                };
-
-                                Some(view! {
-                                    <div>
-                                        <h3 class="text-sm font-semibold text-ctp-subtext0 mb-2">
-                                            {format!("Subtasks ({})", tasks_list.len())}
-                                        </h3>
-                                        <div class="max-h-[40vh] overflow-y-auto">
-                                            <For
-                                                each=move || subtasks.get()
-                                                key=|task| task.id.clone()
-                                                children=move |subtask| {
-                                                    let subtask_id = subtask.id.clone();
-                                                    let is_open = Signal::derive(move || {
-                                                        open_subtask_id.get().as_ref() == Some(&subtask_id)
-                                                    });
-
-                                                    view! {
-                                                        <SubtaskStackItem
-                                                            subtask=subtask
-                                                            is_open=is_open
-                                                            on_click=Callback::new(handle_click)
-                                                        />
-                                                    }
-                                                }
-                                            />
-                                        </div>
-                                    </div>
-                                })
-                            } else {
-                                None
-                            }
-                        }}
             </div>
         </div>
     }
@@ -1007,6 +803,7 @@ pub fn TaskDetailDialog(
         Option<String>,
     >,
 ) -> impl IntoView {
+    let _ = initial_open_subtask_id; // Reserved for the two-pane child list
     let task_resource = LocalResource::new(move || {
         let id = task_id.get();
         async move {
@@ -1033,16 +830,9 @@ pub fn TaskDetailDialog(
                                     .get()
                                     .map(|result| {
                                         match result {
-                                            Ok(task) => {
-                                                match initial_open_subtask_id.get() {
-                                                    Some(id) => view! {
-                                                        <TaskDetailContent task=task initial_open_subtask_id=id />
-                                                    }.into_any(),
-                                                    None => view! {
-                                                        <TaskDetailContent task=task />
-                                                    }.into_any(),
-                                                }
-                                            }
+                                            Ok(task) => view! {
+                                                <TaskDetailContent task=task />
+                                            }.into_any(),
                                             Err(e) => {
                                                 view! {
                                                     <div class="p-4 text-ctp-red">
