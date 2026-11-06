@@ -805,10 +805,10 @@ pub fn TaskDetailDialog(
 ) -> impl IntoView {
     // Active selection rendered in the right pane; the left pane always anchors on the entry task.
     let selected_task_id = RwSignal::new(String::new());
-    let (entry_task, set_entry_task) = signal(None::<Task>);
+    let (entry_task, set_entry_task) = signal(None::<Result<Task, ApiClientError>>);
     let (children, set_children) = signal(Vec::<Task>::new());
     let (entry_loading, set_entry_loading) = signal(true);
-    let (selected_task, set_selected_task) = signal(None::<Task>);
+    let (selected_task, set_selected_task) = signal(None::<Result<Task, ApiClientError>>);
 
     // Re-initialize the selection whenever the dialog opens or the entry task changes.
     Effect::new(move || {
@@ -867,11 +867,11 @@ pub fn TaskDetailDialog(
                     .await
                     .map(|paginated| paginated.items)
                     .unwrap_or_default();
-                    set_entry_task.set(Some(entry));
+                    set_entry_task.set(Some(Ok(entry)));
                     set_children.set(items);
                 }
-                Err(_) => {
-                    set_entry_task.set(None);
+                Err(err) => {
+                    set_entry_task.set(Some(Err(err)));
                     set_children.set(Vec::new());
                 }
             }
@@ -891,9 +891,7 @@ pub fn TaskDetailDialog(
         set_selected_task.set(None);
 
         spawn_local(async move {
-            if let Ok(task) = tasks::get(&id).await {
-                set_selected_task.set(Some(task));
-            }
+            set_selected_task.set(Some(tasks::get(&id).await));
         });
     });
 
@@ -911,11 +909,28 @@ pub fn TaskDetailDialog(
                                         .into_any();
                                 }
 
-                                let Some(entry) = entry_task.get() else {
+                                let Some(result) = entry_task.get() else {
                                     return view! {
                                         <p class="text-ctp-subtext0">"No task selected"</p>
                                     }
                                         .into_any();
+                                };
+
+                                let entry = match result {
+                                    Ok(entry) => entry,
+                                    Err(err) => {
+                                        return view! {
+                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                                <p class="text-ctp-red font-semibold">
+                                                    "Error loading task"
+                                                </p>
+                                                <p class="text-ctp-subtext0 text-sm mt-2">
+                                                    {err.to_string()}
+                                                </p>
+                                            </div>
+                                        }
+                                            .into_any();
+                                    }
                                 };
 
                                 let entry_id = entry.id.clone();
@@ -989,7 +1004,20 @@ pub fn TaskDetailDialog(
                                         view! { <p class="p-3 text-ctp-subtext0">"Loading..."</p> }
                                             .into_any()
                                     }
-                                    Some(task) => {
+                                    Some(Err(err)) => {
+                                        view! {
+                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4 m-3">
+                                                <p class="text-ctp-red font-semibold">
+                                                    "Error loading task"
+                                                </p>
+                                                <p class="text-ctp-subtext0 text-sm mt-2">
+                                                    {err.to_string()}
+                                                </p>
+                                            </div>
+                                        }
+                                            .into_any()
+                                    }
+                                    Some(Ok(task)) => {
                                         view! { <TaskDetailContent task=task /> }.into_any()
                                     }
                                 }

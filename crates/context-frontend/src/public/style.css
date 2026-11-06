@@ -260,6 +260,9 @@
       max-width: 96rem;
     }
   }
+  .m-3 {
+    margin: calc(var(--spacing) * 3);
+  }
   .mx-auto {
     margin-inline: auto;
   }
