@@ -26,6 +26,11 @@
       perSystem = {system, ...}: let
         overlays = [
           inputs.rustnix.lib.rust.overlays.fenix
+          (
+            final: _prev: {
+              trunk = final.callPackage ./nix/trunk.nix {};
+            }
+          )
         ];
         pkgs = import inputs.nixpkgs {inherit system overlays;};
 
