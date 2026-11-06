@@ -1,4 +1,3 @@
-use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use thaw::*;
@@ -67,12 +66,33 @@ fn status_bg_color(status: &str) -> &'static str {
     }
 }
 
+/// Kanban column order and labels - drives both the rendered columns and the expanded grid template.
+const KANBAN_STATUSES: [(&str, &str); 6] = [
+    ("backlog", "Backlog"),
+    ("todo", "Todo"),
+    ("in_progress", "In Progress"),
+    ("review", "Review"),
+    ("done", "Done"),
+    ("cancelled", "Cancelled"),
+];
+
+/// Build the `grid-template-columns` value for one expanded column.
+fn kanban_grid_template(expanded: &str) -> String {
+    KANBAN_STATUSES
+        .iter()
+        .map(|(status, _)| if *status == expanded { "4fr" } else { "1fr" })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[component]
 pub fn KanbanColumn(
     status: &'static str,
     label: &'static str,
     list_id: String,
     total_count: usize,
+    expanded: Signal<bool>,
+    on_toggle: Callback<()>,
 ) -> impl IntoView {
     let (tasks, set_tasks) = signal(Vec::<Task>::new());
     let (offset, set_offset) = signal(0);
@@ -208,12 +228,32 @@ pub fn KanbanColumn(
         }
     };
 
+    let column_class = move || {
+        if expanded.get() {
+            format!(
+                "{bg_color} rounded-lg p-4 flex flex-col h-full overflow-hidden ring-1 ring-ctp-blue"
+            )
+        } else {
+            format!("{bg_color} rounded-lg p-4 flex flex-col h-full overflow-hidden")
+        }
+    };
+
     view! {
-        <div class=format!("{} rounded-lg p-4 flex flex-col h-full overflow-hidden", bg_color)>
-            <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center flex-shrink-0">
-                <span>{label}</span>
-                <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
-                    {total_count}
+        <div class=column_class>
+            <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center gap-2 flex-shrink-0">
+                <span class="truncate min-w-0">{label}</span>
+                <span class="flex items-center gap-1 flex-shrink-0">
+                    <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
+                        {total_count}
+                    </span>
+                    <button
+                        class="hidden xl:inline-flex items-center justify-center w-5 h-5 rounded text-ctp-subtext0 hover:bg-ctp-surface1 hover:text-ctp-text transition-colors"
+                        title=move || if expanded.get() { "Collapse column" } else { "Expand column" }
+                        aria-label=move || if expanded.get() { "Collapse column" } else { "Expand column" }
+                        on:click=move |_| on_toggle.run(())
+                    >
+                        {move || if expanded.get() { "«" } else { "»" }}
+                    </button>
                 </span>
             </h3>
             <div
@@ -336,126 +376,6 @@ pub fn KanbanColumn(
                 open=dialog_open
                 initial_open_subtask_id=initial_open_subtask.into()
             />
-        </div>
-    }
-}
-
-/// SubtaskStackItem - Individual collapsible subtask in the stack
-#[component]
-pub fn SubtaskStackItem(
-    subtask: Task,
-    is_open: Signal<bool>,
-    on_click: Callback<String>,
-) -> impl IntoView {
-    let subtask_id = subtask.id.clone();
-    let subtask_id_for_click = subtask.id.clone();
-    let border_color = priority_border_color(subtask.priority);
-    let is_expanded = move || is_open.get();
-
-    view! {
-        <div
-            class=format!(
-                "relative mb-2 p-3 bg-ctp-surface0 rounded-lg border-l-4 {} cursor-pointer hover:bg-ctp-surface0/80 transition-colors",
-                border_color
-            )
-            on:click=move |ev: ev::MouseEvent| {
-                ev.prevent_default();
-                ev.stop_propagation();
-                on_click.run(subtask_id_for_click.clone());
-            }
-        >
-            // Header: CopyableId + Title (left) | Badges (right: Priority → Status)
-            <div class="flex items-center justify-between gap-4">
-                // Left side: CopyableId + Title
-                <div class="flex items-center gap-2 flex-1 min-w-0">
-                    <div class="flex-shrink-0" on:click=|ev: ev::MouseEvent| {
-                        ev.stop_propagation();
-                    }>
-                        <CopyableId id=subtask_id.clone()/>
-                    </div>
-                    <div class="flex-1 min-w-0 text-sm text-ctp-text break-words font-medium">
-                        {move || {
-                            let title = &subtask.title;
-                            let truncated = !is_expanded() && title.len() > 60;
-                            if truncated {
-                                format!("{}...", &title[..60])
-                            } else {
-                                title.clone()
-                            }
-                        }}
-                    </div>
-                </div>
-
-                // Right side: Priority → Status badges
-                <div class="flex items-center gap-1 flex-shrink-0">
-                    {subtask.priority.map(|p| {
-                        view! {
-                            <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", priority_badge_color(p))>
-                                "P"{p}
-                            </span>
-                        }
-                    })}
-                    <span class=format!("text-xs px-1.5 py-0.5 rounded font-medium {}", status_badge_color(&subtask.status))>
-                        {status_badge_label(&subtask.status)}
-                    </span>
-                </div>
-            </div>
-
-            // Description (only when expanded, with separator)
-            {move || {
-                (is_expanded() && subtask.description.is_some()).then(|| {
-                    view! {
-                        <div class="mt-2 pt-2 border-t border-ctp-surface1">
-                            <div class="text-ctp-subtext0 text-xs prose prose-invert prose-xs max-w-none">
-                                <crate::components::note_components::MarkdownContent content=subtask.description.clone().unwrap_or_default()/>
-                            </div>
-                        </div>
-                    }
-                })
-            }}
-
-            // Metadata section (only when expanded)
-            {move || is_expanded().then(|| {
-                view! {
-                    <div class="pt-3 mt-3 border-t border-ctp-surface1">
-                        // Timestamps (right-aligned)
-                        <div class="flex flex-col items-end gap-1 text-xs text-ctp-overlay0 text-right mb-2">
-                            {subtask.created_at.clone().map(|created| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-overlay1">"Created: "</span>
-                                        <span>{created}</span>
-                                    </div>
-                                }
-                            })}
-
-                            {subtask.updated_at.clone().map(|updated| {
-                                view! {
-                                    <div>
-                                        <span class="text-ctp-overlay1">"Updated: "</span>
-                                        <span>{updated}</span>
-                                    </div>
-                                }
-                            })}
-                        </div>
-
-                        // Tags (below, left-aligned)
-                        {(!subtask.tags.is_empty()).then(|| {
-                            view! {
-                                <div class="flex flex-wrap gap-1">
-                                    {subtask.tags.iter().map(|tag| {
-                                        view! {
-                                            <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-2 py-0.5 rounded">
-                                                {tag.clone()}
-                                            </span>
-                                        }
-                                    }).collect::<Vec<_>>()}
-                                </div>
-                            }
-                        })}
-                    </div>
-                }
-            })}
         </div>
     }
 }
@@ -778,43 +698,9 @@ pub fn MiniParentCard(
     }
 }
 
-/// TaskDetailContent component - reusable task detail content (used in both drawer and split view)
+/// TaskDetailContent component - renders one task's detail pane; it does not own subtask navigation
 #[component]
-pub fn TaskDetailContent(
-    task: Task,
-    #[prop(optional)] initial_open_subtask_id: Option<String>,
-) -> impl IntoView {
-    // Fetch subtasks
-    let (subtasks, set_subtasks) = signal(Vec::<Task>::new());
-    let task_id_for_fetch = task.id.clone();
-    let list_id_for_fetch = task.list_id.clone();
-
-    Effect::new(move || {
-        let task_id = task_id_for_fetch.clone();
-        let list_id = list_id_for_fetch.clone();
-        spawn_local(async move {
-            match tasks::list_for_task_list(
-                &list_id,
-                None,
-                None,
-                None,
-                Some("priority"),
-                Some("asc"),
-                Some(&task_id),
-                None, // task_type - we want subtasks here
-            )
-            .await
-            {
-                Ok(paginated) => {
-                    set_subtasks.set(paginated.items);
-                }
-                Err(_) => {
-                    set_subtasks.set(Vec::new());
-                }
-            }
-        });
-    });
-
+pub fn TaskDetailContent(task: Task) -> impl IntoView {
     view! {
         <div class="flex flex-col">
             // Sticky header - pinned while the body scrolls
@@ -844,7 +730,7 @@ pub fn TaskDetailContent(
                 </div>
             </div>
 
-            // Full-width body: description, tags, timestamps, refs, subtasks
+            // Full-width body: description, tags, timestamps, refs
             <div class="flex flex-col gap-6 px-4 py-3">
                 // Markdown description
                     {task.description.as_ref().map(|desc| {
@@ -869,7 +755,7 @@ pub fn TaskDetailContent(
                         }
                     })}
 
-                // Timestamps, external refs, and subtasks
+                // Timestamps and external refs
                     <div class="flex flex-col gap-1 text-xs text-ctp-overlay0 mb-4">
                         {task.created_at.clone().map(|created| {
                             view! {
@@ -902,62 +788,13 @@ pub fn TaskDetailContent(
                             </div>
                         }
                     })}
-
-                    // SubtaskStack - custom collapsible stack (no accordion arrow, no duplicate content)
-                    {move || {
-                            let tasks_list = subtasks.get();
-                            if !tasks_list.is_empty() {
-                                // Track which subtask is currently open (only one at a time)
-                                let open_subtask_id = RwSignal::new(initial_open_subtask_id.clone());
-
-                                let handle_click = move |id: String| {
-                                    open_subtask_id.update(|current| {
-                                        if current.as_ref() == Some(&id) {
-                                            *current = None; // Close if already open
-                                        } else {
-                                            *current = Some(id); // Open clicked item
-                                        }
-                                    });
-                                };
-
-                                Some(view! {
-                                    <div>
-                                        <h3 class="text-sm font-semibold text-ctp-subtext0 mb-2">
-                                            {format!("Subtasks ({})", tasks_list.len())}
-                                        </h3>
-                                        <div class="max-h-[40vh] overflow-y-auto">
-                                            <For
-                                                each=move || subtasks.get()
-                                                key=|task| task.id.clone()
-                                                children=move |subtask| {
-                                                    let subtask_id = subtask.id.clone();
-                                                    let is_open = Signal::derive(move || {
-                                                        open_subtask_id.get().as_ref() == Some(&subtask_id)
-                                                    });
-
-                                                    view! {
-                                                        <SubtaskStackItem
-                                                            subtask=subtask
-                                                            is_open=is_open
-                                                            on_click=Callback::new(handle_click)
-                                                        />
-                                                    }
-                                                }
-                                            />
-                                        </div>
-                                    </div>
-                                })
-                            } else {
-                                None
-                            }
-                        }}
             </div>
         </div>
     }
 }
 
-/// TaskDetailDialog component - shows full task details in a centered modal dialog
-/// Fetches fresh data from API using task_id
+/// TaskDetailDialog component - two-pane task viewer modeled on the note stack view
+/// The left pane pins the entry task above its direct children; activating a card moves the selection.
 #[component]
 pub fn TaskDetailDialog(
     task_id: ReadSignal<String>,
@@ -966,54 +803,227 @@ pub fn TaskDetailDialog(
         Option<String>,
     >,
 ) -> impl IntoView {
-    let task_resource = LocalResource::new(move || {
-        let id = task_id.get();
-        async move {
-            if id.is_empty() {
-                Err(crate::api::ApiClientError::Network(
-                    "No task selected".to_string(),
-                ))
-            } else {
-                tasks::get(&id).await
-            }
+    // Active selection rendered in the right pane; the left pane always anchors on the entry task.
+    let selected_task_id = RwSignal::new(String::new());
+    let (entry_task, set_entry_task) = signal(None::<Result<Task, ApiClientError>>);
+    let (children, set_children) = signal(Vec::<Task>::new());
+    let (entry_loading, set_entry_loading) = signal(true);
+    let (selected_task, set_selected_task) = signal(None::<Result<Task, ApiClientError>>);
+
+    // Re-initialize the selection whenever the dialog opens or the entry task changes.
+    Effect::new(move || {
+        let is_open = open.get();
+        let entry_id = task_id.get();
+        let initial_subtask_id = initial_open_subtask_id.get();
+
+        if !is_open {
+            selected_task_id.set(String::new());
+            return;
         }
+
+        let start_id = initial_subtask_id
+            .filter(|id| !id.is_empty())
+            .unwrap_or(entry_id);
+        selected_task_id.set(start_id);
+    });
+
+    // Anchor the left pane on the entry task and load its direct children.
+    Effect::new(move || {
+        let is_open = open.get();
+        let entry_id = task_id.get();
+
+        if !is_open {
+            set_entry_task.set(None);
+            set_children.set(Vec::new());
+            return;
+        }
+
+        if entry_id.is_empty() {
+            set_entry_task.set(None);
+            set_children.set(Vec::new());
+            set_entry_loading.set(false);
+            return;
+        }
+
+        set_entry_loading.set(true);
+        set_entry_task.set(None);
+        set_children.set(Vec::new());
+
+        spawn_local(async move {
+            match tasks::get(&entry_id).await {
+                Ok(entry) => {
+                    let list_id = entry.list_id.clone();
+                    let parent_id = entry.id.clone();
+                    let items = tasks::list_for_task_list(
+                        &list_id,
+                        None,
+                        None,
+                        None,
+                        Some("priority"),
+                        Some("asc"),
+                        Some(&parent_id),
+                        None,
+                    )
+                    .await
+                    .map(|paginated| paginated.items)
+                    .unwrap_or_default();
+                    set_entry_task.set(Some(Ok(entry)));
+                    set_children.set(items);
+                }
+                Err(err) => {
+                    set_entry_task.set(Some(Err(err)));
+                    set_children.set(Vec::new());
+                }
+            }
+            set_entry_loading.set(false);
+        });
+    });
+
+    // Fetch the selected task for the right pane.
+    Effect::new(move || {
+        let id = selected_task_id.get();
+
+        if id.is_empty() {
+            set_selected_task.set(None);
+            return;
+        }
+
+        set_selected_task.set(None);
+
+        spawn_local(async move {
+            set_selected_task.set(Some(tasks::get(&id).await));
+        });
     });
 
     view! {
         <Dialog open=open>
-            <DialogSurface class="task-detail-dialog-surface max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogSurface class="task-detail-dialog-surface overflow-hidden flex flex-col">
                 <DialogBody class="flex flex-col overflow-hidden">
-                    <DialogContent class="flex-1 overflow-y-auto">
-                        <Suspense fallback=move || {
-                            view! { <p class="text-ctp-subtext0">"Loading task..."</p> }
-                        }>
+                    <div class="task-detail-split">
+                        <div class="task-detail-split-side p-3">
                             {move || {
-                                task_resource
-                                    .get()
-                                    .map(|result| {
-                                        match result {
-                                            Ok(task) => {
-                                                match initial_open_subtask_id.get() {
-                                                    Some(id) => view! {
-                                                        <TaskDetailContent task=task initial_open_subtask_id=id />
-                                                    }.into_any(),
-                                                    None => view! {
-                                                        <TaskDetailContent task=task />
-                                                    }.into_any(),
-                                                }
-                                            }
-                                            Err(e) => {
-                                                view! {
-                                                    <div class="p-4 text-ctp-red">
-                                                        "Error loading task: " {e.to_string()}
-                                                    </div>
-                                                }.into_any()
-                                            }
+                                if entry_loading.get() {
+                                    return view! {
+                                        <p class="text-ctp-subtext0">"Loading task..."</p>
+                                    }
+                                        .into_any();
+                                }
+
+                                let Some(result) = entry_task.get() else {
+                                    return view! {
+                                        <p class="text-ctp-subtext0">"No task selected"</p>
+                                    }
+                                        .into_any();
+                                };
+
+                                let entry = match result {
+                                    Ok(entry) => entry,
+                                    Err(err) => {
+                                        return view! {
+                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                                <p class="text-ctp-red font-semibold">
+                                                    "Error loading task"
+                                                </p>
+                                                <p class="text-ctp-subtext0 text-sm mt-2">
+                                                    {err.to_string()}
+                                                </p>
+                                            </div>
                                         }
-                                    })
+                                            .into_any();
+                                    }
+                                };
+
+                                let entry_id = entry.id.clone();
+                                let entry_id_for_selected = entry_id.clone();
+
+                                view! {
+                                    <div
+                                        class="task-stack-card mb-2 rounded-lg p-1 cursor-pointer"
+                                        data-task-id=entry_id.clone()
+                                        data-selected=move || {
+                                            (selected_task_id.get() == entry_id_for_selected).to_string()
+                                        }
+                                    >
+                                        <TaskCard
+                                            task=entry
+                                            show_subtasks_inline=false
+                                            on_click=Callback::new(
+                                                move |clicked: Task| selected_task_id.set(clicked.id),
+                                            )
+                                        />
+                                    </div>
+
+                                    {move || {
+                                        if children.get().is_empty() {
+                                            view! {
+                                                <p class="text-xs text-ctp-overlay0">"No subtasks"</p>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! {
+                                                <For
+                                                    each=move || children.get()
+                                                    key=|child| child.id.clone()
+                                                    children=move |child| {
+                                                        let child_id = child.id.clone();
+                                                        let child_id_for_selected = child_id.clone();
+                                                        view! {
+                                                            <div
+                                                                class="task-stack-card ml-2 mb-2 rounded-lg p-1 cursor-pointer"
+                                                                data-task-id=child_id.clone()
+                                                                data-selected=move || {
+                                                                    (selected_task_id.get() == child_id_for_selected).to_string()
+                                                                }
+                                                            >
+                                                                <TaskCard
+                                                                    task=child
+                                                                    show_subtasks_inline=false
+                                                                    on_click=Callback::new(
+                                                                        move |clicked: Task| {
+                                                                            selected_task_id.set(clicked.id)
+                                                                        },
+                                                                    )
+                                                                />
+                                                            </div>
+                                                        }
+                                                    }
+                                                />
+                                            }
+                                                .into_any()
+                                        }
+                                    }}
+                                }
+                                    .into_any()
                             }}
-                        </Suspense>
-                    </DialogContent>
+                        </div>
+
+                        <div class="task-detail-split-main">
+                            {move || {
+                                match selected_task.get() {
+                                    None => {
+                                        view! { <p class="p-3 text-ctp-subtext0">"Loading..."</p> }
+                                            .into_any()
+                                    }
+                                    Some(Err(err)) => {
+                                        view! {
+                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4 m-3">
+                                                <p class="text-ctp-red font-semibold">
+                                                    "Error loading task"
+                                                </p>
+                                                <p class="text-ctp-subtext0 text-sm mt-2">
+                                                    {err.to_string()}
+                                                </p>
+                                            </div>
+                                        }
+                                            .into_any()
+                                    }
+                                    Some(Ok(task)) => {
+                                        view! { <TaskDetailContent task=task /> }.into_any()
+                                    }
+                                }
+                            }}
+                        </div>
+                    </div>
                 </DialogBody>
             </DialogSurface>
         </Dialog>
@@ -1192,6 +1202,15 @@ pub fn TaskListCard(
 pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
     let (stats_data, set_stats_data) = signal(None::<Result<TaskStats, ApiClientError>>);
 
+    // At most one kanban column is expanded at a time
+    let expanded_status = RwSignal::new(None::<&'static str>);
+
+    // Inline custom property that drives the expanded grid template
+    let board_style = move || match expanded_status.get() {
+        Some(status) => format!("--kanban-grid-cols: {}", kanban_grid_template(status)),
+        None => String::new(),
+    };
+
     // WebSocket updates - refetch trigger for stats
     let (stats_refetch_trigger, set_stats_refetch_trigger) = signal(0u32);
     let ws_updates = crate::websocket::use_websocket_updates();
@@ -1227,15 +1246,6 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
             set_stats_data.set(Some(result));
         });
     });
-
-    let statuses = vec![
-        ("backlog", "Backlog"),
-        ("todo", "Todo"),
-        ("in_progress", "In Progress"),
-        ("review", "Review"),
-        ("done", "Done"),
-        ("cancelled", "Cancelled"),
-    ];
 
     view! {
         <Suspense fallback=move || {
@@ -1286,9 +1296,11 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
                                     }
                                 })}
 
-                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 flex-1 min-h-0">
-                                    {statuses
-                                        .clone()
+                                <div
+                                    class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 flex-1 min-h-0 kanban-board-grid"
+                                    style=board_style
+                                >
+                                    {KANBAN_STATUSES
                                         .into_iter()
                                         .map(|(status, label)| {
                                             // Get total count for this status from stats
@@ -1302,12 +1314,26 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
                                                 _ => 0,
                                             };
 
+                                            let is_expanded =
+                                                Signal::derive(move || expanded_status.get() == Some(status));
+                                            let on_toggle = Callback::new(move |_: ()| {
+                                                expanded_status.update(|current| {
+                                                    *current = if *current == Some(status) {
+                                                        None
+                                                    } else {
+                                                        Some(status)
+                                                    };
+                                                });
+                                            });
+
                                             view! {
                                                 <KanbanColumn
                                                     status=status
                                                     label=label
                                                     list_id=tl.id.clone()
                                                     total_count=total
+                                                    expanded=is_expanded
+                                                    on_toggle=on_toggle
                                                 />
                                             }
                                         })
