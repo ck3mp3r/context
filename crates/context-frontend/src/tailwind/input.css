@@ -209,13 +209,6 @@ body {
   max-height: none !important;
 }
 
-/* Content scrolls within the body */
-.task-detail-dialog-surface .thaw-dialog-content {
-  flex: 1 !important;
-  min-height: 0 !important;
-  overflow-y: auto !important;
-}
-
 /* Two-pane task detail: children left, task detail right */
 .task-detail-split {
   display: flex;

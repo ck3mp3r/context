@@ -920,64 +920,22 @@ pub fn TaskDetailDialog(
 
                                 let entry_id = entry.id.clone();
                                 let entry_id_for_selected = entry_id.clone();
-                                let entry_id_for_click = entry_id.clone();
-                                let title = entry.title.clone();
-                                let description = entry.description.as_ref().map(|desc| {
-                                    if desc.chars().count() > 150 {
-                                        format!("{}...", desc.chars().take(150).collect::<String>())
-                                    } else {
-                                        desc.clone()
-                                    }
-                                });
-                                let tag_count = entry.tags.len();
-                                let tags = entry.tags.iter().take(3).cloned().collect::<Vec<_>>();
 
                                 view! {
                                     <div
-                                        class="task-stack-card rounded-lg p-2 mb-2 cursor-pointer transition-colors flex flex-col overflow-hidden"
+                                        class="task-stack-card mb-2 rounded-lg p-1 cursor-pointer"
                                         data-task-id=entry_id.clone()
                                         data-selected=move || {
                                             (selected_task_id.get() == entry_id_for_selected).to_string()
                                         }
-                                        on:click=move |e| {
-                                            e.prevent_default();
-                                            selected_task_id.set(entry_id_for_click.clone());
-                                        }
                                     >
-                                        <h4 class="text-sm font-semibold text-ctp-text mb-1 truncate">
-                                            {title}
-                                        </h4>
-                                        {description
-                                            .map(|text| {
-                                                view! {
-                                                    <div class="text-xs text-ctp-subtext0 line-clamp-4 mb-2">{text}</div>
-                                                }
-                                            })}
-                                        {(!tags.is_empty())
-                                            .then(|| {
-                                                view! {
-                                                    <div class="flex flex-wrap gap-1 overflow-hidden">
-                                                        {tags
-                                                            .iter()
-                                                            .map(|tag| {
-                                                                view! {
-                                                                    <span class="text-xs bg-ctp-surface1 text-ctp-subtext1 px-1.5 py-0.5 rounded">
-                                                                        {tag.clone()}
-                                                                    </span>
-                                                                }
-                                                            })
-                                                            .collect::<Vec<_>>()}
-                                                        {(tag_count > 3)
-                                                            .then(|| {
-                                                                view! {
-                                                                    <span class="text-xs text-ctp-overlay0">
-                                                                        "+"{tag_count - 3}
-                                                                    </span>
-                                                                }
-                                                            })}
-                                                    </div>
-                                                }
-                                            })}
+                                        <TaskCard
+                                            task=entry
+                                            show_subtasks_inline=false
+                                            on_click=Callback::new(
+                                                move |clicked: Task| selected_task_id.set(clicked.id),
+                                            )
+                                        />
                                     </div>
 
                                     {move || {
@@ -996,7 +954,7 @@ pub fn TaskDetailDialog(
                                                         let child_id_for_selected = child_id.clone();
                                                         view! {
                                                             <div
-                                                                class="task-stack-card ml-2 mb-2 rounded-lg p-1"
+                                                                class="task-stack-card ml-2 mb-2 rounded-lg p-1 cursor-pointer"
                                                                 data-task-id=child_id.clone()
                                                                 data-selected=move || {
                                                                     (selected_task_id.get() == child_id_for_selected).to_string()

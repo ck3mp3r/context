@@ -1346,11 +1346,6 @@ body {
   flex-direction: column !important;
   max-height: none !important;
 }
-.task-detail-dialog-surface .thaw-dialog-content {
-  flex: 1 !important;
-  min-height: 0 !important;
-  overflow-y: auto !important;
-}
 .task-detail-split {
   display: flex;
   flex-direction: row;
