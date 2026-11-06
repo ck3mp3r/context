@@ -67,12 +67,33 @@ fn status_bg_color(status: &str) -> &'static str {
     }
 }
 
+/// Kanban column order and labels - drives both the rendered columns and the expanded grid template.
+const KANBAN_STATUSES: [(&str, &str); 6] = [
+    ("backlog", "Backlog"),
+    ("todo", "Todo"),
+    ("in_progress", "In Progress"),
+    ("review", "Review"),
+    ("done", "Done"),
+    ("cancelled", "Cancelled"),
+];
+
+/// Build the `grid-template-columns` value for one expanded column.
+fn kanban_grid_template(expanded: &str) -> String {
+    KANBAN_STATUSES
+        .iter()
+        .map(|(status, _)| if *status == expanded { "4fr" } else { "1fr" })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[component]
 pub fn KanbanColumn(
     status: &'static str,
     label: &'static str,
     list_id: String,
     total_count: usize,
+    expanded: Signal<bool>,
+    on_toggle: Callback<()>,
 ) -> impl IntoView {
     let (tasks, set_tasks) = signal(Vec::<Task>::new());
     let (offset, set_offset) = signal(0);
@@ -208,12 +229,32 @@ pub fn KanbanColumn(
         }
     };
 
+    let column_class = move || {
+        if expanded.get() {
+            format!(
+                "{bg_color} rounded-lg p-4 flex flex-col h-full overflow-hidden ring-1 ring-ctp-blue"
+            )
+        } else {
+            format!("{bg_color} rounded-lg p-4 flex flex-col h-full overflow-hidden")
+        }
+    };
+
     view! {
-        <div class=format!("{} rounded-lg p-4 flex flex-col h-full overflow-hidden", bg_color)>
-            <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center flex-shrink-0">
-                <span>{label}</span>
-                <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
-                    {total_count}
+        <div class=column_class>
+            <h3 class="font-semibold text-ctp-text mb-4 flex justify-between items-center gap-2 flex-shrink-0">
+                <span class="truncate min-w-0">{label}</span>
+                <span class="flex items-center gap-1 flex-shrink-0">
+                    <span class="text-xs bg-ctp-surface1 px-2 py-1 rounded">
+                        {total_count}
+                    </span>
+                    <button
+                        class="hidden xl:inline-flex items-center justify-center w-5 h-5 rounded text-ctp-subtext0 hover:bg-ctp-surface1 hover:text-ctp-text transition-colors"
+                        title=move || if expanded.get() { "Collapse column" } else { "Expand column" }
+                        aria-label=move || if expanded.get() { "Collapse column" } else { "Expand column" }
+                        on:click=move |_| on_toggle.run(())
+                    >
+                        {move || if expanded.get() { "«" } else { "»" }}
+                    </button>
                 </span>
             </h3>
             <div
@@ -1192,6 +1233,15 @@ pub fn TaskListCard(
 pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
     let (stats_data, set_stats_data) = signal(None::<Result<TaskStats, ApiClientError>>);
 
+    // At most one kanban column is expanded at a time
+    let expanded_status = RwSignal::new(None::<&'static str>);
+
+    // Inline custom property that drives the expanded grid template
+    let board_style = move || match expanded_status.get() {
+        Some(status) => format!("--kanban-grid-cols: {}", kanban_grid_template(status)),
+        None => String::new(),
+    };
+
     // WebSocket updates - refetch trigger for stats
     let (stats_refetch_trigger, set_stats_refetch_trigger) = signal(0u32);
     let ws_updates = crate::websocket::use_websocket_updates();
@@ -1227,15 +1277,6 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
             set_stats_data.set(Some(result));
         });
     });
-
-    let statuses = vec![
-        ("backlog", "Backlog"),
-        ("todo", "Todo"),
-        ("in_progress", "In Progress"),
-        ("review", "Review"),
-        ("done", "Done"),
-        ("cancelled", "Cancelled"),
-    ];
 
     view! {
         <Suspense fallback=move || {
@@ -1286,9 +1327,11 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
                                     }
                                 })}
 
-                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 flex-1 min-h-0">
-                                    {statuses
-                                        .clone()
+                                <div
+                                    class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 flex-1 min-h-0 kanban-board-grid"
+                                    style=board_style
+                                >
+                                    {KANBAN_STATUSES
                                         .into_iter()
                                         .map(|(status, label)| {
                                             // Get total count for this status from stats
@@ -1302,12 +1345,26 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
                                                 _ => 0,
                                             };
 
+                                            let is_expanded =
+                                                Signal::derive(move || expanded_status.get() == Some(status));
+                                            let on_toggle = Callback::new(move |_: ()| {
+                                                expanded_status.update(|current| {
+                                                    *current = if *current == Some(status) {
+                                                        None
+                                                    } else {
+                                                        Some(status)
+                                                    };
+                                                });
+                                            });
+
                                             view! {
                                                 <KanbanColumn
                                                     status=status
                                                     label=label
                                                     list_id=tl.id.clone()
                                                     total_count=total
+                                                    expanded=is_expanded
+                                                    on_toggle=on_toggle
                                                 />
                                             }
                                         })

@@ -781,3 +781,12 @@ body {
     margin: 1in;
   }
 }
+
+/* Kanban board column expansion.
+   --kanban-grid-cols is set inline by TaskListContent while one column is expanded.
+   The fallback matches Tailwind's xl:grid-cols-6 exactly, so the default render is unchanged. */
+@media (min-width: 1280px) {
+  .kanban-board-grid {
+    grid-template-columns: var(--kanban-grid-cols, repeat(6, minmax(0, 1fr)));
+  }
+}
