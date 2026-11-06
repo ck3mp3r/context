@@ -188,7 +188,7 @@ body {
 .task-detail-dialog-surface {
   width: 95vw !important;
   max-width: 95vw !important;
-  max-height: 90vh !important;
+  height: 90vh !important;
   overflow: hidden !important;
 }
 
@@ -198,8 +198,7 @@ body {
   flex-direction: column;
 }
 
-/* Body fills remaining space inside the surface (after 48px padding).
-   No max-height needed — the surface's max-height: 85vh constrains it via flex. */
+/* Body fills the fixed surface height (90vh minus the 24px surface padding on each side). */
 .task-detail-dialog-surface .thaw-dialog-body {
   flex: 1 !important;
   min-height: 0 !important;
@@ -228,6 +227,7 @@ body {
 .task-detail-split-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -238,7 +238,7 @@ body {
 
   .task-detail-split-side {
     width: 100%;
-    max-height: 40vh;
+    height: 40vh;
     border-right: none;
     border-bottom: 1px solid var(--ctp-surface1);
   }

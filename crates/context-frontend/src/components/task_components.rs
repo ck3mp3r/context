@@ -897,7 +897,7 @@ pub fn TaskDetailDialog(
 
     view! {
         <Dialog open=open>
-            <DialogSurface class="task-detail-dialog-surface max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogSurface class="task-detail-dialog-surface overflow-hidden flex flex-col">
                 <DialogBody class="flex flex-col overflow-hidden">
                     <div class="task-detail-split">
                         <div class="task-detail-split-side p-3">

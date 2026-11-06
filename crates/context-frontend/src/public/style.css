@@ -393,9 +393,6 @@
   .h-full {
     height: 100%;
   }
-  .max-h-\[90vh\] {
-    max-height: 90vh;
-  }
   .min-h-0 {
     min-height: 0px;
   }
@@ -1334,7 +1331,7 @@ body {
 .task-detail-dialog-surface {
   width: 95vw !important;
   max-width: 95vw !important;
-  max-height: 90vh !important;
+  height: 90vh !important;
   overflow: hidden !important;
 }
 .task-detail-dialog-surface.thaw-dialog-surface {
@@ -1365,6 +1362,7 @@ body {
 .task-detail-split-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
 }
 @media (max-width: 1023px) {
@@ -1373,7 +1371,7 @@ body {
   }
   .task-detail-split-side {
     width: 100%;
-    max-height: 40vh;
+    height: 40vh;
     border-right: none;
     border-bottom: 1px solid var(--ctp-surface1);
   }
