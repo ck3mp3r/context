@@ -793,8 +793,8 @@ pub fn TaskDetailContent(task: Task) -> impl IntoView {
     }
 }
 
-/// TaskDetailDialog component - shows full task details in a centered modal dialog
-/// Fetches fresh data from API using task_id
+/// TaskDetailDialog component - two-pane task viewer with a drill-down path
+/// The left pane lists the current task's children, the right pane renders the task detail.
 #[component]
 pub fn TaskDetailDialog(
     task_id: ReadSignal<String>,
@@ -803,18 +803,91 @@ pub fn TaskDetailDialog(
         Option<String>,
     >,
 ) -> impl IntoView {
-    let _ = initial_open_subtask_id; // Reserved for the two-pane child list
-    let task_resource = LocalResource::new(move || {
-        let id = task_id.get();
-        async move {
-            if id.is_empty() {
-                Err(crate::api::ApiClientError::Network(
-                    "No task selected".to_string(),
-                ))
-            } else {
-                tasks::get(&id).await
-            }
+    // Root-first task path; the last entry is the current task.
+    let (path, set_path) = signal(Vec::<Task>::new());
+    let (children, set_children) = signal(Vec::<Task>::new());
+    let (loading, set_loading) = signal(true);
+    let (error, set_error) = signal(None::<String>);
+
+    // Bootstrap the path from the selected task or the initially opened subtask.
+    Effect::new(move || {
+        let is_open = open.get();
+        let selected_id = task_id.get();
+        let initial_subtask_id = initial_open_subtask_id.get();
+
+        if !is_open {
+            set_path.set(Vec::new());
+            return;
         }
+
+        let start_id = initial_subtask_id
+            .filter(|id| !id.is_empty())
+            .unwrap_or(selected_id);
+
+        if start_id.is_empty() {
+            set_path.set(Vec::new());
+            set_loading.set(false);
+            return;
+        }
+
+        set_loading.set(true);
+        set_error.set(None);
+
+        spawn_local(async move {
+            match tasks::get(&start_id).await {
+                Ok(start_task) => {
+                    let mut ancestors = Vec::new();
+                    let mut cursor = start_task.parent_id.clone();
+                    while let Some(parent_id) = cursor {
+                        match tasks::get(&parent_id).await {
+                            Ok(parent) => {
+                                cursor = parent.parent_id.clone();
+                                ancestors.push(parent);
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    ancestors.reverse();
+                    ancestors.push(start_task);
+                    set_path.set(ancestors);
+                    set_loading.set(false);
+                }
+                Err(e) => {
+                    set_error.set(Some(e.to_string()));
+                    set_path.set(Vec::new());
+                    set_loading.set(false);
+                }
+            }
+        });
+    });
+
+    // Fetch the children of the current task (last path entry).
+    Effect::new(move || {
+        let Some(current) = path.get().last().cloned() else {
+            set_children.set(Vec::new());
+            return;
+        };
+
+        let list_id = current.list_id.clone();
+        let parent_id = current.id.clone();
+
+        spawn_local(async move {
+            match tasks::list_for_task_list(
+                &list_id,
+                None,
+                None,
+                None,
+                Some("priority"),
+                Some("asc"),
+                Some(&parent_id),
+                None,
+            )
+            .await
+            {
+                Ok(paginated) => set_children.set(paginated.items),
+                Err(_) => set_children.set(Vec::new()),
+            }
+        });
     });
 
     view! {
@@ -822,28 +895,134 @@ pub fn TaskDetailDialog(
             <DialogSurface class="task-detail-dialog-surface max-h-[90vh] overflow-hidden flex flex-col">
                 <DialogBody class="flex flex-col overflow-hidden">
                     <DialogContent class="flex-1 overflow-y-auto">
-                        <Suspense fallback=move || {
-                            view! { <p class="text-ctp-subtext0">"Loading task..."</p> }
-                        }>
-                            {move || {
-                                task_resource
-                                    .get()
-                                    .map(|result| {
-                                        match result {
-                                            Ok(task) => view! {
-                                                <TaskDetailContent task=task />
-                                            }.into_any(),
-                                            Err(e) => {
-                                                view! {
-                                                    <div class="p-4 text-ctp-red">
-                                                        "Error loading task: " {e.to_string()}
-                                                    </div>
-                                                }.into_any()
+                        {move || {
+                            if loading.get() {
+                                return view! {
+                                    <p class="text-ctp-subtext0">"Loading task..."</p>
+                                }
+                                    .into_any();
+                            }
+
+                            if let Some(message) = error.get() {
+                                return view! {
+                                    <div class="p-4 text-ctp-red">
+                                        "Error loading task: " {message}
+                                    </div>
+                                }
+                                    .into_any();
+                            }
+
+                            let entries = path.get();
+                            let Some(current) = entries.last().cloned() else {
+                                return view! {
+                                    <p class="text-ctp-subtext0">"No task selected"</p>
+                                }
+                                    .into_any();
+                            };
+
+                            let path_bar = (entries.len() > 1).then(|| {
+                                let items = entries
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(index, entry)| {
+                                        let title = entry.title.clone();
+                                        let target_len = index + 1;
+                                        let separator = (index > 0).then(|| {
+                                            view! {
+                                                <span class="flex-shrink-0 text-sm text-ctp-overlay0">
+                                                    "›"
+                                                </span>
                                             }
+                                        });
+                                        view! {
+                                            <div class="flex items-center gap-1 min-w-0">
+                                                {separator}
+                                                <button
+                                                    class="min-w-0 max-w-[220px] truncate text-left text-sm text-ctp-text hover:text-ctp-blue"
+                                                    on:click=move |_| {
+                                                        set_path
+                                                            .update(|items| items.truncate(target_len))
+                                                    }
+                                                >
+                                                    {title}
+                                                </button>
+                                            </div>
                                         }
                                     })
-                            }}
-                        </Suspense>
+                                    .collect::<Vec<_>>();
+
+                                view! {
+                                    <div class="flex items-center gap-2 px-4 py-2 border-b border-ctp-surface1">
+                                        <button
+                                            class="flex-shrink-0 text-sm text-ctp-subtext0 hover:text-ctp-text"
+                                            on:click=move |_| {
+                                                set_path
+                                                    .update(|items| {
+                                                        if items.len() > 1 {
+                                                            items.pop();
+                                                        }
+                                                    })
+                                            }
+                                        >
+                                            "← Back"
+                                        </button>
+                                        <div class="flex items-center gap-1 min-w-0 overflow-x-auto">
+                                            {items}
+                                        </div>
+                                    </div>
+                                }
+                            });
+
+                            view! {
+                                <div class="flex flex-col h-full min-h-0">
+                                    {path_bar}
+                                    <div class="task-detail-split">
+                                        <div class="task-detail-split-side p-3">
+                                            <h3 class="text-sm font-semibold text-ctp-subtext0 mb-2">
+                                                "Subtasks"
+                                                {move || format!(" ({})", children.get().len())}
+                                            </h3>
+                                            {move || {
+                                                if children.get().is_empty() {
+                                                    view! {
+                                                        <p class="text-xs text-ctp-overlay0">"No subtasks"</p>
+                                                    }
+                                                        .into_any()
+                                                } else {
+                                                    view! {
+                                                        <div class="flex flex-col gap-2">
+                                                            <For
+                                                                each=move || children.get()
+                                                                key=|child| child.id.clone()
+                                                                children=move |child| {
+                                                                    view! {
+                                                                        <TaskCard
+                                                                            task=child
+                                                                            show_subtasks_inline=false
+                                                                            on_click=Callback::new(
+                                                                                move |clicked: Task| {
+                                                                                    set_path
+                                                                                        .update(|items| items.push(clicked))
+                                                                                },
+                                                                            )
+                                                                        />
+                                                                    }
+                                                                }
+                                                            />
+                                                        </div>
+                                                    }
+                                                        .into_any()
+                                                }
+                                            }}
+                                        </div>
+                                        <div class="task-detail-split-main">
+                                            <TaskDetailContent task=current />
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                                .into_any()
+                        }}
                     </DialogContent>
                 </DialogBody>
             </DialogSurface>
