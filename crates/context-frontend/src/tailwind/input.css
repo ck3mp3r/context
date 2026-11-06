@@ -478,6 +478,25 @@ body {
   border: 2px solid var(--ctp-blue);
 }
 
+/* Task stack card selection - mirrors .note-stack-card */
+.task-stack-card {
+  background-color: var(--ctp-surface0);
+  border: 1px solid var(--ctp-surface1);
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow-anchor: none;
+}
+
+.task-stack-card:hover {
+  background-color: var(--ctp-surface0);
+  opacity: 0.8;
+}
+
+.task-stack-card[data-selected="true"] {
+  background-color: var(--ctp-surface1);
+  border: 2px solid var(--ctp-blue);
+}
+
 /* === Markdown code blocks (syntect-highlighted) === */
 .prose pre {
   background: var(--ctp-mantle);

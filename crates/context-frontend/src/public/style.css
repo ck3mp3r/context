@@ -432,9 +432,6 @@
   .w-full {
     width: 100%;
   }
-  .max-w-\[220px\] {
-    max-width: 220px;
-  }
   .max-w-none {
     max-width: none;
   }
@@ -880,9 +877,6 @@
   }
   .text-justify {
     text-align: justify;
-  }
-  .text-left {
-    text-align: left;
   }
   .text-right {
     text-align: right;
@@ -1546,6 +1540,21 @@ body {
   opacity: 0.8;
 }
 .note-stack-card[data-selected="true"] {
+  background-color: var(--ctp-surface1);
+  border: 2px solid var(--ctp-blue);
+}
+.task-stack-card {
+  background-color: var(--ctp-surface0);
+  border: 1px solid var(--ctp-surface1);
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow-anchor: none;
+}
+.task-stack-card:hover {
+  background-color: var(--ctp-surface0);
+  opacity: 0.8;
+}
+.task-stack-card[data-selected="true"] {
   background-color: var(--ctp-surface1);
   border: 2px solid var(--ctp-blue);
 }
