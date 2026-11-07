@@ -268,7 +268,8 @@ pub fn ProjectDetail() -> impl IntoView {
                     .sort(current_sort)
                     .order(current_order)
                     .param("project_id", id)
-                    .param("type", "note");
+                    .param("type", "note")
+                    .param("include_content", "true");
 
                 if let Some(search) = search_query {
                     builder = builder.search(search);

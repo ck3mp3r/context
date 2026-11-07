@@ -195,6 +195,7 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
                 .offset(0)
                 .param("type", "subnote")
                 .param("parent_id", parent_id)
+                .param("include_content", "true")
                 .fetch()
                 .await;
 
@@ -218,6 +219,7 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
                 .offset(new_offset)
                 .param("type", "subnote")
                 .param("parent_id", parent_id)
+                .param("include_content", "true")
                 .fetch()
                 .await;
 

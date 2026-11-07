@@ -138,6 +138,7 @@ pub fn NoteDetail() -> impl IntoView {
                     .offset(offset)
                     .param("type", "subnote")
                     .param("parent_id", &id)
+                    .param("include_content", "true")
                     .fetch()
                     .await;
                 match result {
