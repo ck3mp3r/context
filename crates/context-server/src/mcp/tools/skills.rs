@@ -32,6 +32,10 @@ pub struct ListSkillsParams {
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
     pub offset: Option<usize>,
+    #[schemars(
+        description = "Include skill content in response (default: false for lighter list responses). Set to true to retrieve full content."
+    )]
+    pub include_content: Option<bool>,
     #[schemars(description = "Field to sort by (name, created_at). Default: created_at")]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc). Default: asc")]
@@ -88,12 +92,15 @@ impl<D: HasSkills + 'static> SkillTools<D> {
     // -- Tools to implement (following notes pattern)
 
     #[tool(
-        description = "List skills with optional full-text search. Provide 'query' parameter to search, omit to list all. Supports filtering, sorting, and pagination."
+        description = "List skills with optional full-text search. Provide 'query' parameter to search, omit to list all. Default: metadata only (use include_content=true for full content). Supports filtering, sorting, and pagination."
     )]
     pub async fn skill_list(
         &self,
         params: Parameters<ListSkillsParams>,
     ) -> Result<CallToolResult, McpError> {
+        // Default to include_content=false for lighter list responses
+        let include_content = params.0.include_content.unwrap_or(false);
+
         let db_query = context_core::SkillQuery {
             page: context_core::PageSort {
                 limit: params.0.limit,
@@ -109,7 +116,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
             project_id: params.0.project_id.clone(),
         };
 
-        // Route to search if query is provided, otherwise list all
+        // Route to search if query is provided, otherwise list; content is opt-in
         let result = if let Some(query) = &params.0.query {
             self.db
                 .skills()
@@ -121,13 +128,24 @@ impl<D: HasSkills + 'static> SkillTools<D> {
                         Some(serde_json::json!({"error": e.to_string()})),
                     )
                 })?
-        } else {
+        } else if include_content {
             self.db.skills().list(Some(&db_query)).await.map_err(|e| {
                 McpError::internal_error(
                     "database_error",
                     Some(serde_json::json!({"error": e.to_string()})),
                 )
             })?
+        } else {
+            self.db
+                .skills()
+                .list_metadata_only(Some(&db_query))
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(
+                        "database_error",
+                        Some(serde_json::json!({"error": e.to_string()})),
+                    )
+                })?
         };
 
         let response = json!({

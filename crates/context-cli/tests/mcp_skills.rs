@@ -37,6 +37,7 @@ async fn test_skill_list_empty() {
         project_id: None,
         limit: None,
         offset: None,
+        include_content: None,
         sort: None,
         order: None,
     };
@@ -310,6 +311,7 @@ async fn test_skill_list_with_data() {
         project_id: None,
         limit: None,
         offset: None,
+        include_content: None,
         sort: None,
         order: None,
     };
@@ -359,6 +361,7 @@ async fn test_skill_list_search() {
         project_id: None,
         limit: None,
         offset: None,
+        include_content: None,
         sort: None,
         order: None,
     };
@@ -410,6 +413,7 @@ async fn test_skill_list_pagination() {
         project_id: None,
         limit: Some(1),
         offset: None,
+        include_content: None,
         sort: None,
         order: None,
     };
@@ -460,6 +464,7 @@ async fn test_skill_list_tag_filter() {
         project_id: None,
         limit: None,
         offset: None,
+        include_content: None,
         sort: None,
         order: None,
     };
@@ -526,6 +531,7 @@ async fn test_skill_list_project_filter() {
         project_id: Some("proj0001".to_string()),
         limit: None,
         offset: None,
+        include_content: None,
         sort: None,
         order: None,
     };
@@ -681,4 +687,167 @@ async fn test_skill_update_invalidates_cache() {
 
     // Cleanup - TempDir removes itself on drop
     let _ = skills_dir;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_skill_list_omits_content_by_default() {
+    let db = setup_db().await;
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "test-skill".to_string(),
+        description: "A test skill".to_string(),
+        content: "---\nname: test-skill\n---\n# Test\n\nTest content".to_string(),
+        tags: vec!["test".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+        source: None,
+        source_subpath: None,
+    };
+    db.skills().create(&skill).await.unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
+
+    let params = ListSkillsParams {
+        query: None,
+        tags: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        include_content: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools.skill_list(Parameters(params)).await;
+    assert!(result.is_ok());
+
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(response["total"], 1);
+    assert_eq!(
+        response["items"][0]["content"], "",
+        "skill_list without include_content must omit content"
+    );
+    assert_eq!(response["items"][0]["name"], "test-skill");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_skill_list_include_content_returns_content() {
+    let db = setup_db().await;
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "test-skill".to_string(),
+        description: "A test skill".to_string(),
+        content: "---\nname: test-skill\n---\n# Test\n\nTest content".to_string(),
+        tags: vec!["test".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+        source: None,
+        source_subpath: None,
+    };
+    db.skills().create(&skill).await.unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
+
+    let params = ListSkillsParams {
+        query: None,
+        tags: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        include_content: Some(true),
+        sort: None,
+        order: None,
+    };
+
+    let result = tools.skill_list(Parameters(params)).await;
+    assert!(result.is_ok());
+
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(response["total"], 1);
+    assert_eq!(
+        response["items"][0]["content"],
+        "---\nname: test-skill\n---\n# Test\n\nTest content"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_skill_list_search_returns_content() {
+    let db = setup_db().await;
+    let skill = Skill {
+        id: "skill001".to_string(),
+        name: "test-skill".to_string(),
+        description: "A test skill".to_string(),
+        content: "---\nname: test-skill\n---\n# Test\n\nTest content".to_string(),
+        tags: vec!["test".to_string()],
+        project_ids: vec![],
+        scripts: vec![],
+        references: vec![],
+        assets: vec![],
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+        source: None,
+        source_subpath: None,
+    };
+    db.skills().create(&skill).await.unwrap();
+    let db = Arc::new(db);
+    let tools = SkillTools::new(
+        db.clone(),
+        ChangeNotifier::new(),
+        get_data_dir().join("skills"),
+    );
+
+    let params = ListSkillsParams {
+        query: Some("Test content".to_string()),
+        tags: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        include_content: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools.skill_list(Parameters(params)).await;
+    assert!(result.is_ok());
+
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(response["total"], 1);
+    assert_eq!(
+        response["items"][0]["content"],
+        "---\nname: test-skill\n---\n# Test\n\nTest content"
+    );
 }
