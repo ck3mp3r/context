@@ -61,6 +61,10 @@ pub struct ListTasksParams {
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip (for pagination)")]
     pub offset: Option<usize>,
+    #[schemars(
+        description = "Include task description in response (default: false for lighter list responses). Set to true to retrieve full descriptions."
+    )]
+    pub include_content: Option<bool>,
     #[schemars(description = "Field to sort by (title, status, priority, created_at, updated_at)")]
     pub sort: Option<String>,
     #[schemars(description = "Sort order (asc, desc)")]
@@ -182,12 +186,14 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, or updated_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
+        description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Default: metadata only (use include_content=true for full descriptions). Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, or updated_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
     )]
     pub async fn task_list(
         &self,
         params: Parameters<ListTasksParams>,
     ) -> Result<CallToolResult, McpError> {
+        // Default to include_content=false for lighter list responses
+        let include_content = params.0.include_content.unwrap_or(false);
         // Convert status Vec to comma-separated string if provided
         let status_str = params.0.status.as_ref().map(|statuses| statuses.join(","));
 
@@ -213,8 +219,10 @@ impl<D: HasTasks + 'static> TaskTools<D> {
         // If query is provided, perform FTS search
         let result = if let Some(q) = &params.0.query {
             self.db.tasks().search(q, Some(&query)).await
-        } else {
+        } else if include_content {
             self.db.tasks().list(Some(&query)).await
+        } else {
+            self.db.tasks().list_metadata_only(Some(&query)).await
         }
         .map_err(map_db_error)?;
 
