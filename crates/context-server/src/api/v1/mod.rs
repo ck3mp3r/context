@@ -18,6 +18,9 @@ mod sync;
 #[path = "../../../test/api/v1/sync.rs"]
 mod sync_test;
 mod task_lists;
+#[cfg(test)]
+#[path = "../../../test/api/v1/task_lists.rs"]
+mod task_lists_test;
 mod tasks;
 #[cfg(test)]
 #[path = "../../../test/api/v1/tasks.rs"]
