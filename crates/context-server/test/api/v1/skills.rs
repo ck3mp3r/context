@@ -669,7 +669,21 @@ async fn list_skills_omits_content_by_default() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_skills_search_returns_metadata_only() {
+async fn list_skills_include_content_returns_content() {
+    let app = test_app().await;
+    create_skill(&app.router, "content-skill").await;
+
+    let body = list_skills(&app.router, "include_content=true").await;
+
+    assert_eq!(body["total"], 1);
+    assert_eq!(
+        body["items"][0]["content"],
+        json!("---\nname: content-skill\ndescription: d\n---\n# Body")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_search_returns_content() {
     let app = test_app().await;
     create_skill(&app.router, "content-skill").await;
 
@@ -678,8 +692,8 @@ async fn list_skills_search_returns_metadata_only() {
     assert_eq!(body["total"], 1);
     assert_eq!(
         body["items"][0]["content"],
-        json!(""),
-        "search results must project to metadata"
+        json!("---\nname: content-skill\ndescription: d\n---\n# Body"),
+        "search results must keep the stored content"
     );
 }
 

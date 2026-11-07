@@ -101,6 +101,9 @@ pub struct ListSkillsQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Include skill content in response (default: false for lighter list responses)
+    #[param(example = false)]
+    pub include_content: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -265,11 +268,14 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         project_id: api_query.project_id.clone(),
     };
 
-    // Search selects rows with FTS; both paths return metadata-only items
+    // Search keeps full content; list rows are metadata-only unless opted in
+    let include_content = api_query.include_content.unwrap_or(false);
     let results = if let Some(q) = &api_query.query
         && !q.trim().is_empty()
     {
         repo.search(q, Some(&db_query)).await
+    } else if include_content {
+        repo.list(Some(&db_query)).await
     } else {
         repo.list_metadata_only(Some(&db_query)).await
     }
@@ -289,7 +295,6 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         .map(|skill| {
             let mut response = SkillResponse::from(skill);
             response.enabled = is_skill_enabled(skills_dir, &response.name);
-            response.content = String::new();
             response
         })
         .collect();

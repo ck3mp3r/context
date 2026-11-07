@@ -393,7 +393,40 @@ async fn list_tasks_omits_description_by_default() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_tasks_search_returns_metadata_only() {
+async fn list_tasks_include_description_returns_description() {
+    let app = test_app().await;
+    let (list_id, _task_id) = create_described_task(
+        &app,
+        "Task with a description",
+        "A detailed specification that list results omit",
+    )
+    .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/task-lists/{}/tasks?include_description=true",
+                    list_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(
+        body["items"][0]["description"],
+        "A detailed specification that list results omit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_tasks_search_returns_description() {
     let app = test_app().await;
     let (list_id, _task_id) = create_described_task(
         &app,
@@ -419,10 +452,9 @@ async fn list_tasks_search_returns_metadata_only() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
     assert_eq!(body["total"], 1);
-    assert!(
-        body["items"][0]["description"].is_null(),
-        "search results must project to metadata, got: {}",
-        body["items"][0]["description"]
+    assert_eq!(
+        body["items"][0]["description"],
+        "Machine learning research implementation"
     );
 }
 
