@@ -610,3 +610,102 @@ async fn get_skill_reports_source_subpath() {
         "GET must expose the stored subpath"
     );
 }
+
+// =============================================================================
+// List payload trimming
+// =============================================================================
+
+/// GET the skill list; return the parsed body.
+async fn list_skills(app: &axum::Router, query: &str) -> Value {
+    let uri = if query.is_empty() {
+        "/api/v1/skills".to_string()
+    } else {
+        format!("/api/v1/skills?{query}")
+    };
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    json_body(response).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_omits_content_by_default() {
+    let app = test_app().await;
+    let skill_id = create_skill(&app.router, "content-skill").await;
+
+    let body = list_skills(&app.router, "").await;
+
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["limit"], 50);
+    assert_eq!(body["offset"], 0);
+    assert_eq!(body["items"][0]["id"], json!(skill_id));
+    assert_eq!(
+        body["items"][0]["content"],
+        json!(""),
+        "list without include_content must omit the SKILL.md content"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_include_content_returns_content() {
+    let app = test_app().await;
+    create_skill(&app.router, "content-skill").await;
+
+    let body = list_skills(&app.router, "include_content=true").await;
+
+    assert_eq!(body["total"], 1);
+    assert_eq!(
+        body["items"][0]["content"],
+        json!("---\nname: content-skill\ndescription: d\n---\n# Body")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_search_returns_content() {
+    let app = test_app().await;
+    create_skill(&app.router, "content-skill").await;
+
+    let body = list_skills(&app.router, "q=Body").await;
+
+    assert_eq!(body["total"], 1);
+    assert_eq!(
+        body["items"][0]["content"],
+        json!("---\nname: content-skill\ndescription: d\n---\n# Body")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_compute_enabled_before_blanking_content() {
+    let app = test_app().await;
+    let skill_id = create_skill(&app.router, "enabled-list-skill").await;
+
+    let response = post_toggle(&app.router, &skill_id, "enable").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = list_skills(&app.router, "").await;
+
+    assert_eq!(body["items"][0]["content"], json!(""));
+    assert!(
+        body["items"][0]["enabled"]
+            .as_bool()
+            .expect("enabled must be a bool"),
+        "enabled must be computed from the full content before it is blanked"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_skill_still_returns_content() {
+    let app = test_app().await;
+    let skill_id = create_skill(&app.router, "content-skill").await;
+
+    let body = get_skill(&app.router, &skill_id).await;
+
+    assert_eq!(
+        body["content"],
+        json!("---\nname: content-skill\ndescription: d\n---\n# Body"),
+        "single-entity GET must keep the stored content"
+    );
+}

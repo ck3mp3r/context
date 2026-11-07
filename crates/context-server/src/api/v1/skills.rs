@@ -101,6 +101,9 @@ pub struct ListSkillsQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Include skill content in response (default: false for lighter list responses)
+    #[param(example = false)]
+    pub include_content: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -265,13 +268,17 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         project_id: api_query.project_id.clone(),
     };
 
-    // Route to search if query is provided, otherwise list all
-    let results = if let Some(q) = &api_query.query {
-        if !q.trim().is_empty() {
-            repo.search(q, Some(&db_query)).await
-        } else {
-            repo.list(Some(&db_query)).await
-        }
+    // Search keeps full content; list rows are trimmed after the enabled state
+    // is computed from the stored content.
+    let include_content = api_query.include_content.unwrap_or(false);
+    let is_search = api_query
+        .query
+        .as_ref()
+        .is_some_and(|q| !q.trim().is_empty());
+    let results = if let Some(q) = &api_query.query
+        && is_search
+    {
+        repo.search(q, Some(&db_query)).await
     } else {
         repo.list(Some(&db_query)).await
     }
@@ -291,6 +298,9 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         .map(|skill| {
             let mut response = SkillResponse::from(skill);
             response.enabled = is_skill_enabled(skills_dir, &response.content);
+            if !include_content && !is_search {
+                response.content = String::new();
+            }
             response
         })
         .collect();
