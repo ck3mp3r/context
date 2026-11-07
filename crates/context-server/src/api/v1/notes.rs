@@ -197,6 +197,9 @@ pub struct ListNotesQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Include note content in response (default: false for lighter list responses)
+    #[param(example = false)]
+    pub include_content: Option<bool>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -261,6 +264,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
     };
 
     // Get notes - either search or list all (at database level)
+    let include_content = query.include_content.unwrap_or(false);
     let result = if let Some(q) = &query.q {
         if q.is_empty() {
             // Empty search returns empty result
@@ -278,11 +282,18 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
                 .await
                 .map_err(internal_error)?
         }
-    } else {
+    } else if include_content {
         state
             .db()
             .notes()
             .list(Some(&db_query))
+            .await
+            .map_err(internal_error)?
+    } else {
+        state
+            .db()
+            .notes()
+            .list_metadata_only(Some(&db_query))
             .await
             .map_err(internal_error)?
     };

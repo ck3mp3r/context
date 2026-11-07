@@ -101,6 +101,9 @@ pub struct ListSkillsQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Include skill content in response (default: false for lighter list responses)
+    #[param(example = false)]
+    pub include_content: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -265,15 +268,16 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         project_id: api_query.project_id.clone(),
     };
 
-    // Route to search if query is provided, otherwise list all
-    let results = if let Some(q) = &api_query.query {
-        if !q.trim().is_empty() {
-            repo.search(q, Some(&db_query)).await
-        } else {
-            repo.list(Some(&db_query)).await
-        }
-    } else {
+    // Search keeps full content; list rows are metadata-only unless opted in
+    let include_content = api_query.include_content.unwrap_or(false);
+    let results = if let Some(q) = &api_query.query
+        && !q.trim().is_empty()
+    {
+        repo.search(q, Some(&db_query)).await
+    } else if include_content {
         repo.list(Some(&db_query)).await
+    } else {
+        repo.list_metadata_only(Some(&db_query)).await
     }
     .map_err(|e| {
         (
@@ -290,7 +294,7 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
         .into_iter()
         .map(|skill| {
             let mut response = SkillResponse::from(skill);
-            response.enabled = is_skill_enabled(skills_dir, &response.content);
+            response.enabled = is_skill_enabled(skills_dir, &response.name);
             response
         })
         .collect();
@@ -336,7 +340,7 @@ pub async fn get_skill<D: Database, G: GitOps + Send + Sync>(
         ),
     })?;
     let mut response = SkillResponse::from(skill);
-    response.enabled = is_skill_enabled(state.skills_dir(), &response.content);
+    response.enabled = is_skill_enabled(state.skills_dir(), &response.name);
     Ok(Json(response))
 }
 
@@ -960,9 +964,8 @@ pub async fn refresh_skill<D: Database, G: GitOps + Send + Sync>(
         ));
     };
 
-    // The cache directory name comes from the content frontmatter. Content
-    // without a parseable name is treated as disabled.
-    let was_enabled = is_skill_enabled(state.skills_dir(), &skill.content);
+    // The cache directory name comes from the record name.
+    let was_enabled = is_skill_enabled(state.skills_dir(), &skill.name);
 
     // Wipe the cache before importing. Overwriting alone would leave files that
     // disappeared from the source behind, so the wipe is what guarantees the
@@ -1058,10 +1061,7 @@ pub async fn refresh_skill<D: Database, G: GitOps + Send + Sync>(
 
 /// Report whether a skill is enabled, meaning its cache directory exists.
 ///
-/// The cache directory name comes from the `name` field in the skill content
-/// frontmatter. Content without a parseable name is reported as disabled.
-fn is_skill_enabled(skills_dir: &std::path::Path, content: &str) -> bool {
-    context_skills::parse_skill_name_from_content(content)
-        .map(|name| skills_dir.join(name).exists())
-        .unwrap_or(false)
+/// The cache directory name comes from the skill record name.
+fn is_skill_enabled(skills_dir: &std::path::Path, name: &str) -> bool {
+    skills_dir.join(name).exists()
 }

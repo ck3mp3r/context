@@ -286,3 +286,203 @@ async fn openapi_doc_includes_transition_endpoint() {
     // which panics if a referenced schema is not registered.
     let _app = routes::create_router(state, true);
 }
+
+// =============================================================================
+// List payload trimming
+// =============================================================================
+
+/// Create a project, task list, and task carrying a description.
+///
+/// Returns the task list ID and the task ID.
+async fn create_described_task(
+    app: &axum::Router,
+    title: &str,
+    description: &str,
+) -> (String, String) {
+    let project = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({"title": "Description Project"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let project_id = json_body(project).await["id"].as_str().unwrap().to_string();
+
+    let list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/task-lists")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Description List",
+                        "project_id": project_id
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let list_id = json_body(list).await["id"].as_str().unwrap().to_string();
+
+    let task = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": title,
+                        "description": description
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let task_id = json_body(task).await["id"].as_str().unwrap().to_string();
+
+    (list_id, task_id)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_tasks_omits_description_by_default() {
+    let app = test_app().await;
+    let (list_id, task_id) = create_described_task(
+        &app,
+        "Task with a description",
+        "A detailed specification that list results omit",
+    )
+    .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/task-lists/{}/tasks", list_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["limit"], 50);
+    assert_eq!(body["offset"], 0);
+    assert_eq!(body["items"][0]["id"], task_id);
+    assert!(
+        body["items"][0]["description"].is_null(),
+        "list must omit descriptions, got: {}",
+        body["items"][0]["description"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_tasks_include_description_returns_description() {
+    let app = test_app().await;
+    let (list_id, _task_id) = create_described_task(
+        &app,
+        "Task with a description",
+        "A detailed specification that list results omit",
+    )
+    .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/task-lists/{}/tasks?include_description=true",
+                    list_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(
+        body["items"][0]["description"],
+        "A detailed specification that list results omit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_tasks_search_returns_description() {
+    let app = test_app().await;
+    let (list_id, _task_id) = create_described_task(
+        &app,
+        "Rust Backend",
+        "Machine learning research implementation",
+    )
+    .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/task-lists/{}/tasks?q=machine+learning",
+                    list_id
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 1);
+    assert_eq!(
+        body["items"][0]["description"],
+        "Machine learning research implementation"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_task_still_returns_description() {
+    let app = test_app().await;
+    let (_list_id, task_id) = create_described_task(
+        &app,
+        "Task with a description",
+        "A detailed specification that single-entity responses keep",
+    )
+    .await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/tasks/{}", task_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["description"],
+        "A detailed specification that single-entity responses keep"
+    );
+}

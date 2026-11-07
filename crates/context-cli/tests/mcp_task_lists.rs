@@ -392,6 +392,127 @@ async fn test_task_list_list_with_data() {
     assert_eq!(response["total"], 1);
 }
 
+const LIST_NOTES: &str = "## Context\n\nThis container note block is deliberately longer than one line so that a null response field is easy to distinguish from the stored value.\n\n## Decisions\n\nKeep the notes out of list payloads.";
+
+fn make_list_with_notes(id: &str, project_id: &str) -> TaskList {
+    TaskList {
+        id: id.to_string(),
+        title: "Notes List".to_string(),
+        description: Some("Short description".to_string()),
+        tags: vec![],
+        external_refs: vec![],
+        status: TaskListStatus::Active,
+        notes: Some(LIST_NOTES.to_string()),
+        repo_ids: vec![],
+        project_id: project_id.to_string(),
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        archived_at: None,
+        deleted_at: None,
+    }
+}
+
+fn tool_json(result: CallToolResult) -> serde_json::Value {
+    let content_text = match &result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    serde_json::from_str(content_text).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_list_list_omits_notes() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    db.task_lists()
+        .create(&make_list_with_notes("list0001", &project_id))
+        .await
+        .unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = ListTaskListsParams {
+        query: None,
+        tags: None,
+        status: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let response = tool_json(tools.task_list_list(Parameters(params)).await.unwrap());
+
+    assert_eq!(response["total"], 1);
+    assert!(
+        response["items"][0]["notes"].is_null(),
+        "task_list_list must omit notes, got: {}",
+        response["items"][0]["notes"]
+    );
+    assert_eq!(
+        response["items"][0]["description"], "Short description",
+        "description stays in list responses"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_list_list_search_omits_notes() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    let mut list = make_list_with_notes("list0001", &project_id);
+    list.title = "Rust Container".to_string();
+    db.task_lists().create(&list).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = ListTaskListsParams {
+        query: Some("rust".to_string()),
+        tags: None,
+        status: None,
+        project_id: None,
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let response = tool_json(tools.task_list_list(Parameters(params)).await.unwrap());
+
+    assert_eq!(response["total"], 1);
+    assert!(
+        response["items"][0]["notes"].is_null(),
+        "search results must omit notes, got: {}",
+        response["items"][0]["notes"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_list_get_returns_notes() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    db.task_lists()
+        .create(&make_list_with_notes("list0001", &project_id))
+        .await
+        .unwrap();
+    let db = Arc::new(db);
+    let tools = TaskListTools::new(db.clone(), ChangeNotifier::new());
+
+    let response = tool_json(
+        tools
+            .task_list_get(Parameters(GetTaskListParams {
+                id: "list0001".to_string(),
+            }))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(
+        response["notes"], LIST_NOTES,
+        "single-entity get must keep the stored notes"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_task_list_list_pagination() {
     let db = setup_db().await;

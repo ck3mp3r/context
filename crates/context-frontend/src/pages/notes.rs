@@ -79,7 +79,8 @@ fn NotesList() -> impl IntoView {
                 .offset(offset)
                 .sort(current_sort)
                 .order(current_order)
-                .param("type", "note");
+                .param("type", "note")
+                .param("include_content", "true");
 
             if !current_query.trim().is_empty() {
                 builder = builder.search(current_query);

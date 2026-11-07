@@ -87,8 +87,8 @@ async fn create_skill(app: &axum::Router, name: &str) -> String {
         .to_string()
 }
 
-/// Create a skill whose content has no parseable frontmatter name.
-async fn create_unnamed_skill(app: &axum::Router) -> String {
+/// Create a skill with an explicit record name and content; return its ID.
+async fn create_skill_with_content(app: &axum::Router, name: &str, content: &str) -> String {
     let response = app
         .clone()
         .oneshot(
@@ -98,9 +98,9 @@ async fn create_unnamed_skill(app: &axum::Router) -> String {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "unnamed",
+                        "name": name,
                         "description": "Test skill",
-                        "content": "---\ndescription: d\n---\n# Body"
+                        "content": content
                     }))
                     .unwrap(),
                 ))
@@ -242,18 +242,37 @@ async fn list_skills_includes_enabled_state() {
 }
 
 // =============================================================================
-// Criterion 4: unparseable content reports enabled false
+// Criterion 4: enabled derives from the record name
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn get_skill_without_parseable_name_reports_disabled() {
+async fn get_skill_without_cache_dir_reports_disabled() {
     let app = test_app().await;
-    let skill_id = create_unnamed_skill(&app.router).await;
+    let skill_id = create_skill(&app.router, "no-cache-skill").await;
 
     let body = get_skill(&app.router, &skill_id).await;
     assert!(
         !body["enabled"].as_bool().expect("enabled must be a bool"),
-        "unparseable content must report disabled"
+        "a record whose name has no cache directory must report disabled"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_skill_reports_enabled_from_record_name_not_content() {
+    let app = test_app().await;
+    let skill_id = create_skill_with_content(
+        &app.router,
+        "record-name",
+        "---\nname: other-name\ndescription: d\n---\n# Body",
+    )
+    .await;
+    std::fs::create_dir_all(app.skills_dir.join("record-name"))
+        .expect("cache directory should be created");
+
+    let body = get_skill(&app.router, &skill_id).await;
+    assert!(
+        body["enabled"].as_bool().expect("enabled must be a bool"),
+        "enabled must come from the record name's cache directory"
     );
 }
 
@@ -608,5 +627,105 @@ async fn get_skill_reports_source_subpath() {
         body["source_subpath"],
         json!("skills/nested"),
         "GET must expose the stored subpath"
+    );
+}
+
+// =============================================================================
+// List payload trimming
+// =============================================================================
+
+/// GET the skill list; return the parsed body.
+async fn list_skills(app: &axum::Router, query: &str) -> Value {
+    let uri = if query.is_empty() {
+        "/api/v1/skills".to_string()
+    } else {
+        format!("/api/v1/skills?{query}")
+    };
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    json_body(response).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_omits_content_by_default() {
+    let app = test_app().await;
+    let skill_id = create_skill(&app.router, "content-skill").await;
+
+    let body = list_skills(&app.router, "").await;
+
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["limit"], 50);
+    assert_eq!(body["offset"], 0);
+    assert_eq!(body["items"][0]["id"], json!(skill_id));
+    assert_eq!(
+        body["items"][0]["content"],
+        json!(""),
+        "list must omit the SKILL.md content"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_include_content_returns_content() {
+    let app = test_app().await;
+    create_skill(&app.router, "content-skill").await;
+
+    let body = list_skills(&app.router, "include_content=true").await;
+
+    assert_eq!(body["total"], 1);
+    assert_eq!(
+        body["items"][0]["content"],
+        json!("---\nname: content-skill\ndescription: d\n---\n# Body")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_search_returns_content() {
+    let app = test_app().await;
+    create_skill(&app.router, "content-skill").await;
+
+    let body = list_skills(&app.router, "q=Body").await;
+
+    assert_eq!(body["total"], 1);
+    assert_eq!(
+        body["items"][0]["content"],
+        json!("---\nname: content-skill\ndescription: d\n---\n# Body"),
+        "search results must keep the stored content"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_skills_report_enabled_from_record_name() {
+    let app = test_app().await;
+    let skill_id = create_skill(&app.router, "enabled-list-skill").await;
+
+    let response = post_toggle(&app.router, &skill_id, "enable").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = list_skills(&app.router, "").await;
+
+    assert_eq!(body["items"][0]["content"], json!(""));
+    assert!(
+        body["items"][0]["enabled"]
+            .as_bool()
+            .expect("enabled must be a bool"),
+        "enabled must come from the record name's cache directory"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_skill_still_returns_content() {
+    let app = test_app().await;
+    let skill_id = create_skill(&app.router, "content-skill").await;
+
+    let body = get_skill(&app.router, &skill_id).await;
+
+    assert_eq!(
+        body["content"],
+        json!("---\nname: content-skill\ndescription: d\n---\n# Body"),
+        "single-entity GET must keep the stored content"
     );
 }

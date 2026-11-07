@@ -178,6 +178,9 @@ pub struct ListTaskListsQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Include task list notes in response (default: false for lighter list responses)
+    #[param(example = false)]
+    pub include_notes: Option<bool>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -289,10 +292,17 @@ pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
         )
     })?;
 
+    let include_notes = query.include_notes.unwrap_or(false);
     let items: Vec<TaskListResponse> = result
         .items
         .into_iter()
         .map(TaskListResponse::from)
+        .map(|mut response| {
+            if !include_notes {
+                response.notes = None;
+            }
+            response
+        })
         .collect();
 
     Ok(Json(PaginatedTaskLists {

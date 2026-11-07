@@ -88,7 +88,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
     // -- Tools to implement (following notes pattern)
 
     #[tool(
-        description = "List skills with optional full-text search. Provide 'query' parameter to search, omit to list all. Supports filtering, sorting, and pagination."
+        description = "List skills with optional full-text search. Provide 'query' parameter to search, omit to list all. Default: metadata only. Supports filtering, sorting, and pagination."
     )]
     pub async fn skill_list(
         &self,
@@ -109,7 +109,7 @@ impl<D: HasSkills + 'static> SkillTools<D> {
             project_id: params.0.project_id.clone(),
         };
 
-        // Route to search if query is provided, otherwise list all
+        // Route to search if query is provided, otherwise list metadata only
         let result = if let Some(query) = &params.0.query {
             self.db
                 .skills()
@@ -122,16 +122,25 @@ impl<D: HasSkills + 'static> SkillTools<D> {
                     )
                 })?
         } else {
-            self.db.skills().list(Some(&db_query)).await.map_err(|e| {
-                McpError::internal_error(
-                    "database_error",
-                    Some(serde_json::json!({"error": e.to_string()})),
-                )
-            })?
+            self.db
+                .skills()
+                .list_metadata_only(Some(&db_query))
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(
+                        "database_error",
+                        Some(serde_json::json!({"error": e.to_string()})),
+                    )
+                })?
         };
 
+        let mut items = result.items;
+        for item in &mut items {
+            item.content = String::new();
+        }
+
         let response = json!({
-            "items": result.items,
+            "items": items,
             "total": result.total,
             "limit": result.limit,
             "offset": result.offset,

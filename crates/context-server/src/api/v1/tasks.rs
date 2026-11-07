@@ -251,6 +251,9 @@ pub struct ListTasksQuery {
     #[param(example = "task")]
     #[serde(rename = "type")]
     pub task_type: Option<String>,
+    /// Include task description in the response (default: false for lighter list responses)
+    #[param(example = false)]
+    pub include_description: Option<bool>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -303,19 +306,20 @@ pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
         task_type: query.task_type.clone(),
     };
 
-    // Use search if query provided, otherwise list
-    let result = if let Some(ref search_query) = query.q {
-        if !search_query.trim().is_empty() {
-            state
-                .db()
-                .tasks()
-                .search(search_query, Some(&db_query))
-                .await
-        } else {
-            state.db().tasks().list(Some(&db_query)).await
-        }
-    } else {
+    // Use search if query provided, otherwise list; descriptions are opt-in
+    let include_description = query.include_description.unwrap_or(false);
+    let result = if let Some(search_query) = &query.q
+        && !search_query.trim().is_empty()
+    {
+        state
+            .db()
+            .tasks()
+            .search(search_query, Some(&db_query))
+            .await
+    } else if include_description {
         state.db().tasks().list(Some(&db_query)).await
+    } else {
+        state.db().tasks().list_metadata_only(Some(&db_query)).await
     }
     .map_err(|e| {
         (

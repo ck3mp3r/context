@@ -182,7 +182,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, or updated_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
+        description = "List tasks in a task list with optional full-text search. Provide 'query' parameter to search, omit to list all. Default: metadata only. Filter by status, parent_id (for subtasks), or tags. Sort by title, status, priority, created_at, or updated_at (default: created_at). Use order='asc' or 'desc' (default: asc). Use this to see current work before adding new tasks."
     )]
     pub async fn task_list(
         &self,
@@ -214,12 +214,17 @@ impl<D: HasTasks + 'static> TaskTools<D> {
         let result = if let Some(q) = &params.0.query {
             self.db.tasks().search(q, Some(&query)).await
         } else {
-            self.db.tasks().list(Some(&query)).await
+            self.db.tasks().list_metadata_only(Some(&query)).await
         }
         .map_err(map_db_error)?;
 
+        let mut items = result.items;
+        for item in &mut items {
+            item.description = None;
+        }
+
         let response = json!({
-            "items": result.items,
+            "items": items,
             "total": result.total,
             "limit": result.limit,
             "offset": result.offset,

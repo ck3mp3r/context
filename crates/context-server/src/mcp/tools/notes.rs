@@ -129,10 +129,6 @@ pub struct ListNotesParams {
     #[schemars(description = "Number of items to skip")]
     pub offset: Option<usize>,
     #[schemars(
-        description = "Include note content in response (default: false for lighter list responses). Set to true to retrieve full content."
-    )]
-    pub include_content: Option<bool>,
-    #[schemars(
         description = "Field to sort by (title, created_at, updated_at, last_activity_at). Default: created_at"
     )]
     pub sort: Option<String>,
@@ -250,15 +246,12 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "List notes. Query for FTS search. Default: metadata only (use include_content=true for full). Filter by tags/project_id/parent_id/note_type. Limit: 10 (max 20)."
+        description = "List notes. Query for FTS search. Default: metadata only. Filter by tags/project_id/parent_id/note_type. Limit: 10 (max 20)."
     )]
     pub async fn note_list(
         &self,
         params: Parameters<ListNotesParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Default to include_content=false for lighter list responses
-        let include_content = params.0.include_content.unwrap_or(false);
-
         // Build query
         let query = NoteQuery {
             page: PageSort {
@@ -280,15 +273,18 @@ impl<D: HasNotes + 'static> NoteTools<D> {
         // If query is provided, perform FTS search
         let result = if let Some(q) = &params.0.query {
             self.db.notes().search(q, Some(&query)).await
-        } else if include_content {
-            self.db.notes().list(Some(&query)).await
         } else {
             self.db.notes().list_metadata_only(Some(&query)).await
         }
         .map_err(map_db_error)?;
 
+        let mut items = result.items;
+        for note in &mut items {
+            note.content = String::new();
+        }
+
         let response = json!({
-            "items": result.items,
+            "items": items,
             "total": result.total,
             "limit": result.limit,
             "offset": result.offset,

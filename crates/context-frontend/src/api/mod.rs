@@ -312,6 +312,7 @@ pub mod tasks {
         if let Some(t) = task_type {
             query_params.push(format!("type={}", t));
         }
+        query_params.push(format!("include_description={}", true));
 
         if !query_params.is_empty() {
             url = format!("{}?{}", url, query_params.join("&"));

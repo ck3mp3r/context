@@ -21,6 +21,10 @@ pub const NOTE_SOFT_MAX: usize = 50_000; // ~12,500 tokens
 /// Notes exceeding this size will be rejected.
 pub const NOTE_HARD_MAX: usize = 100_000; // ~25,000 tokens
 
+/// Hard maximum for task description size (characters).
+/// Task descriptions exceeding this size will be rejected on create and update.
+pub const TASK_DESCRIPTION_MAX: usize = 10_000; // ~2,500 tokens
+
 // =============================================================================
 // Skill Constants (Agent Skills Specification)
 // =============================================================================

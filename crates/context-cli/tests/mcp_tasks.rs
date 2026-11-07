@@ -16,7 +16,7 @@ use context_server::mcp::tools::tasks::{
     TransitionTaskParams, UpdateTaskParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::ContentBlock;
+use rmcp::model::{ContentBlock, ErrorCode};
 use std::sync::Arc;
 
 async fn setup_db() -> SqliteDatabase {
@@ -142,6 +142,43 @@ async fn test_task_create_empty_title() {
 
     let result = tools.task_create(Parameters(params)).await;
     assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_create_description_over_limit() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    let list_id = create_test_task_list(&db, &project_id).await;
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = CreateTaskParams {
+        list_id: list_id.clone(),
+        title: "Over-limit description".to_string(),
+        description: Some("x".repeat(context_core::TASK_DESCRIPTION_MAX + 1)),
+        priority: None,
+        tags: None,
+        parent_id: None,
+        external_refs: None,
+    };
+
+    let error = tools
+        .task_create(Parameters(params))
+        .await
+        .expect_err("task_create should reject an over-limit description");
+
+    assert_eq!(
+        error.code,
+        ErrorCode::INVALID_PARAMS,
+        "over-limit description should be reported as invalid_params"
+    );
+    assert!(
+        error.data.as_ref().is_some_and(|data| data["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("maximum size"))),
+        "error data should mention maximum size, got: {:?}",
+        error.data
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -854,4 +891,110 @@ async fn test_task_list_tag_filter() {
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
     assert_eq!(response["total"], 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_list_omits_description_by_default() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    let list_id = create_test_task_list(&db, &project_id).await;
+    let task = Task {
+        id: "task0001".to_string(),
+        list_id: list_id.clone(),
+        title: "Task with a description".to_string(),
+        description: Some("A detailed specification that list results omit".to_string()),
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        parent_id: None,
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    db.tasks().create(&task).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = ListTasksParams {
+        list_id: list_id.clone(),
+        query: None,
+        status: None,
+        tags: None,
+        parent_id: None,
+        task_type: None,
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools.task_list(Parameters(params)).await;
+    assert!(result.is_ok());
+
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(response["total"], 1);
+    assert!(
+        response["items"][0]["description"].is_null(),
+        "task_list must omit descriptions, got: {}",
+        response["items"][0]["description"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_list_search_returns_metadata_only() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    let list_id = create_test_task_list(&db, &project_id).await;
+    let task = Task {
+        id: "task0001".to_string(),
+        list_id: list_id.clone(),
+        title: "Rust Backend".to_string(),
+        description: Some("Machine learning research implementation".to_string()),
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        parent_id: None,
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    db.tasks().create(&task).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = ListTasksParams {
+        list_id: list_id.clone(),
+        query: Some("machine learning".to_string()),
+        status: None,
+        tags: None,
+        parent_id: None,
+        task_type: None,
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools.task_list(Parameters(params)).await;
+    assert!(result.is_ok());
+
+    let call_result = result.unwrap();
+    let content_text = match &call_result.content[0] {
+        ContentBlock::Text(text) => text.text.as_str(),
+        _ => panic!("Expected text content"),
+    };
+    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
+    assert_eq!(response["total"], 1);
+    assert!(
+        response["items"][0]["description"].is_null(),
+        "search results must project to metadata, got: {}",
+        response["items"][0]["description"]
+    );
 }

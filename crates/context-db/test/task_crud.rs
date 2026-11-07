@@ -981,3 +981,170 @@ async fn update_task_with_empty_title_should_fail() {
     let result = tasks.update(&updated).await;
     assert!(result.is_err(), "Update should fail with empty title");
 }
+
+// ============================================================================
+// Description size cap
+// ============================================================================
+
+const OVER_LIMIT_DESCRIPTION: usize = 11_000;
+
+/// Seeds a task row directly so tests can exercise read paths on a description
+/// that the repository create path now rejects.
+///
+/// The migrated schema carries a `length(description) <= 10000` CHECK, so a
+/// fresh database cannot hold an over-limit row. CHECK enforcement is disabled
+/// for this INSERT only, which emulates a row written before that constraint
+/// existed; reads, transitions, and restores must still work on it.
+async fn seed_over_limit_task(
+    db: &SqliteDatabase,
+    id: &str,
+    list_id: &str,
+    deleted_at: Option<&str>,
+) {
+    let mut conn = db.pool().acquire().await.expect("Acquire connection");
+
+    sqlx::query("PRAGMA ignore_check_constraints = ON")
+        .execute(&mut *conn)
+        .await
+        .expect("Disable CHECK enforcement for the seed INSERT");
+
+    sqlx::query(
+        "INSERT INTO task (id, list_id, parent_id, title, description, status, priority, tags, external_refs, created_at, updated_at, deleted_at) \
+         VALUES (?, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?)",
+    )
+    .bind(id)
+    .bind(list_id)
+    .bind("Over-limit description")
+    .bind("x".repeat(OVER_LIMIT_DESCRIPTION))
+    .bind("todo")
+    .bind("[]")
+    .bind("[]")
+    .bind("2025-01-01 00:00:00")
+    .bind("2025-01-01 00:00:00")
+    .bind(deleted_at)
+    .execute(&mut *conn)
+    .await
+    .expect("Seed task with an over-limit description");
+
+    sqlx::query("PRAGMA ignore_check_constraints = OFF")
+        .execute(&mut *conn)
+        .await
+        .expect("Re-enable CHECK enforcement");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_description_over_limit_should_fail() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("listmax1", "Create Size Cap"))
+        .await
+        .expect("Create task list should succeed");
+
+    let mut task = make_task("tskmax01", "listmax1", "Too long");
+    task.description = Some("x".repeat(context_core::TASK_DESCRIPTION_MAX + 1));
+
+    match db.tasks().create(&task).await {
+        Err(context_core::DbError::Validation { message }) => {
+            assert!(
+                message.contains("maximum size"),
+                "Error should mention maximum size, got: {}",
+                message
+            );
+        }
+        other => panic!("Expected DbError::Validation, got: {:?}", other),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_task_with_description_at_limit_should_succeed() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("listmax0", "Boundary Size"))
+        .await
+        .expect("Create task list should succeed");
+
+    let mut task = make_task("tskmax00", "listmax0", "At the limit");
+    task.description = Some("x".repeat(context_core::TASK_DESCRIPTION_MAX));
+
+    let created = db
+        .tasks()
+        .create(&task)
+        .await
+        .expect("Create at the limit should succeed");
+    assert_eq!(
+        created
+            .description
+            .expect("description should be stored")
+            .len(),
+        context_core::TASK_DESCRIPTION_MAX
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_task_with_over_limit_description_should_fail() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("listmax2", "Update Size Cap"))
+        .await
+        .expect("Create task list should succeed");
+    seed_over_limit_task(&db, "tskmax02", "listmax2", None).await;
+
+    let mut task = db
+        .tasks()
+        .get("tskmax02")
+        .await
+        .expect("Seeded over-limit task should be readable");
+    task.title = "Renamed".to_string();
+
+    match db.tasks().update(&task).await {
+        Err(context_core::DbError::Validation { message }) => {
+            assert!(
+                message.contains("maximum size"),
+                "Error should mention maximum size, got: {}",
+                message
+            );
+        }
+        other => panic!("Expected DbError::Validation, got: {:?}", other),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_task_with_over_limit_description_should_succeed() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("listmax3", "Transition Size Cap"))
+        .await
+        .expect("Create task list should succeed");
+    seed_over_limit_task(&db, "tskmax03", "listmax3", None).await;
+
+    let updated = db
+        .tasks()
+        .transition_tasks(&["tskmax03".to_string()], TaskStatus::InProgress)
+        .await
+        .expect("Transition should succeed on an over-limit description");
+
+    assert_eq!(updated.len(), 1);
+    assert_eq!(updated[0].status, TaskStatus::InProgress);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn restore_task_with_over_limit_description_should_succeed() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("listmax4", "Restore Size Cap"))
+        .await
+        .expect("Create task list should succeed");
+    seed_over_limit_task(&db, "tskmax04", "listmax4", Some("2025-01-02 00:00:00")).await;
+
+    db.tasks()
+        .restore("tskmax04")
+        .await
+        .expect("Restore should succeed on an over-limit description");
+
+    assert!(
+        read_deleted_at(db.pool(), "task", "tskmax04")
+            .await
+            .is_none(),
+        "restored task should be live"
+    );
+}

@@ -150,7 +150,7 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
     }
 
     #[tool(
-        description = "List task lists with filtering by project, status, or tags. Use this to find existing lists before creating new ones."
+        description = "List task lists with filtering by project, status, or tags. Default: metadata only (notes omitted; task_list_get returns full notes). Use this to find existing lists before creating new ones."
     )]
     pub async fn task_list_list(
         &self,
@@ -189,8 +189,13 @@ impl<D: HasTaskLists + HasTasks + 'static> TaskListTools<D> {
         }
         .map_err(map_db_error)?;
 
+        let mut items = result.items;
+        for list in &mut items {
+            list.notes = None;
+        }
+
         let response = json!({
-            "items": result.items,
+            "items": items,
             "total": result.total,
             "limit": result.limit.unwrap_or(50),
             "offset": result.offset,

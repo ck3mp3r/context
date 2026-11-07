@@ -34,7 +34,6 @@ async fn test_note_list_empty() {
         note_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -314,7 +313,6 @@ async fn test_note_list_with_data() {
         note_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -329,6 +327,10 @@ async fn test_note_list_with_data() {
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
     assert_eq!(response["total"], 1);
+    assert_eq!(
+        response["items"][0]["content"], "",
+        "list results must project to metadata"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -361,7 +363,6 @@ async fn test_note_list_search() {
         note_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -376,6 +377,10 @@ async fn test_note_list_search() {
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
     assert_eq!(response["total"], 1);
+    assert_eq!(
+        response["items"][0]["content"], "",
+        "search results must project to metadata"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -410,7 +415,6 @@ async fn test_note_list_pagination() {
         note_type: None,
         limit: Some(1),
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -458,7 +462,6 @@ async fn test_note_list_tag_filter() {
         note_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -521,7 +524,6 @@ async fn test_note_list_with_project_id_filter() {
         note_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -584,7 +586,6 @@ async fn test_note_list_with_parent_id_filter() {
         note_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -648,7 +649,6 @@ async fn test_note_list_with_note_type_filter() {
         note_type: Some("task".to_string()),
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -693,7 +693,6 @@ async fn test_note_list_sorting() {
         note_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: Some("title".to_string()),
         order: Some("asc".to_string()),
     };

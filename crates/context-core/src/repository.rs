@@ -111,6 +111,14 @@ pub trait TaskRepository: Send + Sync {
         &self,
         query: Option<&TaskQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
+    /// List tasks without their descriptions.
+    ///
+    /// Returns the same rows as [`TaskRepository::list`] with `description`
+    /// set to `None`.
+    fn list_metadata_only(
+        &self,
+        query: Option<&TaskQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn count_deleted(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn search(
@@ -203,6 +211,14 @@ pub trait SkillRepository: Send + Sync {
     fn create(&self, skill: &crate::Skill) -> impl Future<Output = DbResult<crate::Skill>> + Send;
     fn get(&self, id: &str) -> impl Future<Output = DbResult<crate::Skill>> + Send;
     fn list(
+        &self,
+        query: Option<&crate::SkillQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<crate::Skill>>> + Send;
+    /// List skills without their `SKILL.md` content.
+    ///
+    /// Returns the same rows as [`SkillRepository::list`] with `content` set
+    /// to an empty string.
+    fn list_metadata_only(
         &self,
         query: Option<&crate::SkillQuery>,
     ) -> impl Future<Output = DbResult<ListResult<crate::Skill>>> + Send;
