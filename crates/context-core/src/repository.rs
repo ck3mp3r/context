@@ -111,6 +111,14 @@ pub trait TaskRepository: Send + Sync {
         &self,
         query: Option<&TaskQuery>,
     ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
+    /// List tasks without their descriptions.
+    ///
+    /// Returns the same rows as [`TaskRepository::list`] with `description`
+    /// set to `None`.
+    fn list_metadata_only(
+        &self,
+        query: Option<&TaskQuery>,
+    ) -> impl Future<Output = DbResult<ListResult<Task>>> + Send;
     fn count(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn count_deleted(&self) -> impl Future<Output = DbResult<usize>> + Send;
     fn search(

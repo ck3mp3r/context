@@ -2,7 +2,7 @@ use crate::SqliteDatabase;
 use crate::helpers::count_rows;
 use context_core::{
     Database, HasTaskLists, HasTasks, PageSort, SortOrder, Task, TaskList, TaskListRepository,
-    TaskListStatus, TaskQuery, TaskRepository, TaskStatus,
+    TaskListStatus, TaskQuery, TaskRepository, TaskStatus, generate_entity_id,
 };
 
 async fn setup_db() -> SqliteDatabase {
@@ -1002,4 +1002,279 @@ async fn test_purge_deleted_preserves_recent_tombstones() {
         1,
         "a tombstone inside the retention period must be kept"
     );
+}
+
+// =============================================================================
+// Metadata-only listing tests
+// =============================================================================
+
+async fn setup_metadata_list(db: &SqliteDatabase, list_id: &str) {
+    db.task_lists()
+        .create(&make_task_list(list_id, "Metadata List"))
+        .await
+        .expect("Create task list should succeed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_omits_description() {
+    let db = setup_db().await;
+    let list_id = generate_entity_id();
+    setup_metadata_list(&db, &list_id).await;
+
+    let tasks = db.tasks();
+    let mut task = make_task(&generate_entity_id(), &list_id, "Task with description");
+    task.description = Some("A description that metadata-only lists omit".to_string());
+    task.tags = vec!["rust".to_string()];
+    task.external_refs = vec!["owner/repo#1".to_string()];
+    tasks
+        .create(&task)
+        .await
+        .expect("Create task should succeed");
+
+    let query = TaskQuery {
+        list_id: Some(list_id.clone()),
+        ..Default::default()
+    };
+
+    let full = tasks.list(Some(&query)).await.expect("list should succeed");
+    assert_eq!(full.items.len(), 1);
+    assert_eq!(
+        full.items[0].description.as_deref(),
+        Some("A description that metadata-only lists omit")
+    );
+
+    let metadata = tasks
+        .list_metadata_only(Some(&query))
+        .await
+        .expect("list_metadata_only should succeed");
+
+    assert_eq!(metadata.items.len(), 1);
+    assert_eq!(metadata.total, 1);
+    assert_eq!(
+        metadata.items[0].description, None,
+        "list_metadata_only must return description = None"
+    );
+    assert_eq!(metadata.items[0].id, task.id);
+    assert_eq!(metadata.items[0].title, "Task with description");
+    assert_eq!(metadata.items[0].tags, vec!["rust".to_string()]);
+    assert_eq!(
+        metadata.items[0].external_refs,
+        vec!["owner/repo#1".to_string()]
+    );
+    assert_eq!(metadata.items[0].deleted_at, None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_matches_list_with_filters() {
+    let db = setup_db().await;
+    let list_id = generate_entity_id();
+    setup_metadata_list(&db, &list_id).await;
+
+    let tasks = db.tasks();
+
+    let mut alpha = make_task(&generate_entity_id(), &list_id, "Alpha");
+    alpha.status = TaskStatus::Todo;
+    alpha.tags = vec!["rust".to_string()];
+    alpha.description = Some("alpha description".to_string());
+    let alpha = tasks.create(&alpha).await.expect("Create alpha");
+
+    let mut beta = make_task(&generate_entity_id(), &list_id, "Beta");
+    beta.status = TaskStatus::Todo;
+    beta.tags = vec!["rust".to_string(), "frontend".to_string()];
+    beta.description = Some("beta description".to_string());
+    tasks.create(&beta).await.expect("Create beta");
+
+    let mut gamma = make_task(&generate_entity_id(), &list_id, "Gamma");
+    gamma.status = TaskStatus::Done;
+    gamma.tags = vec!["frontend".to_string()];
+    gamma.description = None;
+    tasks.create(&gamma).await.expect("Create gamma");
+
+    let mut sub = make_task(&generate_entity_id(), &list_id, "Alpha subtask");
+    sub.parent_id = Some(alpha.id.clone());
+    sub.status = TaskStatus::Todo;
+    sub.tags = vec!["rust".to_string()];
+    sub.description = Some("subtask description".to_string());
+    tasks.create(&sub).await.expect("Create subtask");
+
+    let queries = [
+        (
+            "list_id",
+            TaskQuery {
+                list_id: Some(list_id.clone()),
+                ..Default::default()
+            },
+        ),
+        (
+            "status",
+            TaskQuery {
+                list_id: Some(list_id.clone()),
+                status: Some("todo".to_string()),
+                ..Default::default()
+            },
+        ),
+        (
+            "multi-status",
+            TaskQuery {
+                list_id: Some(list_id.clone()),
+                status: Some("todo,done".to_string()),
+                ..Default::default()
+            },
+        ),
+        (
+            "tags",
+            TaskQuery {
+                list_id: Some(list_id.clone()),
+                tags: Some(vec!["rust".to_string()]),
+                ..Default::default()
+            },
+        ),
+        (
+            "parent_id",
+            TaskQuery {
+                list_id: Some(list_id.clone()),
+                parent_id: Some(alpha.id.clone()),
+                ..Default::default()
+            },
+        ),
+        (
+            "task_type task",
+            TaskQuery {
+                list_id: Some(list_id.clone()),
+                task_type: Some("task".to_string()),
+                ..Default::default()
+            },
+        ),
+        (
+            "task_type subtask",
+            TaskQuery {
+                list_id: Some(list_id.clone()),
+                task_type: Some("subtask".to_string()),
+                ..Default::default()
+            },
+        ),
+        (
+            "tags and status",
+            TaskQuery {
+                list_id: Some(list_id.clone()),
+                status: Some("todo".to_string()),
+                tags: Some(vec!["rust".to_string()]),
+                ..Default::default()
+            },
+        ),
+    ];
+
+    for (label, query) in &queries {
+        let full = tasks
+            .list(Some(query))
+            .await
+            .unwrap_or_else(|e| panic!("list with {label} filters failed: {e}"));
+        let metadata = tasks
+            .list_metadata_only(Some(query))
+            .await
+            .unwrap_or_else(|e| panic!("list_metadata_only with {label} filters failed: {e}"));
+
+        let mut full_ids: Vec<String> = full.items.iter().map(|t| t.id.clone()).collect();
+        let mut metadata_ids: Vec<String> = metadata.items.iter().map(|t| t.id.clone()).collect();
+        full_ids.sort();
+        metadata_ids.sort();
+
+        assert_eq!(
+            metadata.total, full.total,
+            "total mismatch for {label} filters"
+        );
+        assert_eq!(
+            metadata.items.len(),
+            full.items.len(),
+            "item count mismatch for {label} filters"
+        );
+        assert_eq!(
+            metadata_ids, full_ids,
+            "id set mismatch for {label} filters"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_orders_by_activity_like_list() {
+    let db = setup_db().await;
+    let list_id = generate_entity_id();
+    setup_metadata_list(&db, &list_id).await;
+
+    let tasks = db.tasks();
+
+    let mut parent1 = make_task(&generate_entity_id(), &list_id, "Parent 1");
+    parent1.created_at = Some("2026-01-01 10:00:00".to_string());
+    parent1.updated_at = Some("2026-01-01 10:00:00".to_string());
+    let parent1 = tasks.create(&parent1).await.expect("Create parent1");
+
+    let mut parent2 = make_task(&generate_entity_id(), &list_id, "Parent 2");
+    parent2.created_at = Some("2026-01-01 11:00:00".to_string());
+    parent2.updated_at = Some("2026-01-01 11:00:00".to_string());
+    let parent2 = tasks.create(&parent2).await.expect("Create parent2");
+
+    let mut subtask = make_task(&generate_entity_id(), &list_id, "Subtask of Parent 1");
+    subtask.parent_id = Some(parent1.id.clone());
+    subtask.created_at = Some("2026-01-01 12:00:00".to_string());
+    subtask.updated_at = Some("2026-01-01 12:00:00".to_string());
+    tasks.create(&subtask).await.expect("Create subtask");
+
+    let query = TaskQuery {
+        page: PageSort {
+            limit: Some(10),
+            offset: Some(0),
+            sort_by: Some("updated_at".to_string()),
+            sort_order: Some(SortOrder::Desc),
+        },
+        list_id: Some(list_id.clone()),
+        task_type: Some("task".to_string()),
+        ..Default::default()
+    };
+
+    let full = tasks.list(Some(&query)).await.expect("list should succeed");
+    let metadata = tasks
+        .list_metadata_only(Some(&query))
+        .await
+        .expect("list_metadata_only should succeed");
+
+    let full_ids: Vec<String> = full.items.iter().map(|t| t.id.clone()).collect();
+    let metadata_ids: Vec<String> = metadata.items.iter().map(|t| t.id.clone()).collect();
+
+    assert_eq!(metadata_ids, full_ids, "ordering must match list");
+    assert_eq!(
+        metadata_ids,
+        vec![parent1.id.clone(), parent2.id.clone()],
+        "most recent subtask activity first"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_excludes_soft_deleted_tasks() {
+    let db = setup_db().await;
+    let list_id = generate_entity_id();
+    setup_metadata_list(&db, &list_id).await;
+
+    let tasks = db.tasks();
+    let live = tasks
+        .create(&make_task(&generate_entity_id(), &list_id, "Live task"))
+        .await
+        .expect("Create live task");
+    let deleted = tasks
+        .create(&make_task(&generate_entity_id(), &list_id, "Deleted task"))
+        .await
+        .expect("Create deleted task");
+    tasks
+        .delete(&deleted.id)
+        .await
+        .expect("Delete should succeed");
+
+    let result = tasks
+        .list_metadata_only(None)
+        .await
+        .expect("list_metadata_only should succeed");
+
+    assert_eq!(result.total, 1, "soft-deleted tasks must not be counted");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].id, live.id);
+    assert_eq!(result.items[0].description, None);
 }

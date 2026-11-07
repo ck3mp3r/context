@@ -358,6 +358,195 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         })
     }
 
+    async fn list_metadata_only(&self, query: Option<&TaskQuery>) -> DbResult<ListResult<Task>> {
+        let default_query = TaskQuery::default();
+        let query = query.unwrap_or(&default_query);
+        let allowed_fields = ["title", "status", "priority", "created_at", "updated_at"];
+
+        // Check if we need last_activity_at computed column
+        // - When sorting by updated_at, compute activity for proper ordering
+        // - Only relevant for parent tasks (task_type=task or not filtering by parent_id)
+        let is_sorting_by_updated = query.page.sort_by.as_deref() == Some("updated_at");
+        let is_querying_parents = query.task_type.as_deref() == Some("task")
+            || (query.parent_id.is_none() && query.task_type.is_none());
+        let needs_activity_column = is_sorting_by_updated && is_querying_parents;
+
+        let order_clause = build_order_clause(&query.page, &allowed_fields, "created_at");
+        let limit_clause = build_limit_offset_clause(&query.page);
+
+        // Build filter conditions
+        let mut conditions: Vec<String> = Vec::new();
+        let mut bind_values: Vec<String> = Vec::new();
+
+        // Soft-deleted rows are tombstones and must never appear in list results.
+        conditions.push("deleted_at IS NULL".to_string());
+
+        if let Some(list_id) = &query.list_id {
+            conditions.push("list_id = ?".to_string());
+            bind_values.push(list_id.clone());
+        }
+
+        if let Some(parent_id) = &query.parent_id {
+            conditions.push("parent_id = ?".to_string());
+            bind_values.push(parent_id.clone());
+        }
+
+        // Filter by task type: "task" (parent_id IS NULL) or "subtask" (parent_id IS NOT NULL)
+        if let Some(task_type) = &query.task_type {
+            match task_type.as_str() {
+                "task" => conditions.push("parent_id IS NULL".to_string()),
+                "subtask" => conditions.push("parent_id IS NOT NULL".to_string()),
+                _ => {} // Ignore invalid values
+            }
+        }
+
+        if let Some(status) = &query.status {
+            // Handle multiple statuses (comma-separated OR logic)
+            let statuses: Vec<&str> = status.split(',').map(|s| s.trim()).collect();
+            if statuses.len() == 1 {
+                conditions.push("status = ?".to_string());
+                bind_values.push(status.clone());
+            } else {
+                let placeholders: Vec<&str> = statuses.iter().map(|_| "?").collect();
+                conditions.push(format!("status IN ({})", placeholders.join(", ")));
+                bind_values.extend(statuses.iter().map(|s| s.to_string()));
+            }
+        }
+
+        // Tag filtering requires json_each join
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+
+        if let Some(tags) = &query.tags
+            && !tags.is_empty()
+        {
+            let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+            conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+            bind_values.extend(tags.clone());
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        // Build SQL based on whether we need json_each or activity column
+        let (sql, count_sql) = if needs_json_each {
+            let select_cols = if needs_activity_column {
+                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM task WHERE parent_id = t.id AND deleted_at IS NULL), t.updated_at) AS last_activity_at"
+            } else {
+                "DISTINCT t.id, t.list_id, t.parent_id, t.title, t.status, t.priority, t.tags, t.external_refs, t.created_at, t.updated_at"
+            };
+
+            // Replace updated_at in ORDER BY with last_activity_at if we computed it
+            let order_clause_adjusted = if needs_activity_column {
+                order_clause.replace("updated_at", "last_activity_at")
+            } else {
+                order_clause.clone()
+            };
+
+            let sql = format!(
+                "SELECT {}
+                 FROM task t, json_each(t.tags)
+                 {} {} {}",
+                select_cols, where_clause, order_clause_adjusted, limit_clause
+            );
+            let count_sql = format!(
+                "SELECT COUNT(DISTINCT t.id) FROM task t, json_each(t.tags) {}",
+                where_clause
+            );
+            (sql, count_sql)
+        } else {
+            let select_cols = if needs_activity_column {
+                "task.id, task.list_id, task.parent_id, task.title, task.status, task.priority, task.tags, task.external_refs, task.created_at, task.updated_at, \
+                 COALESCE((SELECT MAX(updated_at) FROM task AS child WHERE child.parent_id = task.id AND child.deleted_at IS NULL), task.updated_at) AS last_activity_at"
+            } else {
+                "id, list_id, parent_id, title, status, priority, tags, external_refs, created_at, updated_at"
+            };
+
+            // Replace updated_at in ORDER BY with last_activity_at if we computed it
+            let order_clause_adjusted = if needs_activity_column {
+                order_clause.replace("updated_at", "last_activity_at")
+            } else {
+                order_clause.clone()
+            };
+
+            let sql = format!(
+                "SELECT {}
+                 FROM task
+                 {} {} {}",
+                select_cols, where_clause, order_clause_adjusted, limit_clause
+            );
+            let count_sql = format!("SELECT COUNT(*) FROM task {}", where_clause);
+            (sql, count_sql)
+        };
+
+        // Get paginated results
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+        for value in &bind_values {
+            query_builder = query_builder.bind(value);
+        }
+
+        let rows = query_builder
+            .fetch_all(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        let items: Vec<Task> = rows
+            .iter()
+            .map(|row| Task {
+                id: row.get("id"),
+                list_id: row.get("list_id"),
+                parent_id: row.get("parent_id"),
+                title: row.get("title"),
+                description: None, // metadata_only does not select descriptions
+                status: {
+                    let status_str: String = row.get("status");
+                    TaskStatus::from_str(&status_str).unwrap_or_default()
+                },
+                priority: row.get("priority"),
+                tags: {
+                    let tags_json: Option<String> = row.get("tags");
+                    tags_json
+                        .and_then(|s| serde_json::from_str(&s).ok())
+                        .unwrap_or_default()
+                },
+                external_refs: {
+                    let external_refs_json: Option<String> = row.get("external_refs");
+                    external_refs_json
+                        .and_then(|s| serde_json::from_str(&s).ok())
+                        .unwrap_or_default()
+                },
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+                deleted_at: None,
+            })
+            .collect();
+
+        // Get total count
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
+        for value in &bind_values {
+            count_query = count_query.bind(value);
+        }
+
+        let total: i64 = count_query
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+
+        Ok(ListResult {
+            items,
+            total: total as usize,
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
+        })
+    }
+
     async fn search(
         &self,
         search_term: &str,
