@@ -1,6 +1,9 @@
 //! V1 API handlers.
 
 mod notes;
+#[cfg(test)]
+#[path = "../../../test/api/v1/notes.rs"]
+mod notes_test;
 mod projects;
 mod repos;
 #[cfg(test)]

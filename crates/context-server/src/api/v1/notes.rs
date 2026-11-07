@@ -260,7 +260,8 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
         note_type: query.note_type.clone(),
     };
 
-    // Get notes - either search or list all (at database level)
+    // Get notes - either search or list all (at database level). Search only
+    // selects rows; both routes return metadata-only items.
     let result = if let Some(q) = &query.q {
         if q.is_empty() {
             // Empty search returns empty result
@@ -282,12 +283,17 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
         state
             .db()
             .notes()
-            .list(Some(&db_query))
+            .list_metadata_only(Some(&db_query))
             .await
             .map_err(internal_error)?
     };
 
-    let items: Vec<NoteResponse> = result.items.into_iter().map(NoteResponse::from).collect();
+    let mut notes = result.items;
+    for note in &mut notes {
+        note.content = String::new();
+    }
+
+    let items: Vec<NoteResponse> = notes.into_iter().map(NoteResponse::from).collect();
 
     Ok(Json(PaginatedNotes {
         items,
