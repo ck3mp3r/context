@@ -87,8 +87,8 @@ async fn create_skill(app: &axum::Router, name: &str) -> String {
         .to_string()
 }
 
-/// Create a skill whose content has no parseable frontmatter name.
-async fn create_unnamed_skill(app: &axum::Router) -> String {
+/// Create a skill with an explicit record name and content; return its ID.
+async fn create_skill_with_content(app: &axum::Router, name: &str, content: &str) -> String {
     let response = app
         .clone()
         .oneshot(
@@ -98,9 +98,9 @@ async fn create_unnamed_skill(app: &axum::Router) -> String {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "name": "unnamed",
+                        "name": name,
                         "description": "Test skill",
-                        "content": "---\ndescription: d\n---\n# Body"
+                        "content": content
                     }))
                     .unwrap(),
                 ))
@@ -242,18 +242,37 @@ async fn list_skills_includes_enabled_state() {
 }
 
 // =============================================================================
-// Criterion 4: unparseable content reports enabled false
+// Criterion 4: enabled derives from the record name
 // =============================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn get_skill_without_parseable_name_reports_disabled() {
+async fn get_skill_without_cache_dir_reports_disabled() {
     let app = test_app().await;
-    let skill_id = create_unnamed_skill(&app.router).await;
+    let skill_id = create_skill(&app.router, "no-cache-skill").await;
 
     let body = get_skill(&app.router, &skill_id).await;
     assert!(
         !body["enabled"].as_bool().expect("enabled must be a bool"),
-        "unparseable content must report disabled"
+        "a record whose name has no cache directory must report disabled"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn get_skill_reports_enabled_from_record_name_not_content() {
+    let app = test_app().await;
+    let skill_id = create_skill_with_content(
+        &app.router,
+        "record-name",
+        "---\nname: other-name\ndescription: d\n---\n# Body",
+    )
+    .await;
+    std::fs::create_dir_all(app.skills_dir.join("record-name"))
+        .expect("cache directory should be created");
+
+    let body = get_skill(&app.router, &skill_id).await;
+    assert!(
+        body["enabled"].as_bool().expect("enabled must be a bool"),
+        "enabled must come from the record name's cache directory"
     );
 }
 
@@ -645,26 +664,12 @@ async fn list_skills_omits_content_by_default() {
     assert_eq!(
         body["items"][0]["content"],
         json!(""),
-        "list without include_content must omit the SKILL.md content"
+        "list must omit the SKILL.md content"
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_skills_include_content_returns_content() {
-    let app = test_app().await;
-    create_skill(&app.router, "content-skill").await;
-
-    let body = list_skills(&app.router, "include_content=true").await;
-
-    assert_eq!(body["total"], 1);
-    assert_eq!(
-        body["items"][0]["content"],
-        json!("---\nname: content-skill\ndescription: d\n---\n# Body")
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn list_skills_search_returns_content() {
+async fn list_skills_search_returns_metadata_only() {
     let app = test_app().await;
     create_skill(&app.router, "content-skill").await;
 
@@ -673,12 +678,13 @@ async fn list_skills_search_returns_content() {
     assert_eq!(body["total"], 1);
     assert_eq!(
         body["items"][0]["content"],
-        json!("---\nname: content-skill\ndescription: d\n---\n# Body")
+        json!(""),
+        "search results must project to metadata"
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_skills_compute_enabled_before_blanking_content() {
+async fn list_skills_report_enabled_from_record_name() {
     let app = test_app().await;
     let skill_id = create_skill(&app.router, "enabled-list-skill").await;
 
@@ -692,7 +698,7 @@ async fn list_skills_compute_enabled_before_blanking_content() {
         body["items"][0]["enabled"]
             .as_bool()
             .expect("enabled must be a bool"),
-        "enabled must be computed from the full content before it is blanked"
+        "enabled must come from the record name's cache directory"
     );
 }
 
