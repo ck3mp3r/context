@@ -16,7 +16,7 @@ use context_server::mcp::tools::tasks::{
     TransitionTaskParams, UpdateTaskParams,
 };
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::ContentBlock;
+use rmcp::model::{ContentBlock, ErrorCode};
 use std::sync::Arc;
 
 async fn setup_db() -> SqliteDatabase {
@@ -142,6 +142,43 @@ async fn test_task_create_empty_title() {
 
     let result = tools.task_create(Parameters(params)).await;
     assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_create_description_over_limit() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    let list_id = create_test_task_list(&db, &project_id).await;
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = CreateTaskParams {
+        list_id: list_id.clone(),
+        title: "Over-limit description".to_string(),
+        description: Some("x".repeat(context_core::TASK_DESCRIPTION_MAX + 1)),
+        priority: None,
+        tags: None,
+        parent_id: None,
+        external_refs: None,
+    };
+
+    let error = tools
+        .task_create(Parameters(params))
+        .await
+        .expect_err("task_create should reject an over-limit description");
+
+    assert_eq!(
+        error.code,
+        ErrorCode::INVALID_PARAMS,
+        "over-limit description should be reported as invalid_params"
+    );
+    assert!(
+        error.data.as_ref().is_some_and(|data| data["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("maximum size"))),
+        "error data should mention maximum size, got: {:?}",
+        error.data
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

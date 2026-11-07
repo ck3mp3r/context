@@ -9,7 +9,7 @@ use context_core::{
     DbError, DbResult, ListResult, Task, TaskQuery, TaskRepository, TaskStats, TaskStatus,
     TransitionLog,
 };
-use context_core::{current_timestamp, generate_entity_id};
+use context_core::{TASK_DESCRIPTION_MAX, current_timestamp, generate_entity_id};
 
 /// SQLx-backed task repository.
 pub struct SqliteTaskRepository<'a> {
@@ -58,6 +58,18 @@ fn validate_task(task: &Task) -> DbResult<()> {
         && (!(1..=5).contains(&priority))
     {
         errors.push(format!("Task priority must be 1-5, got {}", priority));
+    }
+
+    // Validate description size (bytes, matching the note size policy)
+    if let Some(description) = &task.description
+        && description.len() > TASK_DESCRIPTION_MAX
+    {
+        errors.push(format!(
+            "Task description exceeds maximum size of {} characters (got {} characters). \
+             Reduce the description or move detail to notes.",
+            TASK_DESCRIPTION_MAX,
+            description.len()
+        ));
     }
 
     if errors.is_empty() {
