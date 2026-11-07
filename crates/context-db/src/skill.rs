@@ -19,6 +19,14 @@ const SKILL_COLS: &str =
 /// Standard column list for SELECT queries (with 's.' table alias)
 const SKILL_COLS_ALIASED: &str = "s.id, s.name, s.description, s.content, s.tags, s.created_at, s.updated_at, s.source, s.source_subpath";
 
+/// Column list for metadata-only SELECT queries (without the content blob)
+const SKILL_METADATA_COLS: &str =
+    "id, name, description, tags, created_at, updated_at, source, source_subpath";
+
+/// Column list for metadata-only SELECT queries (with 's.' table alias)
+const SKILL_METADATA_COLS_ALIASED: &str =
+    "s.id, s.name, s.description, s.tags, s.created_at, s.updated_at, s.source, s.source_subpath";
+
 /// Parse a database row into a Skill struct (without project_ids)
 fn row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Skill {
     let tags_json: String = row.get("tags");
@@ -29,6 +37,32 @@ fn row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Skill {
         name: row.get("name"),
         description: row.get("description"),
         content: row.get("content"),
+        tags,
+        project_ids: vec![], // Loaded separately via join table
+        scripts: vec![],     // Loaded separately via skill_attachment table
+        references: vec![],  // Loaded separately via skill_attachment table
+        assets: vec![],      // Loaded separately via skill_attachment table
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        deleted_at: None,
+        source: row.get("source"),
+        source_subpath: row.get("source_subpath"),
+    }
+}
+
+/// Parse a metadata-only database row into a Skill struct.
+///
+/// The `content` column is not selected by metadata-only queries, so
+/// `row_to_skill` cannot be reused.
+fn row_to_skill_metadata(row: &sqlx::sqlite::SqliteRow) -> Skill {
+    let tags_json: String = row.get("tags");
+    let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+    Skill {
+        id: row.get("id"),
+        name: row.get("name"),
+        description: row.get("description"),
+        content: String::new(), // metadata_only does not select content
         tags,
         project_ids: vec![], // Loaded separately via join table
         scripts: vec![],     // Loaded separately via skill_attachment table
@@ -296,6 +330,112 @@ impl<'a> SkillRepository for SqliteSkillRepository<'a> {
                 message: e.to_string(),
             })?;
         let items: Vec<Skill> = rows.iter().map(row_to_skill).collect();
+        let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
+        for value in &bind_values {
+            count_query = count_query.bind(value);
+        }
+        let total: i64 = count_query
+            .fetch_one(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        Ok(ListResult {
+            items,
+            total: total as usize,
+            limit: query.page.limit,
+            offset: query.page.offset.unwrap_or(0),
+        })
+    }
+
+    async fn list_metadata_only(&self, query: Option<&SkillQuery>) -> DbResult<ListResult<Skill>> {
+        let default_query = SkillQuery::default();
+        let query = query.unwrap_or(&default_query);
+        let allowed_fields = ["name", "created_at", "updated_at"];
+
+        let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
+        let needs_project_join = query.project_id.is_some();
+        let mut bind_values: Vec<String> = Vec::new();
+        let mut where_conditions: Vec<String> = Vec::new();
+        let (select_cols, from_clause, order_field_prefix) = if needs_json_each
+            || needs_project_join
+        {
+            let mut from = "FROM skill s".to_string();
+            if needs_project_join {
+                from.push_str("\nINNER JOIN project_skill ps ON s.id = ps.skill_id");
+                where_conditions.push("ps.project_id = ?".to_string());
+                bind_values.push(query.project_id.as_ref().unwrap().clone());
+            }
+            if needs_json_each {
+                from.push_str(", json_each(s.tags)");
+                let tags = query.tags.as_ref().unwrap();
+                let placeholders: Vec<&str> = tags.iter().map(|_| "?").collect();
+                where_conditions.push(format!("json_each.value IN ({})", placeholders.join(", ")));
+                bind_values.extend(tags.clone());
+            }
+            (
+                format!("DISTINCT {}", SKILL_METADATA_COLS_ALIASED),
+                from,
+                "s.",
+            )
+        } else {
+            (
+                SKILL_METADATA_COLS.to_string(),
+                "FROM skill".to_string(),
+                "",
+            )
+        };
+        // Soft-deleted rows are tombstones and must never appear in results.
+        where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
+        let where_clause = if !where_conditions.is_empty() {
+            format!("WHERE {}", where_conditions.join(" AND "))
+        } else {
+            String::new()
+        };
+        let order_clause = {
+            let sort_field = query
+                .page
+                .sort_by
+                .as_deref()
+                .filter(|f| allowed_fields.contains(f))
+                .unwrap_or("created_at");
+            let sort_order = match query
+                .page
+                .sort_order
+                .unwrap_or(context_core::SortOrder::Asc)
+            {
+                context_core::SortOrder::Asc => "ASC",
+                context_core::SortOrder::Desc => "DESC",
+            };
+            format!(
+                "ORDER BY {}{} {}",
+                order_field_prefix, sort_field, sort_order
+            )
+        };
+        let limit_clause = build_limit_offset_clause(&query.page);
+        let sql = format!(
+            "SELECT {} {} {} {} {}",
+            select_cols, from_clause, where_clause, order_clause, limit_clause
+        );
+        let count_sql = if needs_json_each || needs_project_join {
+            format!(
+                "SELECT COUNT(DISTINCT s.id) {} {}",
+                from_clause, where_clause
+            )
+        } else {
+            format!("SELECT COUNT(*) FROM skill {}", where_clause)
+        };
+        let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+        for value in &bind_values {
+            query_builder = query_builder.bind(value);
+        }
+        let rows = query_builder
+            .fetch_all(self.pool)
+            .await
+            .map_err(|e| DbError::Database {
+                message: e.to_string(),
+            })?;
+        let items: Vec<Skill> = rows.iter().map(row_to_skill_metadata).collect();
         let mut count_query = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql.as_str()));
         for value in &bind_values {
             count_query = count_query.bind(value);

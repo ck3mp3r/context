@@ -2,7 +2,9 @@
 
 use crate::SqliteDatabase;
 use crate::helpers::{count_rows, read_deleted_at, read_updated_at};
-use context_core::{Database, HasSkills, Skill, SkillAttachment, SkillQuery, SkillRepository};
+use context_core::{
+    Database, HasSkills, Skill, SkillAttachment, SkillQuery, SkillRepository, generate_entity_id,
+};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -1259,4 +1261,204 @@ async fn skill_update_replaces_source() {
         Some("skills/new".to_string()),
         "update must replace source_subpath"
     );
+}
+
+// =============================================================================
+// Metadata-only listing tests
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_returns_empty_content() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    let mut skill = make_skill(&generate_entity_id(), "metadata-skill");
+    skill.description = "Metadata description".to_string();
+    skill.tags = vec!["rust".to_string()];
+    skill.source = Some("git+https://github.com/test/skills".to_string());
+    skill.source_subpath = Some("skills/metadata".to_string());
+    skills.create(&skill).await.expect("Create should succeed");
+
+    let full = skills.list(None).await.expect("list should succeed");
+    assert_eq!(full.items.len(), 1);
+    assert_eq!(
+        full.items[0].content, skill.content,
+        "list must keep the full SKILL.md content"
+    );
+
+    let metadata = skills
+        .list_metadata_only(None)
+        .await
+        .expect("list_metadata_only should succeed");
+
+    assert_eq!(metadata.items.len(), 1);
+    assert_eq!(metadata.total, 1);
+    assert_eq!(metadata.offset, 0);
+
+    let item = &metadata.items[0];
+    assert_eq!(
+        item.content, "",
+        "list_metadata_only must return an empty content field"
+    );
+    assert_eq!(item.id, skill.id);
+    assert_eq!(item.name, skill.name);
+    assert_eq!(item.description, skill.description);
+    assert_eq!(item.tags, skill.tags);
+    assert_eq!(item.created_at, skill.created_at);
+    assert_eq!(item.updated_at, skill.updated_at);
+    assert_eq!(item.source, skill.source);
+    assert_eq!(item.source_subpath, skill.source_subpath);
+    assert_eq!(item.deleted_at, None);
+    assert!(item.project_ids.is_empty());
+    assert!(item.scripts.is_empty());
+    assert!(item.references.is_empty());
+    assert!(item.assets.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_matches_list_with_filters() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    let project_id = generate_entity_id();
+    sqlx::query(
+        "INSERT INTO project (id, title, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&project_id)
+    .bind("Metadata Project")
+    .bind("[]")
+    .bind("2025-01-01 00:00:00")
+    .bind("2025-01-01 00:00:00")
+    .execute(db.pool())
+    .await
+    .expect("Create project should succeed");
+
+    let mut rust = make_skill(&generate_entity_id(), "rust-skill");
+    rust.tags = vec!["rust".to_string(), "programming".to_string()];
+    let rust = skills.create(&rust).await.expect("Create rust skill");
+
+    let mut linked = make_skill(&generate_entity_id(), "linked-skill");
+    linked.tags = vec!["programming".to_string()];
+    linked.project_ids = vec![project_id.clone()];
+    let linked = skills.create(&linked).await.expect("Create linked skill");
+
+    let mut plain = make_skill(&generate_entity_id(), "plain-skill");
+    plain.tags = vec!["cooking".to_string()];
+    let plain = skills.create(&plain).await.expect("Create plain skill");
+
+    let queries = [
+        ("no filters", SkillQuery::default()),
+        (
+            "tags",
+            SkillQuery {
+                tags: Some(vec!["rust".to_string()]),
+                ..Default::default()
+            },
+        ),
+        (
+            "overlapping tags",
+            SkillQuery {
+                tags: Some(vec!["rust".to_string(), "programming".to_string()]),
+                ..Default::default()
+            },
+        ),
+        (
+            "project_id",
+            SkillQuery {
+                project_id: Some(project_id.clone()),
+                ..Default::default()
+            },
+        ),
+        (
+            "project_id and tags",
+            SkillQuery {
+                project_id: Some(project_id.clone()),
+                tags: Some(vec!["programming".to_string()]),
+                ..Default::default()
+            },
+        ),
+    ];
+
+    for (label, query) in &queries {
+        let full = skills
+            .list(Some(query))
+            .await
+            .unwrap_or_else(|e| panic!("list with {label} filters failed: {e}"));
+        let metadata = skills
+            .list_metadata_only(Some(query))
+            .await
+            .unwrap_or_else(|e| panic!("list_metadata_only with {label} filters failed: {e}"));
+
+        let mut full_ids: Vec<String> = full.items.iter().map(|s| s.id.clone()).collect();
+        let mut metadata_ids: Vec<String> = metadata.items.iter().map(|s| s.id.clone()).collect();
+        full_ids.sort();
+        metadata_ids.sort();
+
+        assert_eq!(
+            metadata.total, full.total,
+            "total mismatch for {label} filters"
+        );
+        assert_eq!(
+            metadata_ids, full_ids,
+            "id set mismatch for {label} filters"
+        );
+        assert!(
+            metadata.items.iter().all(|s| s.content.is_empty()),
+            "every item must have empty content for {label} filters"
+        );
+    }
+
+    let overlapping = skills
+        .list_metadata_only(Some(&SkillQuery {
+            tags: Some(vec!["rust".to_string(), "programming".to_string()]),
+            ..Default::default()
+        }))
+        .await
+        .expect("list_metadata_only with overlapping tags should succeed");
+    assert_eq!(
+        overlapping.items.len(),
+        2,
+        "a skill tagged with two matching tags must appear once"
+    );
+    assert_eq!(overlapping.total, 2);
+
+    assert_eq!(
+        skills
+            .list_metadata_only(None)
+            .await
+            .expect("list_metadata_only should succeed")
+            .total,
+        3
+    );
+    assert!(rust.id != linked.id);
+    assert!(plain.id != rust.id);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_metadata_only_excludes_soft_deleted_skills() {
+    let db = setup_db().await;
+    let skills = db.skills();
+
+    let live = skills
+        .create(&make_skill(&generate_entity_id(), "live-skill"))
+        .await
+        .expect("Create live skill");
+    let deleted = skills
+        .create(&make_skill(&generate_entity_id(), "deleted-skill"))
+        .await
+        .expect("Create deleted skill");
+    skills
+        .delete(&deleted.id)
+        .await
+        .expect("Delete should succeed");
+
+    let result = skills
+        .list_metadata_only(None)
+        .await
+        .expect("list_metadata_only should succeed");
+
+    assert_eq!(result.total, 1, "soft-deleted skills must not be counted");
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(result.items[0].id, live.id);
+    assert_eq!(result.items[0].content, "");
 }
