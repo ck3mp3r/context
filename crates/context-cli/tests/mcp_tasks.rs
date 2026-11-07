@@ -76,7 +76,6 @@ async fn test_task_list_empty() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -412,7 +411,6 @@ async fn test_task_list_with_data() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -461,7 +459,6 @@ async fn test_task_list_status_filter() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -512,7 +509,6 @@ async fn test_task_list_pagination() {
         task_type: None,
         limit: Some(1),
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -562,7 +558,6 @@ async fn test_task_list_search() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -672,7 +667,6 @@ async fn test_task_list_with_parent_filter() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -737,7 +731,6 @@ async fn test_task_list_type_filter() {
         task_type: Some("task".to_string()),
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -793,7 +786,6 @@ async fn test_task_list_sorting() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: Some("title".to_string()),
         order: Some("asc".to_string()),
     };
@@ -848,7 +840,6 @@ async fn test_task_list_tag_filter() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -897,7 +888,6 @@ async fn test_task_list_omits_description_by_default() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -914,66 +904,13 @@ async fn test_task_list_omits_description_by_default() {
     assert_eq!(response["total"], 1);
     assert!(
         response["items"][0]["description"].is_null(),
-        "task_list without include_content must omit descriptions, got: {}",
+        "task_list must omit descriptions, got: {}",
         response["items"][0]["description"]
     );
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_task_list_include_content_returns_description() {
-    let db = setup_db().await;
-    let project_id = create_test_project(&db).await;
-    let list_id = create_test_task_list(&db, &project_id).await;
-    let task = Task {
-        id: "task0001".to_string(),
-        list_id: list_id.clone(),
-        title: "Task with a description".to_string(),
-        description: Some("A detailed specification that lists omit".to_string()),
-        status: TaskStatus::Todo,
-        priority: Some(3),
-        tags: vec![],
-        external_refs: vec![],
-        parent_id: None,
-        created_at: Some("2025-01-01 00:00:00".to_string()),
-        updated_at: Some("2025-01-01 00:00:00".to_string()),
-        deleted_at: None,
-    };
-    db.tasks().create(&task).await.unwrap();
-    let db = Arc::new(db);
-    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
-
-    let params = ListTasksParams {
-        list_id: list_id.clone(),
-        query: None,
-        status: None,
-        tags: None,
-        parent_id: None,
-        task_type: None,
-        limit: None,
-        offset: None,
-        include_content: Some(true),
-        sort: None,
-        order: None,
-    };
-
-    let result = tools.task_list(Parameters(params)).await;
-    assert!(result.is_ok());
-
-    let call_result = result.unwrap();
-    let content_text = match &call_result.content[0] {
-        ContentBlock::Text(text) => text.text.as_str(),
-        _ => panic!("Expected text content"),
-    };
-    let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
-    assert_eq!(response["total"], 1);
-    assert_eq!(
-        response["items"][0]["description"],
-        "A detailed specification that lists omit"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_task_list_search_returns_description() {
+async fn test_task_list_search_returns_metadata_only() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;
     let list_id = create_test_task_list(&db, &project_id).await;
@@ -1004,7 +941,6 @@ async fn test_task_list_search_returns_description() {
         task_type: None,
         limit: None,
         offset: None,
-        include_content: None,
         sort: None,
         order: None,
     };
@@ -1019,8 +955,9 @@ async fn test_task_list_search_returns_description() {
     };
     let response: serde_json::Value = serde_json::from_str(content_text).unwrap();
     assert_eq!(response["total"], 1);
-    assert_eq!(
-        response["items"][0]["description"],
-        "Machine learning research implementation"
+    assert!(
+        response["items"][0]["description"].is_null(),
+        "search results must project to metadata, got: {}",
+        response["items"][0]["description"]
     );
 }
