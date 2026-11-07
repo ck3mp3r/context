@@ -197,6 +197,9 @@ pub struct ListNotesQuery {
     /// Sort order (asc, desc)
     #[param(example = "desc")]
     pub order: Option<String>,
+    /// Include note content in response (default: false for lighter list responses)
+    #[param(example = false)]
+    pub include_content: Option<bool>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -260,8 +263,8 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
         note_type: query.note_type.clone(),
     };
 
-    // Get notes - either search or list all (at database level). Search only
-    // selects rows; both routes return metadata-only items.
+    // Get notes - either search or list all (at database level)
+    let include_content = query.include_content.unwrap_or(false);
     let result = if let Some(q) = &query.q {
         if q.is_empty() {
             // Empty search returns empty result
@@ -279,6 +282,13 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
                 .await
                 .map_err(internal_error)?
         }
+    } else if include_content {
+        state
+            .db()
+            .notes()
+            .list(Some(&db_query))
+            .await
+            .map_err(internal_error)?
     } else {
         state
             .db()
@@ -288,12 +298,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
             .map_err(internal_error)?
     };
 
-    let mut notes = result.items;
-    for note in &mut notes {
-        note.content = String::new();
-    }
-
-    let items: Vec<NoteResponse> = notes.into_iter().map(NoteResponse::from).collect();
+    let items: Vec<NoteResponse> = result.items.into_iter().map(NoteResponse::from).collect();
 
     Ok(Json(PaginatedNotes {
         items,

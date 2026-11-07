@@ -105,7 +105,18 @@ async fn list_notes_returns_metadata_only() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn list_notes_search_returns_metadata_only() {
+async fn list_notes_include_content_returns_content() {
+    let app = test_app().await;
+    create_note(&app, "Listed note").await;
+
+    let body = list_notes(&app, "include_content=true").await;
+
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["items"][0]["content"], json!(NOTE_CONTENT));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_notes_search_returns_content() {
     let app = test_app().await;
     create_note(&app, "Rust Note").await;
 
@@ -114,8 +125,8 @@ async fn list_notes_search_returns_metadata_only() {
     assert_eq!(body["total"], 1);
     assert_eq!(
         body["items"][0]["content"],
-        json!(""),
-        "search results must project to metadata"
+        json!(NOTE_CONTENT),
+        "search results must keep the stored content"
     );
 }
 
