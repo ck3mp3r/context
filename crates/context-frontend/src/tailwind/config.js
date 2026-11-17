@@ -1,13 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    "./src/frontend/components/**/*.rs",
-    "./src/frontend/pages/**/*.rs",
-    "./src/frontend/api/**/*.rs",
-    "./src/frontend/models/**/*.rs",
-    "./src/frontend/app.rs",
-    "./src/frontend/main.rs",
-    "./src/frontend/public/index.html",
+    // Repo-root-relative: the trunk pre_build hook runs tailwindcss from the
+    // repository root. Tailwind v4 also auto-detects sources, but these globs
+    // stay correct and explicit for v3-style resolution.
+    "./crates/context-frontend/src/**/*.rs",
+    "./crates/context-frontend/src/public/index.html",
   ],
   safelist: [
     // Connection indicator colors
