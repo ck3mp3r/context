@@ -837,3 +837,11 @@ body {
     grid-template-columns: var(--kanban-grid-cols, repeat(6, minmax(0, 1fr)));
   }
 }
+
+/* Use the full viewport width: remove Tailwind v4 .container max-width caps.
+   Intentionally unlayered so this rule deterministically wins over every
+   breakpoint rule inside @layer utilities. */
+.container {
+  max-width: none;
+}
+
