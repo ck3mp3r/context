@@ -37,7 +37,7 @@ in
       (pkgs.cargo-llvm-cov.overrideAttrs (_: {doCheck = false;}))
       pkgs.cargo-nextest
       pkgs.trunk
-      (pkgs.callPackage ./wasm-bindgen-cli.nix {})
+      (pkgs.callPackage ./wasm-bindgen-cli-bin.nix {})
       pkgs.tailwindcss_4
       pkgs.act
 

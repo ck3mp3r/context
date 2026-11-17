@@ -22,13 +22,13 @@
     ...
   }:
     flake-parts.lib.mkFlake {inherit inputs;} {
-      systems = ["aarch64-darwin" "aarch64-linux" "x86_64-darwin" "x86_64-linux"];
+      systems = ["aarch64-darwin" "aarch64-linux" "x86_64-linux"];
       perSystem = {system, ...}: let
         overlays = [
           inputs.rustnix.lib.rust.overlays.fenix
           (
             final: _prev: {
-              trunk = final.callPackage ./nix/trunk.nix {};
+              trunk = final.callPackage ./nix/trunk-bin.nix {};
             }
           )
         ];
