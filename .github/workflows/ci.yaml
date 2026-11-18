@@ -39,12 +39,11 @@ jobs:
         with:
           github-token: ${{github.token}}
           extra-conf: |
+            access-tokens = github.com=${{ github.token }}
             extra-substituters = https://ck3mp3r.cachix.org
             extra-trusted-public-keys = ck3mp3r.cachix.org-1:wKbNJDH7mrT9DuVvG1KRRtqfcy0FREVGguU7RIfL5zo=
 
       - name: Build and test
-        env:
-          NIX_CONFIG: "access-tokens = github.com=${{ github.token }}"
         run: nix develop .#ci --command cargo nextest run
 
   nix-build-cache:
@@ -58,7 +57,13 @@ jobs:
           fetch-depth: 0 # full history for git diff
 
       - name: Install Determinate Nix
-        run: curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm --extra-conf "extra-substituters = https://ck3mp3r.cachix.org" --extra-conf "extra-trusted-public-keys = ck3mp3r.cachix.org-1:wKbNJDH7mrT9DuVvG1KRRtqfcy0FREVGguU7RIfL5zo="
+        uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          github-token: ${{github.token}}
+          extra-conf: |
+            access-tokens = github.com=${{ github.token }}
+            extra-substituters = https://ck3mp3r.cachix.org
+            extra-trusted-public-keys = ck3mp3r.cachix.org-1:wKbNJDH7mrT9DuVvG1KRRtqfcy0FREVGguU7RIfL5zo=
 
       - name: Setup CI Tools
         uses: ck3mp3r/actions/ci-tools@main

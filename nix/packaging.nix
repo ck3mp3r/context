@@ -87,6 +87,7 @@
     nativeBuildInputs = [];
     extraArgs = {
       buildFeatures = ["context-server/embed-frontend"];
+      dontCargoUseSystemLibs = true;
     };
   };
 
@@ -109,6 +110,7 @@
     nativeBuildInputs = [];
     extraArgs = {
       buildFeatures = ["context-server/embed-frontend"];
+      dontCargoUseSystemLibs = true;
     };
   };
 
