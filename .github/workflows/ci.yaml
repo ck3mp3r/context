@@ -37,6 +37,7 @@ jobs:
       - name: Install Determinate Nix
         uses: DeterminateSystems/nix-installer-action@v23
         with:
+          flakehub-cache: false
           github-token: ${{github.token}}
           extra-conf: |
             access-tokens = github.com=${{ github.token }}
@@ -59,6 +60,7 @@ jobs:
       - name: Install Determinate Nix
         uses: DeterminateSystems/nix-installer-action@v23
         with:
+          flakehub-cache: false
           github-token: ${{github.token}}
           extra-conf: |
             access-tokens = github.com=${{ github.token }}
