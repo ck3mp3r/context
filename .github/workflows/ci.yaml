@@ -69,8 +69,6 @@ jobs:
 
       - name: Setup CI Tools
         uses: ck3mp3r/actions/ci-tools@main
-        with:
-          nu-mods-ref: ci-publish-redesign-test
 
       - name: Build, test, and cache
         env:
@@ -91,7 +89,7 @@ jobs:
           let store_path = ($results | where status == 'success' | first | get path)
 
           # Determine if we should push to cache (only on main)
-          let should_cache = ($env.GITHUB_REF == 'refs/heads/main') or ($env.GITHUB_REF == 'refs/heads/fix/ci-yaml-cache-cleanup')
+          let should_cache = ($env.GITHUB_REF == 'refs/heads/main')
 
           if $should_cache {
             print '✓ Pushing closure to ck3mp3r.cachix.org...'
