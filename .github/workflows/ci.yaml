@@ -69,8 +69,6 @@ jobs:
 
       - name: Setup CI Tools
         uses: ck3mp3r/actions/ci-tools@main
-        with:
-          nu-mods-ref: ci-cache-batch-test
 
       - name: Build, test, and cache
         env:
