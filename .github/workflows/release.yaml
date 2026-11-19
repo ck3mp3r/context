@@ -103,7 +103,12 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v23
         with:
+          determinate: false
           github-token: ${{github.token}}
+          extra-conf: |
+            access-tokens = github.com=${{ github.token }}
+            substituters = https://cache.nixos.org https://ck3mp3r.cachix.org
+            extra-trusted-public-keys = ck3mp3r.cachix.org-1:wKbNJDH7mrT9DuVvG1KRRtqfcy0FREVGguU7RIfL5zo=
 
       - name: Build archive for ${{ matrix.nix_system }}
         run: nix build .#archive --print-build-logs
