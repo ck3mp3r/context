@@ -16,35 +16,6 @@ pub struct SqliteTaskRepository<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
-/// Returns the allowed transitions from a given status.
-///
-/// Transitions are derived from the linear workflow
-/// `backlog -> todo -> in_progress -> review -> done` with `cancelled` as a
-/// side-state:
-/// 1. one step backward
-/// 2. one step forward
-/// 3. expedited forward (skip one step, policy-defined)
-/// 4. cancel from any active state
-/// 5. reopen from a terminal state to any active state
-fn allowed_transitions(current: &TaskStatus) -> Vec<TaskStatus> {
-    if current.is_terminal() {
-        return TaskStatus::active_states();
-    }
-
-    let mut allowed = Vec::new();
-    if let Some(previous) = current.backward_step() {
-        allowed.push(previous);
-    }
-    if let Some(next) = current.forward_step() {
-        allowed.push(next);
-    }
-    if let Some(expedited) = current.expedite_forward() {
-        allowed.push(expedited);
-    }
-    allowed.push(TaskStatus::Cancelled);
-    allowed
-}
-
 fn validate_task(task: &Task) -> DbResult<()> {
     let mut errors = Vec::new();
 
@@ -1101,12 +1072,19 @@ impl<'a> TaskRepository for SqliteTaskRepository<'a> {
         }
 
         // Validate transition is allowed
-        let allowed = allowed_transitions(first_status);
-        if !allowed.contains(&target_status) {
+        if !first_status.can_transition_to(target_status.clone()) {
+            let rule = match target_status {
+                TaskStatus::Done => "done is reachable only from review",
+                TaskStatus::Review => "review is reachable only from in_progress",
+                TaskStatus::Backlog
+                | TaskStatus::Todo
+                | TaskStatus::InProgress
+                | TaskStatus::Cancelled => "the transition guard rules deny this transition",
+            };
             return Err(DbError::Validation {
                 message: format!(
-                    "invalid_transition: Cannot transition from {:?} to {:?}. Valid transitions: {:?}",
-                    first_status, target_status, allowed
+                    "invalid_transition: Cannot transition from {:?} to {:?}: {}.",
+                    first_status, target_status, rule
                 ),
             });
         }
