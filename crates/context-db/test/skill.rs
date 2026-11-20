@@ -1,7 +1,7 @@
 //! Tests for SqliteSkillRepository.
 
 use crate::SqliteDatabase;
-use crate::helpers::{count_rows, read_deleted_at, read_updated_at};
+use crate::support::{count_rows, read_deleted_at, read_updated_at};
 use context_core::{
     Database, HasSkills, Skill, SkillAttachment, SkillQuery, SkillRepository, generate_entity_id,
 };

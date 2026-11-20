@@ -63,6 +63,9 @@ mod skill_restore_test;
 #[path = "../test/skill.rs"]
 mod skill_test;
 #[cfg(test)]
+#[path = "../test/support.rs"]
+mod support;
+#[cfg(test)]
 #[path = "../test/sync_export_cutoff.rs"]
 mod sync_export_cutoff_test;
 #[cfg(test)]

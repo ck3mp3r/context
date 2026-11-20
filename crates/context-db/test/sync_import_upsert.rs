@@ -142,7 +142,7 @@ async fn test_import_batch_idempotent() {
     ];
     let mut before = Vec::new();
     for (table, id) in entities {
-        before.push(crate::helpers::read_updated_at(db2.pool(), table, id).await);
+        before.push(crate::support::read_updated_at(db2.pool(), table, id).await);
     }
 
     // Importing the same JSONL a second time must not change any row.
@@ -161,7 +161,7 @@ async fn test_import_batch_idempotent() {
     );
 
     for ((table, id), expected) in entities.iter().zip(before.iter()) {
-        let after = crate::helpers::read_updated_at(db2.pool(), table, id).await;
+        let after = crate::support::read_updated_at(db2.pool(), table, id).await;
         assert_eq!(
             &after, expected,
             "second import must not change {}.updated_at",
@@ -178,7 +178,7 @@ async fn test_import_batch_idempotent() {
         ("project_skill", "skill_id = ?", "skilidem"),
     ];
     for (table, where_clause, id) in relationships {
-        let count = crate::helpers::count_rows(db2.pool(), table, where_clause, id).await;
+        let count = crate::support::count_rows(db2.pool(), table, where_clause, id).await;
         assert_eq!(count, 1, "{} must hold exactly one row for {}", table, id);
     }
 }
@@ -695,7 +695,7 @@ async fn import_writes_row_when_target_updated_at_is_null() {
     null_updated_at_replica("first").write(&temp_dir);
     db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(
-        crate::helpers::read_updated_at(db.pool(), "project", "projgat1").await,
+        crate::support::read_updated_at(db.pool(), "project", "projgat1").await,
         None,
         "a NULL updated_at must import as NULL"
     );
@@ -722,7 +722,7 @@ async fn import_writes_row_when_target_updated_at_is_null() {
         "Note second"
     );
     assert_eq!(
-        crate::helpers::read_updated_at(db.pool(), "project", "projgat1").await,
+        crate::support::read_updated_at(db.pool(), "project", "projgat1").await,
         None
     );
 }
@@ -756,7 +756,7 @@ async fn import_skips_null_file_row_against_non_null_target() {
         "Note newer"
     );
     assert_eq!(
-        crate::helpers::read_updated_at(db.pool(), "project", "projgat1").await,
+        crate::support::read_updated_at(db.pool(), "project", "projgat1").await,
         Some("2024-06-01 00:00:00".to_string())
     );
 }
@@ -815,7 +815,7 @@ async fn import_applies_tombstones_under_guard() {
     stale.write(&temp_dir);
     db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(
-        crate::helpers::read_deleted_at(db.pool(), "project", "projgat1").await,
+        crate::support::read_deleted_at(db.pool(), "project", "projgat1").await,
         None,
         "a stale tombstone must not delete the row"
     );
@@ -826,7 +826,7 @@ async fn import_applies_tombstones_under_guard() {
     tombstone.write(&temp_dir);
     db.sync().import_all(temp_dir.path()).await.unwrap();
     assert_eq!(
-        crate::helpers::read_deleted_at(db.pool(), "project", "projgat1").await,
+        crate::support::read_deleted_at(db.pool(), "project", "projgat1").await,
         Some("2024-12-02 00:00:00".to_string()),
         "a newer tombstone must delete the row"
     );
@@ -862,13 +862,13 @@ async fn import_with_prefilter_is_idempotent() {
     full_replica("2024-06-01 00:00:00", "same").write(&temp_dir);
     db.sync().import_all(temp_dir.path()).await.unwrap();
     let first_labels = labels(&db).await;
-    let first_updated_at = crate::helpers::read_updated_at(db.pool(), "project", "projgat1").await;
+    let first_updated_at = crate::support::read_updated_at(db.pool(), "project", "projgat1").await;
 
     db.sync().import_all(temp_dir.path()).await.unwrap();
 
     assert_eq!(labels(&db).await, first_labels);
     assert_eq!(
-        crate::helpers::read_updated_at(db.pool(), "project", "projgat1").await,
+        crate::support::read_updated_at(db.pool(), "project", "projgat1").await,
         first_updated_at
     );
 }

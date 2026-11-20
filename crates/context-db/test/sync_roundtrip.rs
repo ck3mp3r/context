@@ -656,7 +656,7 @@ async fn relationship_writes(db: &SqliteDatabase, table: &str) -> (i64, i64) {
 }
 
 async fn relationship_count(db: &SqliteDatabase, table: &str, owner_column: &str, id: &str) -> i64 {
-    crate::helpers::count_rows(db.pool(), table, &format!("{owner_column} = ?"), id).await
+    crate::support::count_rows(db.pool(), table, &format!("{owner_column} = ?"), id).await
 }
 
 #[tokio::test(flavor = "multi_thread")]

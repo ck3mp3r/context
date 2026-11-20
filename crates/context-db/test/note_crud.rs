@@ -1,7 +1,7 @@
 //! Tests for SqliteNoteRepository.
 
 use crate::SqliteDatabase;
-use crate::helpers::{count_rows, read_deleted_at, read_updated_at};
+use crate::support::{count_rows, read_deleted_at, read_updated_at};
 use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository};
 
 async fn setup_db() -> SqliteDatabase {
