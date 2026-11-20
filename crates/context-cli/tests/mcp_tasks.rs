@@ -417,6 +417,119 @@ async fn test_task_transition_invalid() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_task_transition_in_progress_to_done_is_rejected() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    let list_id = create_test_task_list(&db, &project_id).await;
+    let task = Task {
+        id: "task0001".to_string(),
+        list_id: list_id.clone(),
+        title: "Review Gate".to_string(),
+        description: None,
+        status: TaskStatus::InProgress,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        parent_id: None,
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    db.tasks().create(&task).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = TransitionTaskParams {
+        task_ids: vec!["task0001".to_string()],
+        status: "done".to_string(),
+    };
+
+    let error = tools
+        .task_transition(Parameters(params))
+        .await
+        .expect_err("in_progress -> done must be rejected");
+
+    assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
+    let unchanged = db.tasks().get("task0001").await.unwrap();
+    assert_eq!(unchanged.status, TaskStatus::InProgress);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_transition_todo_to_review_is_rejected() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    let list_id = create_test_task_list(&db, &project_id).await;
+    let task = Task {
+        id: "task0002".to_string(),
+        list_id: list_id.clone(),
+        title: "Review Gate".to_string(),
+        description: None,
+        status: TaskStatus::Todo,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        parent_id: None,
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    db.tasks().create(&task).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = TransitionTaskParams {
+        task_ids: vec!["task0002".to_string()],
+        status: "review".to_string(),
+    };
+
+    let error = tools
+        .task_transition(Parameters(params))
+        .await
+        .expect_err("todo -> review must be rejected");
+
+    assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
+    let unchanged = db.tasks().get("task0002").await.unwrap();
+    assert_eq!(unchanged.status, TaskStatus::Todo);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_task_transition_review_to_done_succeeds() {
+    let db = setup_db().await;
+    let project_id = create_test_project(&db).await;
+    let list_id = create_test_task_list(&db, &project_id).await;
+    let task = Task {
+        id: "task0003".to_string(),
+        list_id: list_id.clone(),
+        title: "Review Gate".to_string(),
+        description: None,
+        status: TaskStatus::Review,
+        priority: Some(3),
+        tags: vec![],
+        external_refs: vec![],
+        parent_id: None,
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    db.tasks().create(&task).await.unwrap();
+    let db = Arc::new(db);
+    let tools = TaskTools::new(db.clone(), ChangeNotifier::new());
+
+    let params = TransitionTaskParams {
+        task_ids: vec!["task0003".to_string()],
+        status: "done".to_string(),
+    };
+
+    tools
+        .task_transition(Parameters(params))
+        .await
+        .expect("review -> done must succeed");
+
+    let updated = db.tasks().get("task0003").await.unwrap();
+    assert_eq!(updated.status, TaskStatus::Done);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_task_list_with_data() {
     let db = setup_db().await;
     let project_id = create_test_project(&db).await;

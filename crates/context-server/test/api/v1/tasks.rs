@@ -265,6 +265,81 @@ async fn post_transition_invalid_status_returns_400() {
 }
 
 // =============================================================================
+// Review gate: in_progress -> done returns HTTP 400
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_transition_in_progress_to_done_returns_400() {
+    let app = test_app().await;
+    let task_id = create_task(&app).await;
+
+    let response = post_transition(&app, &task_id, "todo").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = post_transition(&app, &task_id, "in_progress").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = post_transition(&app, &task_id, "done").await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = json_body(response).await;
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("invalid_transition"),
+        "error should mention invalid_transition, got: {}",
+        body["error"]
+    );
+}
+
+// =============================================================================
+// Review gate: in_progress -> review -> done returns HTTP 200
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_transition_review_gate_returns_200() {
+    let app = test_app().await;
+    let task_id = create_task(&app).await;
+
+    let response = post_transition(&app, &task_id, "todo").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = post_transition(&app, &task_id, "in_progress").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = post_transition(&app, &task_id, "review").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["status"], "review");
+
+    let response = post_transition(&app, &task_id, "done").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["task_id"], task_id);
+    assert_eq!(body["status"], "done");
+}
+
+// =============================================================================
+// review -> backlog returns HTTP 200
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn post_transition_review_to_backlog_returns_200() {
+    let app = test_app().await;
+    let task_id = create_task(&app).await;
+
+    let response = post_transition(&app, &task_id, "todo").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = post_transition(&app, &task_id, "in_progress").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = post_transition(&app, &task_id, "review").await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = post_transition(&app, &task_id, "backlog").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["status"], "backlog");
+}
+
+// =============================================================================
 // OpenAPI registration
 // =============================================================================
 
