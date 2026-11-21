@@ -138,7 +138,7 @@ async fn test_export_includes_deleted_at_and_import_preserves_tombstone() {
 
     db2.sync().import_all(temp_dir.path()).await.unwrap();
 
-    let deleted_at = crate::helpers::read_deleted_at(db2.pool(), "project", "projtomb").await;
+    let deleted_at = crate::support::read_deleted_at(db2.pool(), "project", "projtomb").await;
     assert!(
         deleted_at.is_some(),
         "import must preserve the deleted_at tombstone"

@@ -1,5 +1,5 @@
 use crate::SqliteDatabase;
-use crate::helpers::count_rows;
+use crate::support::count_rows;
 use context_core::{
     Database, HasTaskLists, HasTasks, PageSort, SortOrder, Task, TaskList, TaskListRepository,
     TaskListStatus, TaskQuery, TaskRepository, TaskStatus, generate_entity_id,

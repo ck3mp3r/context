@@ -315,63 +315,22 @@ impl std::str::FromStr for TaskStatus {
     }
 }
 
-/// The linear workflow order of active statuses.
-const WORKFLOW: [TaskStatus; 5] = [
-    TaskStatus::Backlog,
-    TaskStatus::Todo,
-    TaskStatus::InProgress,
-    TaskStatus::Review,
-    TaskStatus::Done,
-];
-
 impl TaskStatus {
-    /// Position of this status in the linear workflow
-    /// `backlog -> todo -> in_progress -> review -> done`.
-    /// Returns `None` for the side-state `cancelled`.
-    pub fn workflow_position(&self) -> Option<usize> {
-        WORKFLOW.iter().position(|status| status == self)
-    }
-
-    /// Returns `true` for terminal states (`done`, `cancelled`).
-    pub fn is_terminal(&self) -> bool {
-        matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
-    }
-
-    /// Returns `true` for non-terminal states.
-    pub fn is_active(&self) -> bool {
-        !self.is_terminal()
-    }
-
-    /// The next status in the linear workflow, if any.
-    pub fn forward_step(&self) -> Option<TaskStatus> {
-        let position = self.workflow_position()?;
-        WORKFLOW.get(position + 1).cloned()
-    }
-
-    /// The previous status in the linear workflow, if any.
-    pub fn backward_step(&self) -> Option<TaskStatus> {
-        let position = self.workflow_position()?;
-        position
-            .checked_sub(1)
-            .and_then(|p| WORKFLOW.get(p))
-            .cloned()
-    }
-
-    /// The status reached by skipping one forward step, if policy allows it.
-    /// Only `backlog -> in_progress` and `in_progress -> done` are permitted.
-    pub fn expedite_forward(&self) -> Option<TaskStatus> {
-        match self {
-            TaskStatus::Backlog => Some(TaskStatus::InProgress),
-            TaskStatus::InProgress => Some(TaskStatus::Done),
-            TaskStatus::Todo | TaskStatus::Review | TaskStatus::Done | TaskStatus::Cancelled => {
-                None
-            }
+    /// Returns `true` when the transition guard rules permit a transition from
+    /// this status to `target`.
+    ///
+    /// `done` is reachable only from `review`, and `review` is reachable only
+    /// from `in_progress`. Every other transition between distinct statuses is
+    /// allowed, and a transition to the same status is allowed.
+    pub fn can_transition_to(&self, target: TaskStatus) -> bool {
+        match target {
+            TaskStatus::Done => matches!(self, TaskStatus::Review | TaskStatus::Done),
+            TaskStatus::Review => matches!(self, TaskStatus::InProgress | TaskStatus::Review),
+            TaskStatus::Backlog
+            | TaskStatus::Todo
+            | TaskStatus::InProgress
+            | TaskStatus::Cancelled => true,
         }
-    }
-
-    /// All non-terminal statuses, in workflow order.
-    pub fn active_states() -> Vec<TaskStatus> {
-        WORKFLOW[..4].to_vec()
     }
 }
 

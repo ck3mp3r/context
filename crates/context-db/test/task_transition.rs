@@ -1,8 +1,8 @@
 use crate::SqliteDatabase;
-use crate::helpers::read_deleted_at;
+use crate::support::read_deleted_at;
 use context_core::{
-    Database, HasTaskLists, HasTasks, HasTransitionLogs, Task, TaskList, TaskListRepository,
-    TaskListStatus, TaskRepository, TaskStatus,
+    Database, DbError, HasTaskLists, HasTasks, HasTransitionLogs, Task, TaskList,
+    TaskListRepository, TaskListStatus, TaskRepository, TaskStatus,
 };
 
 async fn setup_db() -> SqliteDatabase {
@@ -64,6 +64,76 @@ fn make_task(id: &str, list_id: &str, title: &str) -> Task {
 // =============================================================================
 // Bulk Task Transition Tests
 // =============================================================================
+
+async fn create_task_with_status(
+    db: &SqliteDatabase,
+    list_id: &str,
+    id: &str,
+    status: TaskStatus,
+) -> Task {
+    let mut task = make_task(id, list_id, "Transition Pair Task");
+    task.status = status;
+    db.tasks()
+        .create(&task)
+        .await
+        .expect("Create task should succeed")
+}
+
+async fn assert_transition_allowed(
+    db: &SqliteDatabase,
+    list_id: &str,
+    id: &str,
+    from: TaskStatus,
+    to: TaskStatus,
+) {
+    let created = create_task_with_status(db, list_id, id, from.clone()).await;
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), to.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{from:?} -> {to:?} must be allowed: {e}"));
+
+    let fetched = db.tasks().get(id).await.expect("Get task should succeed");
+    assert_eq!(fetched.status, to, "{from:?} -> {to:?} must apply");
+
+    let logs = db
+        .transition_logs()
+        .list_by_task_id(id)
+        .await
+        .expect("List transition logs should succeed");
+    assert!(
+        logs.iter().any(|log| log.status == to),
+        "{from:?} -> {to:?} must log the target status"
+    );
+}
+
+async fn assert_transition_forbidden(
+    db: &SqliteDatabase,
+    list_id: &str,
+    id: &str,
+    from: TaskStatus,
+    to: TaskStatus,
+    rule_source: &str,
+) {
+    let created = create_task_with_status(db, list_id, id, from.clone()).await;
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), to.clone())
+        .await;
+
+    match result {
+        Err(DbError::Validation { message }) => {
+            assert!(
+                message.starts_with("invalid_transition:"),
+                "{from:?} -> {to:?} must keep the prefix: {message}"
+            );
+            assert!(
+                message.contains(rule_source),
+                "{from:?} -> {to:?} must name '{rule_source}': {message}"
+            );
+        }
+        other => panic!("{from:?} -> {to:?} must fail validation, got: {other:?}"),
+    }
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn transition_tasks_success() {
@@ -397,13 +467,27 @@ async fn test_task_transition_logs_state_change() {
         .unwrap();
     assert_eq!(transitions.len(), 3, "Should have 3 transitions");
 
+    // Transition to review
+    db.tasks()
+        .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Review)
+        .await
+        .unwrap();
+
+    // Should have 4 transitions now
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&created.id)
+        .await
+        .unwrap();
+    assert_eq!(transitions.len(), 4, "Should have 4 transitions");
+
     // Transition to done
     db.tasks()
         .transition_tasks(std::slice::from_ref(&created.id), TaskStatus::Done)
         .await
         .unwrap();
 
-    // Should have 4 transitions - complete history
+    // Should have 5 transitions - complete history
     let transitions = db
         .transition_logs()
         .list_by_task_id(&created.id)
@@ -411,7 +495,7 @@ async fn test_task_transition_logs_state_change() {
         .unwrap();
     assert_eq!(
         transitions.len(),
-        4,
+        5,
         "Should have complete transition history"
     );
 
@@ -428,6 +512,10 @@ async fn test_task_transition_logs_state_change() {
     assert!(
         statuses.contains(&TaskStatus::InProgress),
         "Should have InProgress transition"
+    );
+    assert!(
+        statuses.contains(&TaskStatus::Review),
+        "Should have Review transition"
     );
     assert!(
         statuses.contains(&TaskStatus::Done),
@@ -805,6 +893,18 @@ async fn transition_same_status_is_noop() {
     // Status should still be backlog
     let fetched = db.tasks().get(&task.id).await.unwrap();
     assert_eq!(fetched.status, TaskStatus::Backlog);
+
+    // No-op must not add a transition log entry
+    let transitions = db
+        .transition_logs()
+        .list_by_task_id(&task.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        transitions.len(),
+        1,
+        "Same-status transition must not log a new entry"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -815,9 +915,9 @@ async fn transition_done_blocked_by_in_flight_subtasks() {
         .await
         .unwrap();
 
-    // Create parent task in in_progress
+    // Create parent task in review
     let mut parent = make_task("grdpar01", "grdlist2", "Parent");
-    parent.status = TaskStatus::InProgress;
+    parent.status = TaskStatus::Review;
     db.tasks().create(&parent).await.unwrap();
 
     // Create subtask still in_progress
@@ -834,7 +934,7 @@ async fn transition_done_blocked_by_in_flight_subtasks() {
     assert!(result.is_err(), "Should be blocked by in-flight subtask");
     let err = result.unwrap_err().to_string();
     assert!(
-        err.contains("in flight") || err.contains("subtask"),
+        err.contains("subtask"),
         "Error should mention subtasks: {err}"
     );
 }
@@ -872,7 +972,7 @@ async fn transition_done_allowed_when_subtasks_completed() {
         .unwrap();
 
     let mut parent = make_task("grdpar03", "grdlist4", "Parent");
-    parent.status = TaskStatus::InProgress;
+    parent.status = TaskStatus::Review;
     db.tasks().create(&parent).await.unwrap();
 
     // Subtask is already done
@@ -890,4 +990,128 @@ async fn transition_done_allowed_when_subtasks_completed() {
         result.is_ok(),
         "Should allow done when all subtasks complete"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_cancelled_blocked_by_reopened_subtask() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist5", "Guardrail List 5"))
+        .await
+        .unwrap();
+
+    let mut parent = make_task("grdpar04", "grdlist5", "Parent");
+    parent.status = TaskStatus::Done;
+    db.tasks().create(&parent).await.unwrap();
+
+    // Subtask was reopened
+    let mut subtask = make_task("grdsub04", "grdlist5", "Subtask");
+    subtask.parent_id = Some("grdpar04".to_string());
+    subtask.status = TaskStatus::Todo;
+    db.tasks().create(&subtask).await.unwrap();
+
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&parent.id), TaskStatus::Cancelled)
+        .await;
+    assert!(
+        result.is_err(),
+        "Should be blocked by reopened subtask when targeting cancelled"
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("subtask"),
+        "Error should mention subtasks: {err}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_cancelled_allowed_when_subtasks_completed() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("grdlist6", "Guardrail List 6"))
+        .await
+        .unwrap();
+
+    let mut parent = make_task("grdpar05", "grdlist6", "Parent");
+    parent.status = TaskStatus::Done;
+    db.tasks().create(&parent).await.unwrap();
+
+    let mut subtask = make_task("grdsub05", "grdlist6", "Subtask");
+    subtask.parent_id = Some("grdpar05".to_string());
+    subtask.status = TaskStatus::Done;
+    db.tasks().create(&subtask).await.unwrap();
+
+    let result = db
+        .tasks()
+        .transition_tasks(std::slice::from_ref(&parent.id), TaskStatus::Cancelled)
+        .await;
+    assert!(
+        result.is_ok(),
+        "Should allow cancelled when all subtasks complete"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_forbidden_pairs_fail_with_rule_message() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("fbdlist1", "Forbidden Pairs"))
+        .await
+        .unwrap();
+
+    let forbidden = [
+        (TaskStatus::Backlog, TaskStatus::Done, "review"),
+        (TaskStatus::Todo, TaskStatus::Done, "review"),
+        (TaskStatus::InProgress, TaskStatus::Done, "review"),
+        (TaskStatus::Cancelled, TaskStatus::Done, "review"),
+        (TaskStatus::Backlog, TaskStatus::Review, "in_progress"),
+        (TaskStatus::Todo, TaskStatus::Review, "in_progress"),
+        (TaskStatus::Done, TaskStatus::Review, "in_progress"),
+        (TaskStatus::Cancelled, TaskStatus::Review, "in_progress"),
+    ];
+
+    for (index, (from, to, rule_source)) in forbidden.into_iter().enumerate() {
+        let id = format!("fbdtsk{:02}", index + 1);
+        assert_transition_forbidden(&db, "fbdlist1", &id, from, to, rule_source).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn transition_allowed_pairs_succeed_and_log() {
+    let db = setup_db().await;
+    db.task_lists()
+        .create(&make_task_list("alwlist1", "Allowed Pairs"))
+        .await
+        .unwrap();
+
+    let allowed = [
+        (TaskStatus::Backlog, TaskStatus::Todo),
+        (TaskStatus::Backlog, TaskStatus::InProgress),
+        (TaskStatus::Backlog, TaskStatus::Cancelled),
+        (TaskStatus::Todo, TaskStatus::Backlog),
+        (TaskStatus::Todo, TaskStatus::InProgress),
+        (TaskStatus::Todo, TaskStatus::Cancelled),
+        (TaskStatus::InProgress, TaskStatus::Backlog),
+        (TaskStatus::InProgress, TaskStatus::Todo),
+        (TaskStatus::InProgress, TaskStatus::Review),
+        (TaskStatus::InProgress, TaskStatus::Cancelled),
+        (TaskStatus::Review, TaskStatus::Backlog),
+        (TaskStatus::Review, TaskStatus::Todo),
+        (TaskStatus::Review, TaskStatus::InProgress),
+        (TaskStatus::Review, TaskStatus::Done),
+        (TaskStatus::Review, TaskStatus::Cancelled),
+        (TaskStatus::Done, TaskStatus::Backlog),
+        (TaskStatus::Done, TaskStatus::Todo),
+        (TaskStatus::Done, TaskStatus::InProgress),
+        (TaskStatus::Done, TaskStatus::Cancelled),
+        (TaskStatus::Cancelled, TaskStatus::Backlog),
+        (TaskStatus::Cancelled, TaskStatus::Todo),
+        (TaskStatus::Cancelled, TaskStatus::InProgress),
+    ];
+
+    for (index, (from, to)) in allowed.into_iter().enumerate() {
+        let id = format!("alwtsk{:02}", index + 1);
+        assert_transition_allowed(&db, "alwlist1", &id, from, to).await;
+    }
 }

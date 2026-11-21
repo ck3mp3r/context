@@ -93,87 +93,76 @@ description: Deploy applications to Kubernetes cluster
 }
 
 #[test]
-fn test_task_status_workflow_position() {
-    assert_eq!(TaskStatus::Backlog.workflow_position(), Some(0));
-    assert_eq!(TaskStatus::Todo.workflow_position(), Some(1));
-    assert_eq!(TaskStatus::InProgress.workflow_position(), Some(2));
-    assert_eq!(TaskStatus::Review.workflow_position(), Some(3));
-    assert_eq!(TaskStatus::Done.workflow_position(), Some(4));
-    assert_eq!(TaskStatus::Cancelled.workflow_position(), None);
+fn test_task_status_can_transition_to_forbidden_pairs() {
+    let forbidden = [
+        (TaskStatus::Backlog, TaskStatus::Done),
+        (TaskStatus::Backlog, TaskStatus::Review),
+        (TaskStatus::Todo, TaskStatus::Done),
+        (TaskStatus::Todo, TaskStatus::Review),
+        (TaskStatus::InProgress, TaskStatus::Done),
+        (TaskStatus::Done, TaskStatus::Review),
+        (TaskStatus::Cancelled, TaskStatus::Done),
+        (TaskStatus::Cancelled, TaskStatus::Review),
+    ];
+
+    for (source, target) in forbidden {
+        assert!(
+            !source.can_transition_to(target.clone()),
+            "{source} -> {target} must be forbidden"
+        );
+    }
 }
 
 #[test]
-fn test_task_status_is_terminal_and_is_active() {
-    assert!(!TaskStatus::Backlog.is_terminal());
-    assert!(!TaskStatus::Todo.is_terminal());
-    assert!(!TaskStatus::InProgress.is_terminal());
-    assert!(!TaskStatus::Review.is_terminal());
-    assert!(TaskStatus::Done.is_terminal());
-    assert!(TaskStatus::Cancelled.is_terminal());
+fn test_task_status_can_transition_to_identity() {
+    let statuses = [
+        TaskStatus::Backlog,
+        TaskStatus::Todo,
+        TaskStatus::InProgress,
+        TaskStatus::Review,
+        TaskStatus::Done,
+        TaskStatus::Cancelled,
+    ];
 
-    assert!(TaskStatus::Backlog.is_active());
-    assert!(TaskStatus::Review.is_active());
-    assert!(!TaskStatus::Done.is_active());
-    assert!(!TaskStatus::Cancelled.is_active());
+    for status in statuses {
+        assert!(
+            status.can_transition_to(status.clone()),
+            "{status} -> {status} must be allowed"
+        );
+    }
 }
 
 #[test]
-fn test_task_status_forward_step() {
-    assert_eq!(TaskStatus::Backlog.forward_step(), Some(TaskStatus::Todo));
-    assert_eq!(
-        TaskStatus::Todo.forward_step(),
-        Some(TaskStatus::InProgress)
-    );
-    assert_eq!(
-        TaskStatus::InProgress.forward_step(),
-        Some(TaskStatus::Review)
-    );
-    assert_eq!(TaskStatus::Review.forward_step(), Some(TaskStatus::Done));
-    assert_eq!(TaskStatus::Done.forward_step(), None);
-    assert_eq!(TaskStatus::Cancelled.forward_step(), None);
-}
+fn test_task_status_can_transition_to_allowed_pairs() {
+    let allowed = [
+        (TaskStatus::Backlog, TaskStatus::Todo),
+        (TaskStatus::Backlog, TaskStatus::InProgress),
+        (TaskStatus::Backlog, TaskStatus::Cancelled),
+        (TaskStatus::Todo, TaskStatus::Backlog),
+        (TaskStatus::Todo, TaskStatus::InProgress),
+        (TaskStatus::Todo, TaskStatus::Cancelled),
+        (TaskStatus::InProgress, TaskStatus::Backlog),
+        (TaskStatus::InProgress, TaskStatus::Todo),
+        (TaskStatus::InProgress, TaskStatus::Review),
+        (TaskStatus::InProgress, TaskStatus::Cancelled),
+        (TaskStatus::Review, TaskStatus::Backlog),
+        (TaskStatus::Review, TaskStatus::Todo),
+        (TaskStatus::Review, TaskStatus::InProgress),
+        (TaskStatus::Review, TaskStatus::Done),
+        (TaskStatus::Review, TaskStatus::Cancelled),
+        (TaskStatus::Done, TaskStatus::Backlog),
+        (TaskStatus::Done, TaskStatus::Todo),
+        (TaskStatus::Done, TaskStatus::InProgress),
+        (TaskStatus::Done, TaskStatus::Cancelled),
+        (TaskStatus::Cancelled, TaskStatus::Backlog),
+        (TaskStatus::Cancelled, TaskStatus::Todo),
+        (TaskStatus::Cancelled, TaskStatus::InProgress),
+    ];
 
-#[test]
-fn test_task_status_backward_step() {
-    assert_eq!(TaskStatus::Backlog.backward_step(), None);
-    assert_eq!(TaskStatus::Todo.backward_step(), Some(TaskStatus::Backlog));
-    assert_eq!(
-        TaskStatus::InProgress.backward_step(),
-        Some(TaskStatus::Todo)
-    );
-    assert_eq!(
-        TaskStatus::Review.backward_step(),
-        Some(TaskStatus::InProgress)
-    );
-    assert_eq!(TaskStatus::Done.backward_step(), Some(TaskStatus::Review));
-    assert_eq!(TaskStatus::Cancelled.backward_step(), None);
-}
-
-#[test]
-fn test_task_status_expedite_forward() {
-    assert_eq!(
-        TaskStatus::Backlog.expedite_forward(),
-        Some(TaskStatus::InProgress)
-    );
-    assert_eq!(
-        TaskStatus::InProgress.expedite_forward(),
-        Some(TaskStatus::Done)
-    );
-    assert_eq!(TaskStatus::Todo.expedite_forward(), None);
-    assert_eq!(TaskStatus::Review.expedite_forward(), None);
-    assert_eq!(TaskStatus::Done.expedite_forward(), None);
-    assert_eq!(TaskStatus::Cancelled.expedite_forward(), None);
-}
-
-#[test]
-fn test_task_status_active_states() {
-    assert_eq!(
-        TaskStatus::active_states(),
-        vec![
-            TaskStatus::Backlog,
-            TaskStatus::Todo,
-            TaskStatus::InProgress,
-            TaskStatus::Review,
-        ]
-    );
+    for (source, target) in allowed {
+        assert!(
+            source.can_transition_to(target.clone()),
+            "{source} -> {target} must be allowed"
+        );
+    }
 }

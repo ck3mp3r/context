@@ -396,6 +396,16 @@ async fn test_task_status_transitions() {
         .await
         .expect("Transition failed");
 
+    // Transition: in_progress -> review
+    transition_task(&api_client, &[task_id.to_string()], "review")
+        .await
+        .expect("Transition to review failed");
+    let in_review = serde_json::from_str::<serde_json::Value>(
+        &get_task(&api_client, task_id, "json").await.unwrap(),
+    )
+    .unwrap();
+    assert_eq!(in_review["status"], "review");
+
     // Transition to done
     transition_task(&api_client, &[task_id.to_string()], "done")
         .await

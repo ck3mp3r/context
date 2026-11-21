@@ -1,5 +1,5 @@
 use crate::SqliteDatabase;
-use crate::helpers::{read_deleted_at, read_updated_at};
+use crate::support::{read_deleted_at, read_updated_at};
 use context_core::{Database, HasNotes, Note, NoteRepository};
 
 async fn setup_db() -> SqliteDatabase {

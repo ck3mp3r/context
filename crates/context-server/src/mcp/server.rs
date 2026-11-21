@@ -284,7 +284,7 @@ impl<D: Database + 'static> McpServer<D> {
     }
 
     #[tool(
-        description = "Transition task between statuses. Cascades to subtasks with matching status. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]."
+        description = "Transition task between statuses. Cascades to subtasks with matching status. A transition to done is allowed only from review; a transition to review is allowed only from in_progress. Every other status change is allowed. A transition to the current status is a silent no-op. Blocked if subtasks are still in flight when targeting done/cancelled."
     )]
     pub async fn task_transition(
         &self,

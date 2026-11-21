@@ -1,7 +1,7 @@
 //! Tests for SqliteNoteRepository.
 
 use crate::SqliteDatabase;
-use crate::helpers::count_rows;
+use crate::support::count_rows;
 use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository};
 
 fn generate_id() -> String {

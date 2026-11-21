@@ -63,23 +63,24 @@ A task that can be completed by a developer agent in one session is the right si
 
 ### Task Transitions
 
-State machine: `backlog → todo → in_progress → review → done`
+State machine: two guards — `done` is reachable only from `review`, and `review` is reachable only from `in_progress`. Every other status change is allowed.
 
 Key rules:
 - **Same status**: a transition to the current status is a silent no-op
-- **Skip states**: you cannot skip `in_progress` — `backlog` and `todo` cannot transition directly to `done`
+- **Review gate**: `done` requires the task to have passed through `review`, and `review` requires `in_progress`
 - **In-flight subtasks**: a parent task cannot transition to `done` or `cancelled` while any subtask is still `todo`, `in_progress`, or `review` — transition or cancel the subtasks first
 - **Parent promotion**: when a subtask transitions to `in_progress` or `review`, the response will remind you if the parent is still in `backlog` or `todo` — transition the parent to `in_progress`
-- **Real-time updates**: transition a task to `in_progress` when you start it, and to `done` when you complete it — do not batch transitions
+- **Real-time updates**: transition a task to `in_progress` when you start it, and to `review` when you complete it — do not batch transitions
 
 Allowed transitions:
 | From | To |
 |------|----|
 | `backlog` | `todo`, `in_progress`, `cancelled` |
 | `todo` | `backlog`, `in_progress`, `cancelled` |
-| `in_progress` | `todo`, `review`, `done`, `cancelled` |
-| `review` | `in_progress`, `done`, `cancelled` |
-| `done` / `cancelled` | `backlog`, `todo`, `in_progress`, `review` |
+| `in_progress` | `backlog`, `todo`, `review`, `cancelled` |
+| `review` | `backlog`, `todo`, `in_progress`, `done`, `cancelled` |
+| `done` | `backlog`, `todo`, `in_progress`, `cancelled` |
+| `cancelled` | `backlog`, `todo`, `in_progress` |
 
 ### Task Workflow Pattern
 
@@ -89,7 +90,7 @@ Allowed transitions:
 3. task_create — add tasks with priority 1-5
 4. task_create (parent_id=...) — add subtasks (1 level only)
 5. task_transition → in_progress — when starting a task
-6. task_transition → done — when complete
+6. task_transition → review — when your work is complete; the reviewer moves the task to `done`
 7. task_list_stats_get — check progress
 ```
 

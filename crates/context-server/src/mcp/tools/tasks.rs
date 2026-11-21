@@ -293,7 +293,7 @@ impl<D: HasTasks + 'static> TaskTools<D> {
     }
 
     #[tool(
-        description = "Transition task between statuses. No-ops silently if already at target. Transitions: backlog→[todo,in_progress,cancelled], todo→[backlog,in_progress,cancelled], in_progress→[todo,review,done,cancelled], review→[in_progress,done,cancelled], done/cancelled→[backlog,todo,in_progress,review]. Blocked if subtasks are still in flight when targeting done/cancelled. Max task depth is 1 level (subtasks cannot have subtasks)."
+        description = "Transition task between statuses. A transition to done is allowed only from review; a transition to review is allowed only from in_progress. Every other status change is allowed. A transition to the current status is a silent no-op. Blocked if subtasks are still in flight when targeting done/cancelled. Max task depth is 1 level (subtasks cannot have subtasks)."
     )]
     pub async fn task_transition(
         &self,

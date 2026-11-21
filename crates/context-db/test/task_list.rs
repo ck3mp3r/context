@@ -1,7 +1,7 @@
 //! Tests for SqliteTaskListRepository FTS5 search.
 
 use crate::SqliteDatabase;
-use crate::helpers::{count_rows, read_deleted_at, read_updated_at};
+use crate::support::{count_rows, read_deleted_at, read_updated_at};
 use context_core::{
     Database, HasProjects, HasTaskLists, HasTasks, Project, ProjectRepository, Task, TaskList,
     TaskListQuery, TaskListRepository, TaskListStatus, TaskRepository, TaskStatus,
