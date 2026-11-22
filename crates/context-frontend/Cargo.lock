@@ -273,7 +273,6 @@ dependencies = [
  "js-sys",
  "leptos",
  "leptos-use",
- "leptos_meta",
  "leptos_router",
  "pulldown-cmark",
  "serde",
@@ -1152,21 +1151,6 @@ dependencies = [
  "server_fn_macro",
  "syn 3.0.9",
  "uuid",
-]
-
-[[package]]
-name = "leptos_meta"
-version = "0.8.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "987b1a07addba2647da43c0689408cccc0f428236b714ea606127b9e347d35d8"
-dependencies = [
- "futures",
- "indexmap",
- "leptos",
- "or_poisoned",
- "send_wrapper",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]
