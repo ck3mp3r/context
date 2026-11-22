@@ -117,6 +117,78 @@
     echo "  xcrun stapler validate $dmg"
     echo "  spctl --assess --type open --verbose --context context:primary-signature $dmg"
   '';
+  # The window loads the SPA from the trunk dev server, so a missing 8080 is a
+  # dead window: refuse before cargo builds anything. Both 3738 states are
+  # valid, so that probe reports the mode instead of refusing.
+  dev = pkgs.writeShellScriptBin "dev" ''
+    set -euo pipefail
+
+    # the app crate and the Apple toolchain are macOS-only
+    if [ "$(uname -s)" != "Darwin" ]; then
+      echo "dev: macOS only — the app crate needs the Apple toolchain" >&2
+      exit 1
+    fi
+
+    # the port probes below are only meaningful when lsof exists: fail closed
+    if ! command -v lsof >/dev/null 2>&1; then
+      echo "dev: lsof is required but not found in PATH" >&2
+      exit 1
+    fi
+
+    # the window loads the SPA from the trunk dev server: no trunk, dead window
+    if ! lsof -nP -iTCP:8080 -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "dev: nothing serves 8080 — run 'serve' first" >&2
+      echo "dev: the app window loads its SPA from the trunk dev server" >&2
+      exit 1
+    fi
+
+    # both 3738 states work: say which one this launch gets
+    if lsof -nP -iTCP:3738 -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "dev: 3738 is held — the app attaches to it; quitting the app leaves 3738 taken"
+    else
+      echo "dev: the app starts its own server on 3738; it dies with the app"
+    fi
+
+    exec cargo tauri dev
+  '';
+  # The app window loads the SPA from here, so refuse a second instance before
+  # trunk fails on the busy port.
+  serve = pkgs.writeShellScriptBin "serve" ''
+    set -euo pipefail
+
+    # the port probe below is only meaningful when lsof exists: fail closed
+    if ! command -v lsof >/dev/null 2>&1; then
+      echo "serve: lsof is required but not found in PATH" >&2
+      exit 1
+    fi
+
+    if lsof -nP -iTCP:8080 -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "serve: 8080 is already served — a 'trunk serve' is already running" >&2
+      echo "serve: use that one, or stop it first" >&2
+      exit 1
+    fi
+
+    exec trunk serve
+  '';
+  # The app and the headless server share 3738: run one or the other, so
+  # refuse when the port is taken instead of racing the app.
+  api = pkgs.writeShellScriptBin "api" ''
+    set -euo pipefail
+
+    # the port probe below is only meaningful when lsof exists: fail closed
+    if ! command -v lsof >/dev/null 2>&1; then
+      echo "api: lsof is required but not found in PATH" >&2
+      exit 1
+    fi
+
+    if lsof -nP -iTCP:3738 -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "api: 3738 is already in use — run one or the other" >&2
+      echo "api: stop the app (it holds 3738) or the headless server first" >&2
+      exit 1
+    fi
+
+    exec cargo run --bin c5t api
+  '';
 in
   pkgs.mkShellNoCC {
     name = "context-dev";
@@ -148,6 +220,9 @@ in
       build
       coverage
       release
+      dev
+      serve
+      api
     ];
 
     shellHook = ''
@@ -166,20 +241,27 @@ in
       echo "  build    - Build release binary (trunk build --release, then cargo build --release)"
       echo "  coverage - Run workspace coverage (HTML report in coverage/)"
       echo "  release  - Build, notarize and staple the dmg (needs APPLE_API_* credentials)"
+      echo "  dev      - Start the desktop app (needs 'serve' running on 8080)"
+      echo "  serve    - Start the Trunk dev server on 8080"
+      echo "  api      - Start the headless REST and MCP server on 3738"
       echo ""
       echo "The app crate 'context' is macOS-only, so tests, check, clippy,"
       echo "build, and coverage skip it with --exclude context on other systems."
       echo ""
       echo "Desktop app (macOS only), run from this shell:"
-      echo "  cargo tauri dev"
-      echo "    Runs as a misc-window pane beside 'trunk serve'. The app starts the"
-      echo "    REST and MCP server in-process on 127.0.0.1:3738 and loads the SPA"
-      echo "    from the trunk dev server on 127.0.0.1:8080. The server lives and"
-      echo "    dies with the app, so quitting the app frees 3738."
-      echo "    Headless server work: stop the app pane, then run"
-      echo "    'cargo run --bin c5t api' in a spare pane — same port, same dev"
-      echo "    database. Run one or the other: if both run, the app attaches to"
-      echo "    the headless server and quitting the app leaves 3738 taken."
+      echo "  serve"
+      echo "    Starts the Trunk dev server on 127.0.0.1:8080. Run it in one pane;"
+      echo "    the app window loads the SPA from there, so start it first."
+      echo "  dev"
+      echo "    Starts the app in a second pane. With 3738 free the app starts the"
+      echo "    REST and MCP server in-process on 127.0.0.1:3738, and the server"
+      echo "    lives and dies with the app, so quitting the app frees 3738."
+      echo "  api"
+      echo "    Starts the headless REST and MCP server on 127.0.0.1:3738 from a"
+      echo "    debug build — same port, same dev database. Headless server work:"
+      echo "    stop the app pane, then run this in a spare pane. Run one or the"
+      echo "    other: if both run, the app attaches to the headless server and"
+      echo "    quitting the app leaves 3738 taken."
       echo "  cargo tauri build"
       echo "    Release bundle. Run 'trunk build --release' first so the bundle"
       echo "    embeds the real SPA instead of the fresh-clone stub."
