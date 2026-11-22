@@ -24,12 +24,20 @@ Welcome to **c5t** (context) - a task management and knowledge tracking system d
 
 ### Option 1: Homebrew (Easiest for macOS/Linux)
 
+The formula installs the `c5t` CLI:
+
 ```bash
 brew tap ck3mp3r/context
 brew install ck3mp3r/context/context
 ```
 
 Supports: macOS Apple Silicon, Linux x86_64, Linux ARM64
+
+The cask installs the desktop app into `/Applications` on macOS Apple Silicon:
+
+```bash
+brew install --cask ck3mp3r/context/context
+```
 
 ### Option 2: Nix (Recommended for Developers)
 

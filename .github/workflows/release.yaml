@@ -120,6 +120,34 @@ jobs:
           cp result/context-cli.sha256 ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.sha256
           cp result/context-cli-nix.sha256 ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}-nix.sha256
 
+      - name: Build, sign, and notarize the app dmg
+        if: ${{ matrix.nix_system == 'aarch64-darwin' }}
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          VERSION=${{ needs.prep-release.outputs.version }}
+          # notarytool and tauri-bundler both read the .p8 key from
+          # APPLE_API_KEY_PATH; the secret carries its content base64-encoded
+          # so it survives as a single line.
+          APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$APPLE_API_KEY_PATH"
+          export APPLE_API_KEY_PATH
+
+          nix develop -c release
+
+          # The flow names assets context-<version>-<target>; the helper leaves
+          # tauri's context_<version>_aarch64.dmg under target/release/bundle.
+          cp "target/release/bundle/dmg/context_${VERSION}_aarch64.dmg" "context-${VERSION}-aarch64-darwin.dmg"
+          shasum -a 256 "context-${VERSION}-aarch64-darwin.dmg" \
+            | awk '{print $1}' > "context-${VERSION}-aarch64-darwin.dmg.sha256"
+
       - name: Upload build outputs as artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -128,6 +156,8 @@ jobs:
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.tgz
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.sha256
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}-nix.sha256
+            ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.dmg
+            ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.dmg.sha256
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -214,7 +244,18 @@ jobs:
           # Commit the formula update
           ["Formula/context.rb"] | ci scm commit -m $"Update Homebrew formula for ($version)" --push
 
+          # Update the Homebrew cask for full releases only: the tap serves
+          # stable releases, so a pre-release ships the dmg but leaves it alone.
           if $prerelease != "true" {
+            let dmg_sha = (open $"./artifacts/context-assets-aarch64-darwin/context-($version)-aarch64-darwin.dmg.sha256" | str trim)
+            let dmg_url = $"https://github.com/ck3mp3r/context/releases/download/($release_tag)/context-($version)-aarch64-darwin.dmg"
+            open Casks/context.rb
+              | str replace --all --regex 'version "[^"]+"' $'version "($version)"'
+              | str replace --all --regex 'sha256 "[^"]+"' $'sha256 "($dmg_sha)"'
+              | str replace --all --regex 'url "https://[^"]+"' $'url "($dmg_url)"'
+              | save --force Casks/context.rb
+            ["Casks/context.rb"] | ci scm commit -m $"Update Homebrew cask for ($version)" --push
+
             # Merge release branch to main (idempotent on re-run)
             ci scm merge $branch -m $"Release ($version)" --push
           }
