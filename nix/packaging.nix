@@ -88,6 +88,8 @@
     extraArgs = {
       buildFeatures = ["context-server/embed-frontend"];
       dontCargoUseSystemLibs = true;
+      # the check hook runs workspace-wide cargo test, which compiles the macOS-only context app crate
+      doCheck = false;
     };
   };
 
@@ -111,6 +113,8 @@
     extraArgs = {
       buildFeatures = ["context-server/embed-frontend"];
       dontCargoUseSystemLibs = true;
+      # the check hook runs workspace-wide cargo test, which compiles the macOS-only context app crate
+      doCheck = false;
     };
   };
 
