@@ -42,6 +42,11 @@ fn main() -> tauri::Result<()> {
             lifecycle::request_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            if event.id() == menu::QUIT_ITEM_ID {
+                app.exit(0);
+            }
+        })
         .setup(|app| {
             let port = api_port();
             let health_url = health_url(port);
