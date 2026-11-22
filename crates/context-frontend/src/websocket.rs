@@ -7,7 +7,7 @@ use leptos_use::{UseWebSocketReturn, use_websocket};
 
 use crate::models::UpdateMessage;
 
-// Development: Trunk proxy at /dev/ws forwards to backend ws://localhost:3737/ws
+// Development: Trunk proxy at /dev/ws forwards to backend ws://localhost:3738/ws
 #[cfg(debug_assertions)]
 const WS_URL: &str = "ws://localhost:8080/dev/ws";
 

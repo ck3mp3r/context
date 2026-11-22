@@ -80,7 +80,7 @@ cargo run --bin c5t -- api --skills-dir ~/.agents/skills
 
 ## Configuration
 
-**Port**: Default 3737 (override with `-p` or `--port`)
+**Port**: Default 3737 in release builds, 3738 in debug builds (override with `-p` or `--port`)
 
 **Logging**: Default warn (increase with `-v`, `-vv`, or `-vvv`)
 

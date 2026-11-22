@@ -63,11 +63,11 @@ Run **two processes** for hot reloading:
    - Watches `crates/context-frontend/src/**` for changes
    - Auto-rebuilds WASM on file save
    - Live reloads browser
-   - Proxies `/dev/api/*` → `http://localhost:3737/api/*`
+   - Proxies `/dev/api/*` → `http://localhost:3738/api/*`
 
-2. **Backend API server** (port 3737):
+2. **Backend API server** (port 3738):
    ```sh
-   cargo run --bin c5t -- api --port 3737
+   cargo run --bin c5t -- api --port 3738
    ```
    - Serves REST API at `/api/v1/*`
    - Serves MCP at `/mcp`
@@ -169,11 +169,11 @@ The `serve_frontend()` function handles routing:
 Frontend uses `/dev/api/v1` prefix (configured in `Trunk.toml` proxy):
 ```toml
 [[proxy]]
-backend = "http://localhost:3737"
+backend = "http://localhost:3738"
 rewrite = "/dev"
 ```
 
-Request flow: `fetch('/dev/api/v1/projects')` → Trunk proxy → `http://localhost:3737/api/v1/projects`
+Request flow: `fetch('/dev/api/v1/projects')` → Trunk proxy → `http://localhost:3738/api/v1/projects`
 
 ### Production Mode
 Frontend uses `/api/v1` prefix directly (same origin, no CORS):
