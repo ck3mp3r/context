@@ -30,6 +30,10 @@
       "icons/Square284x284Logo.png",
       "icons/Square310x310Logo.png",
       "icons/StoreLogo.png"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "Developer ID Application: Christian Kemper (ZESFXRA4R8)",
+      "hardenedRuntime": true
+    }
   }
 }
