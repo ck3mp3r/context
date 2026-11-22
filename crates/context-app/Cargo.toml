@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
 context-server = { path = "../context-server", features = ["embed-frontend"] }
 context-core = { path = "../context-core" }
 context-db = { path = "../context-db" }

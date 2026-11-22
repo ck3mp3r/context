@@ -7,12 +7,13 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
-use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 use context_core::{Database, get_db_path};
 use context_db::SqliteDatabase;
 use context_server::api::{self, Config};
+
+mod lifecycle;
 
 #[cfg(test)]
 #[path = "../test/endpoint.rs"]
@@ -35,7 +36,10 @@ const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const HEALTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 
 fn main() -> tauri::Result<()> {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            lifecycle::request_main_window(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let port = api_port();
@@ -51,15 +55,15 @@ fn main() -> tauri::Result<()> {
                 std::process::exit(1);
             }
 
-            let origin: tauri::Url = spa_origin().parse()?;
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(origin))
-                .title("context")
-                .inner_size(1280.0, 800.0)
-                .build()?;
+            lifecycle::create_main_window(app.handle())?;
 
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())?;
+
+    app.run(lifecycle::handle_run_event);
+
+    Ok(())
 }
 
 /// Port selected by the build profile.
@@ -130,23 +134,55 @@ async fn start_server(port: u16, health_url: &str) -> Result<(), String> {
         ..Config::new()
     };
 
+    let (failure_tx, mut failure_rx) = tokio::sync::mpsc::unbounded_channel();
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = api::run(config, db).await {
-            eprintln!("context: API server stopped: {error}");
-        }
+        let failure = match api::run(config, db).await {
+            Ok(()) => "The context server stopped before it became ready.".to_string(),
+            Err(error) => {
+                eprintln!("context: API server stopped: {error}");
+                error.to_string()
+            }
+        };
+        let _ = failure_tx.send(failure);
     });
 
-    let deadline = tokio::time::Instant::now() + HEALTH_TIMEOUT;
-    while tokio::time::Instant::now() < deadline {
-        if probe_health(&client, health_url).await {
+    await_health(&client, health_url, HEALTH_TIMEOUT, &mut failure_rx).await
+}
+
+/// Wait for the server to answer `/health`, or report why it never will.
+///
+/// Stops early with the server's own error, so the operator sees the real
+/// cause — a bind failure, for example — instead of a timeout message.
+async fn await_health(
+    client: &reqwest::Client,
+    health_url: &str,
+    timeout: Duration,
+    failure_rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if probe_health(client, health_url).await {
             return Ok(());
         }
-        tokio::time::sleep(HEALTH_POLL_INTERVAL).await;
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+
+        tokio::select! {
+            failure = failure_rx.recv() => {
+                let cause = failure
+                    .unwrap_or_else(|| "The context server task ended unexpectedly.".to_string());
+                return Err(format!("Failed to start the context server: {cause}"));
+            }
+            () = tokio::time::sleep(HEALTH_POLL_INTERVAL.min(remaining)) => {}
+        }
     }
 
     Err(format!(
         "The context server did not answer {health_url} within {} seconds.",
-        HEALTH_TIMEOUT.as_secs()
+        timeout.as_secs_f64()
     ))
 }
 
