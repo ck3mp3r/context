@@ -157,6 +157,7 @@ services:
 - [API Reference](docs/api.md) - REST API endpoints
 - [MCP Tools](docs/mcp.md) - Model Context Protocol tools
 - [Frontend Architecture](docs/frontend.md) - Leptos WASM UI & build process
+- [Desktop App](docs/app.md) - Build, sign, and notarize the macOS app
 - [Database Schema](docs/schema.md) - SQLite schema and migrations
 - [Sync Guide](docs/sync.md) - Git-based cross-machine synchronization
 
