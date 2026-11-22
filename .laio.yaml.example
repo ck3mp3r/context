@@ -39,8 +39,6 @@ windows:
             commands:
               - command: cargo
                 args:
-                  - run
-                  - --bin
-                  - c5t
-                  - api
+                  - tauri
+                  - dev
           - flex: 4
