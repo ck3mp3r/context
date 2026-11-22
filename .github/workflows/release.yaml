@@ -67,8 +67,54 @@ jobs:
 
           # Create and push the release branch (from the run branch)
           $version | ci scm branch --release --version $version --from "${{ github.ref_name }}" --push
-          # Update workspace package version and refresh Cargo.lock
-          let files = (ci cargo update-version $version)
+          # Update the workspace version and refresh Cargo.lock without
+          # compiling anything. The module helper this replaces refreshed the
+          # lock by compiling the whole workspace, and that now includes the
+          # macOS-only `context` app crate, whose glib-sys build script needs
+          # pkg-config glib-2.0 — absent on this runner. `cargo update -p
+          # <member>` only re-resolves manifests: it rewrites the member's lock
+          # entry and runs no build script, so the step stays compile-free.
+          let cargo_toml = (open Cargo.toml)
+          let members = (
+            $cargo_toml
+            | get workspace.members
+            | each {|dir| open ($dir | path join "Cargo.toml") | get package.name }
+          )
+
+          $cargo_toml
+            | upsert workspace.package.version $version
+            | to toml
+            | save --force Cargo.toml
+
+          for member in $members {
+            cargo update -p $member
+          }
+
+          mut files = ["Cargo.toml" "Cargo.lock"]
+
+          # Excluded crates (the WASM frontend) keep a standalone version and
+          # their own lock file, so bump both to stay in step with the release.
+          for crate_toml_path in (glob crates/*/Cargo.toml) {
+            let rel_path = ($crate_toml_path | path relative-to (pwd))
+            let crate_toml = (open $crate_toml_path)
+            # Skip crates that inherit the version from the workspace
+            # (version.workspace = true parses to a record {workspace: true})
+            let version_field = ($crate_toml | get -o package.version? | default null)
+            let uses_workspace = ($version_field | describe | str starts-with "record")
+            if ($version_field | is-not-empty) and not $uses_workspace {
+              $crate_toml
+                | upsert package.version $version
+                | to toml
+                | save --force $crate_toml_path
+              $files = ($files | append $rel_path)
+
+              let lock_path = ($crate_toml_path | path dirname | path join "Cargo.lock")
+              if ($lock_path | path exists) {
+                cargo update -p ($crate_toml | get package.name) --manifest-path $crate_toml_path
+                $files = ($files | append ($lock_path | path relative-to (pwd)))
+              }
+            }
+          }
           $files | ci scm commit -m $"Prepare release ($version)" --push
           # save --append over a list writes each line with a trailing newline
           [
