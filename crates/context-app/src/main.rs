@@ -14,6 +14,7 @@ use context_db::SqliteDatabase;
 use context_server::api::{self, Config};
 
 mod lifecycle;
+mod menu;
 
 #[cfg(test)]
 #[path = "../test/endpoint.rs"]
@@ -56,6 +57,7 @@ fn main() -> tauri::Result<()> {
             }
 
             lifecycle::create_main_window(app.handle())?;
+            menu::build(app.handle())?;
 
             Ok(())
         })
