@@ -82,7 +82,7 @@ fn main() -> tauri::Result<()> {
 /// Uses `cfg!(debug_assertions)` — the same predicate the data directory uses —
 /// so the app attaches to a server of its own profile and opens its own
 /// database. A debug build never touches the production port.
-fn api_port() -> u16 {
+pub(crate) fn api_port() -> u16 {
     if cfg!(debug_assertions) {
         DEBUG_API_PORT
     } else {
