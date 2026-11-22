@@ -7,6 +7,7 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
+use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 use context_core::{Database, get_db_path};
@@ -66,7 +67,8 @@ fn main() -> tauri::Result<()> {
 
             lifecycle::create_main_window(app.handle())?;
             menu::build(app.handle())?;
-            tray::build(app.handle())?;
+            app.manage(tray::build(app.handle())?);
+            tray::spawn_status_poll(app.handle().clone());
 
             Ok(())
         })
