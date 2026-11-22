@@ -24,7 +24,10 @@
   '';
 
   # Development helper scripts
-  check = pkgs.writeShellScriptBin "check" ''cargo check'';
+  check = pkgs.writeShellScriptBin "check" ''
+    ${platformArgs}
+    exec cargo check $PLATFORM_ARGS "$@"
+  '';
   fmt = pkgs.writeShellScriptBin "fmt" ''cargo fmt'';
   tests = pkgs.writeShellScriptBin "tests" ''
     ${platformArgs}
@@ -38,8 +41,9 @@
   # The frontend must be built first so a release bundle never ships the stub.
   build = pkgs.writeShellScriptBin "build" ''
     set -euo pipefail
+    ${platformArgs}
     trunk build --release
-    exec cargo build --release "$@"
+    exec cargo build --release $PLATFORM_ARGS "$@"
   '';
   coverage = pkgs.writeShellScriptBin "coverage" ''
     ${platformArgs}
@@ -93,8 +97,8 @@ in
       echo "  build    - Build release binary (trunk build --release, then cargo build --release)"
       echo "  coverage - Run workspace coverage (HTML report in coverage/)"
       echo ""
-      echo "The app crate 'context' is macOS-only, so tests, clippy, and coverage"
-      echo "skip it with --exclude context on other systems."
+      echo "The app crate 'context' is macOS-only, so tests, check, clippy,"
+      echo "build, and coverage skip it with --exclude context on other systems."
       echo ""
       echo "Desktop app (macOS only), run from this shell:"
       echo "  cargo tauri dev"
