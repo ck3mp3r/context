@@ -3,15 +3,6 @@
   "productName": "context",
   "identifier": "c5t.kemper.wtf",
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "context",
-        "width": 1280,
-        "height": 800,
-        "url": "http://127.0.0.1:3737/"
-      }
-    ],
     "security": {
       "csp": null
     }
