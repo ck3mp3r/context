@@ -1,13 +1,13 @@
 //! macOS menu bar status item.
 //!
-//! The app keeps serving MCP clients after the window closes, so a closed
-//! window would leave the app reachable only through the dock. The tray gives
-//! the app a permanent handle: it reveals the main window, or quits.
+//! The app is a macOS accessory agent: no Dock icon and no Cmd+Tab entry. A
+//! closed window would leave the app reachable only through the tray, so the
+//! tray gives the app a permanent handle: it reveals the main window, or quits.
 //!
 //! Both actions reuse delivered code. Show calls `lifecycle::request_main_window`,
-//! the same path the dock reopen uses. Quit is a custom item carrying
-//! `menu::QUIT_ITEM_ID`, so it flows into the existing `AppHandle::exit(0)`
-//! handler and never touches the vetoed `terminate:` path.
+//! the same path the single-instance callback takes. Quit is a custom item
+//! carrying `menu::QUIT_ITEM_ID`, so it flows into the existing
+//! `AppHandle::exit(0)` handler and never touches the vetoed `terminate:` path.
 //!
 //! The MCP item is informational: it is disabled, so it renders grayed and a
 //! click is inert. Its label carries the MCP endpoint of the build profile, the

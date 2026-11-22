@@ -1,8 +1,12 @@
 //! Window lifecycle for the desktop shell.
 //!
-//! The app owns one window. Closing it leaves the app and the embedded server
-//! running, because MCP clients keep using the server while the window is
-//! closed. Activating the app again shows a window; quitting ends the process.
+//! The app runs as a macOS accessory agent: it has no Dock icon and no Cmd+Tab
+//! entry, and the menu bar belongs to the frontmost regular app. The window is a
+//! transient view. Closing it leaves the app and the embedded server running,
+//! because MCP clients keep using the server while the window is closed. The
+//! tray's Show and the single-instance callback are the restore paths. The tray
+//! owns the only process exit; every window-closing surface — the application-menu
+//! item, Cmd+Q, Cmd+W, the close button — only closes the view.
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
@@ -42,6 +46,22 @@ pub fn show_main_window(app: &AppHandle) -> WindowResult<()> {
     Ok(())
 }
 
+/// Close the application window, leaving the app and the server running.
+///
+/// `WebviewWindow::close` is the graceful close: it raises the close-requested
+/// event, the same path the predefined close-window item and the close button
+/// take. Closing the last window raises `ExitRequested { code: None }`, which
+/// `handle_run_event` vetoes, so the process survives. A closed window is not an
+/// error — the tray brings it back.
+pub fn close_main_window(app: &AppHandle) -> WindowResult<()> {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Ok(());
+    };
+
+    window.close()?;
+    Ok(())
+}
+
 /// Show the application window on the main thread.
 ///
 /// The single-instance plugin calls its callback on a worker thread, and window
@@ -59,13 +79,14 @@ pub fn request_main_window(app: &AppHandle) {
 }
 
 /// Handle the application events that affect the window lifecycle.
-pub fn handle_run_event(app: &AppHandle, event: RunEvent) {
+///
+/// The app is an accessory agent, so macOS never sends `RunEvent::Reopen`: that
+/// event comes from the Dock's reopen callback, and there is no Dock icon.
+pub fn handle_run_event(_app: &AppHandle, event: RunEvent) {
     match event {
         // Closing the last window must not stop the app: the embedded server
         // keeps serving MCP clients until the user quits.
         RunEvent::ExitRequested { code, api, .. } if code.is_none() => api.prevent_exit(),
-        #[cfg(target_os = "macos")]
-        RunEvent::Reopen { .. } => request_main_window(app),
         _ => {}
     }
 }

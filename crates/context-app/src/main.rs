@@ -47,11 +47,17 @@ fn main() -> tauri::Result<()> {
         .on_menu_event(|app, event| {
             if event.id() == menu::QUIT_ITEM_ID {
                 app.exit(0);
+            } else if event.id() == menu::CLOSE_VIEW_ITEM_ID {
+                close_view(app);
             } else if event.id() == tray::SHOW_ITEM_ID {
                 lifecycle::request_main_window(app);
             }
         })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.handle()
+                .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
+
             let port = api_port();
             let health_url = health_url(port);
 
@@ -77,6 +83,16 @@ fn main() -> tauri::Result<()> {
     app.run(lifecycle::handle_run_event);
 
     Ok(())
+}
+
+/// Close the main window and report a failure without stopping the app.
+///
+/// The application-menu item and its Cmd+Q accelerator land here. A failure to
+/// close the view must not take the service down, so it is logged.
+fn close_view(app: &tauri::AppHandle) {
+    if let Err(error) = lifecycle::close_main_window(app) {
+        eprintln!("context: failed to close the main window: {error}");
+    }
 }
 
 /// Port selected by the build profile.
