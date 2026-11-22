@@ -15,6 +15,7 @@ use context_server::api::{self, Config};
 
 mod lifecycle;
 mod menu;
+mod tray;
 
 #[cfg(test)]
 #[path = "../test/endpoint.rs"]
@@ -45,6 +46,8 @@ fn main() -> tauri::Result<()> {
         .on_menu_event(|app, event| {
             if event.id() == menu::QUIT_ITEM_ID {
                 app.exit(0);
+            } else if event.id() == tray::SHOW_ITEM_ID {
+                lifecycle::request_main_window(app);
             }
         })
         .setup(|app| {
@@ -63,6 +66,7 @@ fn main() -> tauri::Result<()> {
 
             lifecycle::create_main_window(app.handle())?;
             menu::build(app.handle())?;
+            tray::build(app.handle())?;
 
             Ok(())
         })

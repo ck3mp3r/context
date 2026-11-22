@@ -25,8 +25,8 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 const APP_MENU_TITLE: &str = "context";
 /// Label of the About item. Without one, macOS names it after the process.
 const ABOUT_TEXT: &str = "About context";
-/// Label of the Quit item.
-const QUIT_TEXT: &str = "Quit";
+/// Label of the Quit item, shared by the application menu and the tray menu.
+pub const QUIT_TEXT: &str = "Quit";
 /// Id of the Quit item, matched by the menu event handler in `main`.
 pub const QUIT_ITEM_ID: &str = "quit";
 /// Keyboard accelerator of the Quit item.
