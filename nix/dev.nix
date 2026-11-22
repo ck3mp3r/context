@@ -55,6 +55,12 @@
   release = pkgs.writeShellScriptBin "release" ''
     set -euo pipefail
 
+    # the app crate and the Apple toolchain are macOS-only: fail before any build
+    if [ "$(uname -s)" != "Darwin" ]; then
+      echo "release: macOS only — signing and notarization need the Apple toolchain" >&2
+      exit 1
+    fi
+
     # credentials first: never start a long build that cannot be notarized
     missing=()
     for name in APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH; do
@@ -65,6 +71,12 @@
     if [ "''${#missing[@]}" -gt 0 ]; then
       echo "release: missing notarization credentials: ''${missing[*]}" >&2
       echo "release: export APPLE_API_KEY, APPLE_API_ISSUER and APPLE_API_KEY_PATH first" >&2
+      exit 1
+    fi
+
+    # the 8080 preflight below is only meaningful when lsof exists: fail closed
+    if ! command -v lsof >/dev/null 2>&1; then
+      echo "release: lsof is required but not found in PATH" >&2
       exit 1
     fi
 
@@ -85,7 +97,9 @@
     matches=(target/release/bundle/dmg/context*_aarch64.dmg)
     if [ "''${#matches[@]}" -ne 1 ]; then
       echo "release: expected exactly one dmg matching target/release/bundle/dmg/context*_aarch64.dmg, found ''${#matches[@]}:" >&2
-      printf '  %s\n' "''${matches[@]}" >&2
+      if [ "''${#matches[@]}" -gt 0 ]; then
+        printf '  %s\n' "''${matches[@]}" >&2
+      fi
       exit 1
     fi
     dmg="''${matches[0]}"
