@@ -49,6 +49,60 @@
     ${platformArgs}
     exec cargo llvm-cov nextest $PLATFORM_ARGS --html --output-dir coverage/ --ignore-filename-regex "/test/|/test$" "$@"
   '';
+  # `cargo tauri build` notarizes and staples the .app, but its dmg step never
+  # passes `--notarize` to the bundler's dmg script, so the dmg ships unsigned
+  # by the notary service. Submit and staple it here: one command, one release.
+  release = pkgs.writeShellScriptBin "release" ''
+    set -euo pipefail
+
+    # credentials first: never start a long build that cannot be notarized
+    missing=()
+    for name in APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH; do
+      if [ -z "''${!name:-}" ]; then
+        missing+=("$name")
+      fi
+    done
+    if [ "''${#missing[@]}" -gt 0 ]; then
+      echo "release: missing notarization credentials: ''${missing[*]}" >&2
+      echo "release: export APPLE_API_KEY, APPLE_API_ISSUER and APPLE_API_KEY_PATH first" >&2
+      exit 1
+    fi
+
+    # a live trunk serve rewrites dist/ while rust-embed reads it at compile time
+    if lsof -nP -iTCP:8080 -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "release: port 8080 is in use by a running 'trunk serve'" >&2
+      echo "release: trunk serve rewrites dist/ while rust-embed reads it at compile" >&2
+      echo "release: time, so the bundle can embed a half-written SPA. Stop the trunk" >&2
+      echo "release: pane, then rerun release." >&2
+      exit 1
+    fi
+
+    trunk build --release
+    cargo tauri build
+
+    # resolve the dmg before submitting anything to the notary service
+    shopt -s nullglob
+    matches=(target/release/bundle/dmg/context*_aarch64.dmg)
+    if [ "''${#matches[@]}" -ne 1 ]; then
+      echo "release: expected exactly one dmg matching target/release/bundle/dmg/context*_aarch64.dmg, found ''${#matches[@]}:" >&2
+      printf '  %s\n' "''${matches[@]}" >&2
+      exit 1
+    fi
+    dmg="''${matches[0]}"
+
+    xcrun notarytool submit "$dmg" \
+      --key "$APPLE_API_KEY_PATH" \
+      --key-id "$APPLE_API_KEY" \
+      --issuer "$APPLE_API_ISSUER" \
+      --wait
+    xcrun stapler staple "$dmg"
+
+    echo ""
+    echo "dmg: $dmg"
+    echo "Verify:"
+    echo "  xcrun stapler validate $dmg"
+    echo "  spctl --assess --type open --verbose --context context:primary-signature $dmg"
+  '';
 in
   pkgs.mkShellNoCC {
     name = "context-dev";
@@ -79,6 +133,7 @@ in
       clippy
       build
       coverage
+      release
     ];
 
     shellHook = ''
@@ -96,6 +151,7 @@ in
       echo "  clippy   - Run cargo clippy"
       echo "  build    - Build release binary (trunk build --release, then cargo build --release)"
       echo "  coverage - Run workspace coverage (HTML report in coverage/)"
+      echo "  release  - Build, notarize and staple the dmg (needs APPLE_API_* credentials)"
       echo ""
       echo "The app crate 'context' is macOS-only, so tests, check, clippy,"
       echo "build, and coverage skip it with --exclude context on other systems."
