@@ -48,7 +48,7 @@ jobs:
             extra-trusted-public-keys = ck3mp3r.cachix.org-1:wKbNJDH7mrT9DuVvG1KRRtqfcy0FREVGguU7RIfL5zo=
 
       - name: Build and test
-        run: nix develop .#ci --command cargo nextest run
+        run: nix develop --command tests --profile ci
 
   nix-build-cache:
     name: Nix build & cache
