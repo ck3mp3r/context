@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/context-app",
     "crates/context-cli",
     "crates/context-core",
     "crates/context-db",

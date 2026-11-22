@@ -27,6 +27,11 @@
 # Common system files
 Icon?
 
+# Tauri app icons (the Icon? rule above also matches the `icons` directory
+# when core.ignorecase=true; re-include the generated icon set)
+!crates/context-app/icons/
+!crates/context-app/icons/**
+
 # VS Code
 .vscode/
 
@@ -48,6 +53,9 @@ __pycache__/
 
 # Rust/Cargo
 target/
+
+# Tauri generated ACL schemas
+crates/context-app/gen/schemas
 
 # Nix build result
 result
