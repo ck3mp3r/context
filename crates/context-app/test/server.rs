@@ -139,6 +139,35 @@ fn health_url_targets_loopback() {
     assert_eq!(health_url(3738), "http://127.0.0.1:3738/health");
 }
 
+// =============================================================================
+// Service attach
+// =============================================================================
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ensure_service_attaches_to_a_healthy_service() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Bind should succeed");
+    let port = listener
+        .local_addr()
+        .expect("Local addr should exist")
+        .port();
+    answer_once(listener);
+
+    // A healthy service is used as is: no sibling is spawned.
+    assert!(ensure_service_async(port).await.is_ok());
+}
+
+#[test]
+fn sibling_service_sits_next_to_this_executable() {
+    let path = sibling_service_path().expect("Sibling path should resolve");
+    let executable = std::env::current_exe().expect("Current exe should resolve");
+
+    assert_eq!(
+        path.file_name().expect("Sibling has a name"),
+        "context-service"
+    );
+    assert_eq!(path.parent(), executable.parent());
+}
+
 #[cfg(debug_assertions)]
 #[test]
 #[serial]

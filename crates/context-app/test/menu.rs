@@ -2,7 +2,7 @@
 //!
 //! The menu itself needs a running `AppHandle`, so the headless coverage pins the
 //! constants that decide what the handler in `main` does: a distinct id for the
-//! close item, and the tray's untouched Quit id.
+//! close item, Quit on the platform shortcut, and the shared Quit id.
 
 use super::*;
 
@@ -12,8 +12,8 @@ fn application_menu_item_closes_the_view() {
 }
 
 #[test]
-fn application_menu_item_keeps_the_quit_accelerator() {
-    assert_eq!(CLOSE_VIEW_ACCELERATOR, "CmdOrCtrl+Q");
+fn quit_item_keeps_the_platform_shortcut() {
+    assert_eq!(QUIT_ACCELERATOR, "CmdOrCtrl+Q");
 }
 
 #[test]

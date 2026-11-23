@@ -116,13 +116,20 @@ pub fn request_window_at(app: &AppHandle, path: &str) {
 
 /// Handle the application events that affect the window lifecycle.
 ///
-/// The app is an accessory agent, so macOS never sends `RunEvent::Reopen`: that
-/// event comes from the Dock's reopen callback, and there is no Dock icon.
-pub fn handle_run_event(_app: &AppHandle, event: RunEvent) {
+/// The GUI runs as a regular app, so a closed window leaves a Dock icon behind
+/// and macOS sends `RunEvent::Reopen` when the user clicks it. The reopen brings
+/// the window back without touching the service.
+pub fn handle_run_event(app: &AppHandle, event: RunEvent) {
     match event {
-        // Closing the last window must not stop the app: the embedded server
-        // keeps serving MCP clients until the user quits.
+        // Closing the last window must not stop the GUI: the Dock reopen brings
+        // the view back, and the service keeps serving meanwhile.
         RunEvent::ExitRequested { code, api, .. } if code.is_none() => api.prevent_exit(),
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => {
+            if let Err(error) = show_window_at(app, ROOT_PATH) {
+                eprintln!("context: failed to reopen the main window: {error}");
+            }
+        }
         _ => {}
     }
 }

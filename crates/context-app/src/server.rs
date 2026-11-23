@@ -124,6 +124,90 @@ pub fn health_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}/health")
 }
 
+/// Ensure a service answers on `port`, spawning the sibling when none does.
+///
+/// The GUI runs this before it creates its window. A healthy service means the
+/// GUI is a pure view over it; no service means the GUI starts `context-service`
+/// next to itself and waits for `/health`. Returns the operator-facing message
+/// for the error dialog.
+pub fn ensure_service(port: u16) -> Result<(), String> {
+    tauri::async_runtime::block_on(ensure_service_async(port))
+}
+
+/// Async half of [`ensure_service`], for callers already on a runtime.
+pub async fn ensure_service_async(port: u16) -> Result<(), String> {
+    let url = health_url(port);
+    let client = health_client()?;
+
+    if probe_health(&client, &url).await {
+        return Ok(());
+    }
+
+    spawn_service()?;
+    wait_until_healthy(&client, &url, HEALTH_TIMEOUT).await
+}
+
+/// Path of the sibling service binary: next to this executable.
+///
+/// The bundler puts both binaries in `Contents/MacOS`, and `cargo build` puts
+/// both in `target/debug`, so the sibling is always a directory away.
+pub(crate) fn sibling_service_path() -> Result<PathBuf, String> {
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("Failed to locate this executable: {error}"))?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| format!("{} has no directory", executable.display()))?;
+
+    Ok(directory.join("context-service"))
+}
+
+/// Start the sibling service detached from this process.
+///
+/// The service outlives the GUI: the GUI tracks no handle, and its own process
+/// group keeps a Ctrl+C in a dev terminal from taking the service down.
+fn spawn_service() -> Result<(), String> {
+    let service = sibling_service_path()?;
+
+    let mut command = std::process::Command::new(&service);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+
+    command
+        .spawn()
+        .map_err(|error| format!("Failed to start {}: {error}", service.display()))?;
+
+    Ok(())
+}
+
+/// Wait for `url` to answer HTTP 200, or report why it never did.
+async fn wait_until_healthy(
+    client: &reqwest::Client,
+    url: &str,
+    timeout: Duration,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if probe_health(client, url).await {
+            return Ok(());
+        }
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+
+        tokio::time::sleep(HEALTH_POLL_INTERVAL.min(remaining)).await;
+    }
+
+    Err(format!(
+        "The context service did not answer {url} within {} seconds.",
+        timeout.as_secs_f64()
+    ))
+}
+
 /// Build the client used for health probes.
 pub(crate) fn health_client() -> Result<reqwest::Client, String> {
     // Install ring as the default crypto provider for rustls. Workspace builds

@@ -2,28 +2,28 @@
 //!
 //! A WKWebView text field edits through the macOS responder chain, so the
 //! clipboard and selection shortcuts only work when the app installs an Edit
-//! menu with the matching native items. Apart from the close item, every item
-//! here is a predefined item: muda maps it to its native selector, accelerator,
-//! and localization, which is what sends `undo:`, `cut:`, `copy:`, `paste:`, and
-//! `selectAll:` down the responder chain to the focused webview field.
+//! menu with the matching native items. Apart from Close Window and Quit, every
+//! item here is a predefined item: muda maps it to its native selector,
+//! accelerator, and localization, which is what sends `undo:`, `cut:`, `copy:`,
+//! `paste:`, and `selectAll:` down the responder chain to the focused webview
+//! field.
 //!
-//! The application menu holds no Quit. The tray icon runs the service, so the
-//! process outlives the window and the tray owns the only process exit. The
-//! predefined Quit is unusable there anyway: it maps to the native `terminate:`
-//! selector, whose last-window teardown raises `ExitRequested { code: None }`,
-//! which the window-close veto prevents. The custom close item instead closes
-//! the window through `WebviewWindow::close`, so Cmd+Q and Cmd+W do the same
-//! thing: the view goes away and the server keeps serving.
+//! Quit ends this process only. The service keeps serving, so Cmd+Q on the GUI
+//! closes the view and leaves the tray and the API running. That is why Quit is
+//! a custom item instead of the predefined one: the predefined Quit maps to the
+//! native `terminate:` selector, whose last-window teardown raises
+//! `ExitRequested { code: None }`, which the window-close veto prevents.
 //!
-//! The app is a macOS accessory agent, so the system never displays this menu:
-//! the menu bar belongs to the frontmost regular app. The menu stays installed
-//! because it still dispatches its key equivalents through the responder chain.
-//! That keeps the Edit shortcuts working in webview text fields and the hidden
-//! Cmd+Q equivalent closing the view.
+//! Close Window closes the view and lets the process live, so a Dock click can
+//! bring the window back. The Window submenu carries the predefined close item,
+//! which is the Cmd+W surface.
+//!
+//! The GUI runs as a regular app, so the system displays this menu: it belongs to
+//! the frontmost app and carries the Dock entry and the Cmd+Tab entry.
 //!
 //! macOS renders the first submenu as the application menu, so the `context`
-//! submenu holds About and Close Window. Plain top-level items are ignored on
-//! macOS; every entry below is a submenu.
+//! submenu holds About, Close Window, and Quit. Plain top-level items are ignored
+//! on macOS; every entry below is a submenu.
 
 use tauri::AppHandle;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -42,12 +42,11 @@ pub const QUIT_ITEM_ID: &str = "quit";
 const CLOSE_VIEW_TEXT: &str = "Close Window";
 /// Id of the close item, matched by the menu event handler in `main`.
 pub const CLOSE_VIEW_ITEM_ID: &str = "close-view";
-/// Keyboard accelerator of the close item.
+/// Keyboard accelerator of Quit.
 ///
-/// Cmd+Q is the platform quit gesture. Binding it to the close item keeps muscle
-/// memory on an action that is safe and reversible: the view closes, the server
-/// keeps running, and the tray brings the view back.
-const CLOSE_VIEW_ACCELERATOR: &str = "CmdOrCtrl+Q";
+/// Cmd+Q quits this process only. The service keeps running, and the next GUI
+/// launch attaches to it again.
+const QUIT_ACCELERATOR: &str = "CmdOrCtrl+Q";
 /// Title of the Edit submenu.
 const EDIT_MENU_TITLE: &str = "Edit";
 /// Title of the Window submenu.
@@ -59,14 +58,17 @@ mod menu_test;
 
 /// Build the menu bar and install it as the application menu.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    let close_view = MenuItemBuilder::with_id(CLOSE_VIEW_ITEM_ID, CLOSE_VIEW_TEXT)
-        .accelerator(CLOSE_VIEW_ACCELERATOR)
+    let close_view = MenuItemBuilder::with_id(CLOSE_VIEW_ITEM_ID, CLOSE_VIEW_TEXT).build(app)?;
+    let quit = MenuItemBuilder::with_id(QUIT_ITEM_ID, QUIT_TEXT)
+        .accelerator(QUIT_ACCELERATOR)
         .build(app)?;
 
     let application = SubmenuBuilder::new(app, APP_MENU_TITLE)
         .about_with_text(ABOUT_TEXT, None)
         .separator()
         .item(&close_view)
+        .separator()
+        .item(&quit)
         .build()?;
 
     let edit = SubmenuBuilder::new(app, EDIT_MENU_TITLE)
