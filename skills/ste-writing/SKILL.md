@@ -87,6 +87,11 @@ Use `the`, `a`, or `an` before nouns. Omit articles only in:
 
 - Each paragraph covers exactly one topic.
 - Maximum **6 sentences** per paragraph.
+
+- Separate one topic from the next with a blank line. Never weld paragraphs, bullet lists, or headings into one clump of text.
+- Each item of a vertical list: one per line. A semicolon does not justify putting two items on one line.
+- Between two consecutive bullet lists: one short paragraph (max 2-3 sentences) or a blank line plus a lead-in sentence. A page of back-to-back bullet walls is not paragraphed text.
+- Headings carry one blank line before and after them.
 - Use vertical lists for three or more related items.
 
 ### 1.7 Conditional clauses first
@@ -166,14 +171,36 @@ Each step: one action, one sentence. Sub-steps for conditional branches.
 Apply these when writing task descriptions, acceptance criteria, PR descriptions, or tickets. The goal: a spec that **two independent readers interpret identically**.
 
 ### 3.1 Spec anatomy
-
 A task spec has four parts. Each part is one or more sentences that follow STE rules.
+A task spec renders in markdown with one `##` heading per part. Each heading carries one blank line before and after. The body text between headings is paragraphed, bulleted, or tabled per the rules in section 1.6.
 
+```markdown
+## OBJECTIVE
+One sentence stating what the task accomplishes.
+
+## CONTEXT
+Two to four sentences of background, or a short bullet list.
+
+## FILES
+Touched files; one bullet per file or group.
+
+## SCOPE
+INCLUDED / EXCLUDED bullet lists.
+
+## CRITERIA
+Testable conditions, one bullet per criterion.
+
+## VERIFICATION
+One bullet per criterion, with the concrete command or check.
 ```
-OBJECTIVE:    One sentence stating what the task accomplishes.
-SCOPE:        What is included and excluded (bullet list).
-CRITERIA:     Testable conditions that mark the task done (bullet list).
-VERIFICATION: How to confirm each criterion (bullet list, one per criterion).
+
+Whitespace rulings for the whole spec — paragraphs, bullet lists, and headings follow them or the spec clumps into a wall of text:
+- One blank line before and after every heading.
+- One blank line between a heading and its first line of body text.
+- One blank line between the last line of a section and the next heading.
+- One blank line between consecutive list items only when it aids reading — otherwise one item per line in a single list block.
+- Body paragraphs: max 2-3 sentences per paragraph, blank line between paragraphs. Never merge two topics into one paragraph.
+- Each bullet item is one line with one item. Never glue list items with semicolons onto one line.
 ```
 
 ### 3.2 Objective — one sentence, one action
