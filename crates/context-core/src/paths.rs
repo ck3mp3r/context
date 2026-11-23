@@ -21,6 +21,9 @@ const DATA_DIR_NAME: &str = "c5t-dev";
 #[cfg(not(debug_assertions))]
 const DATA_DIR_NAME: &str = "c5t";
 
+/// Name of the settings file inside the configuration directory.
+const CONFIG_FILE_NAME: &str = "config.toml";
+
 /// Global base path override.
 ///
 /// - Production: Set to XDG_DATA_HOME or ~/.local/share
@@ -100,4 +103,61 @@ pub fn get_sync_dir() -> PathBuf {
 /// Path to database file: `{data_dir}/context.db`
 pub fn get_db_path() -> PathBuf {
     get_data_dir().join("context.db")
+}
+
+/// Get the configuration directory for c5t.
+///
+/// Uses the global base path singleton if set, otherwise falls back to
+/// `XDG_CONFIG_HOME` and then to the platform config root.
+///
+/// # Returns
+/// Path to the configuration directory:
+/// - If base path set: `{base_path}/c5t-dev/` (debug) or `{base_path}/c5t/` (release)
+/// - If `XDG_CONFIG_HOME` set: `{XDG_CONFIG_HOME}/c5t-dev/` (debug) or `.../c5t/` (release)
+/// - Otherwise: `{platform config root}/c5t-dev/` (debug) or `.../c5t/` (release),
+///   where the platform config root is `~/Library/Application Support` on macOS,
+///   `%APPDATA%` on Windows and `~/.config` on other platforms
+///
+/// # Panics
+/// Panics if the platform config root cannot be resolved and no base path
+/// override is set.
+pub fn get_config_dir() -> PathBuf {
+    let base_path = BASE_PATH_OVERRIDE.lock().unwrap();
+
+    let config_home = if let Some(path) = base_path.as_ref() {
+        path.clone()
+    } else {
+        env::var("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| default_config_home())
+    };
+
+    config_home.join(DATA_DIR_NAME)
+}
+
+/// Get settings file path (config_dir/config.toml).
+///
+/// # Returns
+/// Path to settings file: `{config_dir}/config.toml`
+pub fn get_config_path() -> PathBuf {
+    get_config_dir().join(CONFIG_FILE_NAME)
+}
+
+/// OS text-config root used when `XDG_CONFIG_HOME` is unset.
+fn default_config_home() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = env::var("APPDATA") {
+            return PathBuf::from(appdata);
+        }
+    }
+
+    let home = env::var("HOME").expect("HOME environment variable not set");
+
+    #[cfg(target_os = "macos")]
+    let config_home = PathBuf::from(home).join("Library/Application Support");
+    #[cfg(not(target_os = "macos"))]
+    let config_home = PathBuf::from(home).join(".config");
+
+    config_home
 }

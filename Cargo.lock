@@ -823,8 +823,10 @@ dependencies = [
  "miette",
  "serde",
  "serde_json",
+ "serial_test",
  "tempfile",
  "thiserror 2.0.21",
+ "toml 1.2.2+spec-1.1.0",
  "utoipa",
 ]
 
