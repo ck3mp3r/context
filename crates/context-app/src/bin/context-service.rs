@@ -12,9 +12,7 @@
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-use context_app::{
-    SETTINGS_PATH, ServiceState, apply_start_at_login, effective_settings, menu, server, tray,
-};
+use context_app::{SETTINGS_PATH, ServiceState, autostart, effective_settings, menu, server, tray};
 
 fn main() -> tauri::Result<()> {
     let app = tauri::Builder::default()
@@ -54,7 +52,12 @@ fn main() -> tauri::Result<()> {
             app.manage(ServiceState::new());
             app.manage(tray::build(app.handle())?);
             tray::spawn_status_poll(app.handle().clone());
-            apply_start_at_login(&effective_settings());
+
+            // A login item must never block the server: log and serve on.
+            if let Err(error) = autostart::sync_start_at_login(effective_settings().start_at_login)
+            {
+                eprintln!("context-service: {error}");
+            }
 
             Ok(())
         })

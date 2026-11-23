@@ -15,7 +15,7 @@ pub mod menu;
 pub mod server;
 pub mod tray;
 
-pub use autostart::apply_start_at_login;
+pub use autostart::{LAUNCH_AGENT_LABEL, sync_start_at_login};
 pub use launcher::{OPEN_ROUTE_FLAG, ServiceState, open_route};
 pub use lifecycle::{SETTINGS_PATH, request_main_window, request_window_at};
 pub use menu::{CLOSE_VIEW_ITEM_ID, QUIT_ITEM_ID, QUIT_TEXT};
