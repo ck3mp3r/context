@@ -16,12 +16,6 @@ mod api_client_test;
 use clap::{Parser, Subcommand};
 use miette::Result;
 
-#[cfg(debug_assertions)]
-const DEFAULT_PORT: &str = "3738";
-
-#[cfg(not(debug_assertions))]
-const DEFAULT_PORT: &str = "3737";
-
 #[derive(Parser)]
 #[command(name = "c5t")]
 #[command(author, version, about = "Context management CLI", long_about = None)]
@@ -38,23 +32,26 @@ pub struct Cli {
 enum Commands {
     /// Start the API server (REST API + MCP + embedded frontend)
     Api {
-        /// Host address to bind to
-        #[arg(long, default_value = "0.0.0.0")]
-        host: std::net::IpAddr,
+        /// Host address to bind to (default: the stored value, else 0.0.0.0)
+        #[arg(long)]
+        host: Option<std::net::IpAddr>,
 
-        /// Port to listen on
-        #[arg(short, long, default_value = DEFAULT_PORT)]
-        port: u16,
+        /// Port to listen on (default: the stored value, else the profile port)
+        #[arg(short, long)]
+        port: Option<u16>,
 
         /// Override data home directory (defaults to XDG_DATA_HOME/c5t-dev or ~/.local/share/c5t-dev in debug, c5t in release)
         #[arg(long)]
         home: Option<std::path::PathBuf>,
 
-        /// Override skills cache directory (defaults to C5T_SKILLS_DIR env or data_dir/skills)
+        /// Override skills cache directory (defaults to C5T_SKILLS_DIR env, then the stored value, then data_dir/skills)
         #[arg(long)]
         skills_dir: Option<std::path::PathBuf>,
 
-        /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace)
+        /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace; default: the stored value)
+        ///
+        /// A count, not an `Option`: absent means "no override" and maps to
+        /// `None` at dispatch. clap fills `Some(0)` for an absent count.
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
 
@@ -728,7 +725,15 @@ pub async fn run() -> Result<()> {
             verbose,
             docs,
         }) => {
-            commands::api::run(host, port, home, skills_dir, verbose, docs).await?;
+            commands::api::run(
+                host,
+                port,
+                home,
+                skills_dir,
+                commands::api::verbosity_from_count(verbose),
+                docs,
+            )
+            .await?;
         }
         Some(Commands::Project { command }) => match command {
             ProjectCommands::List {

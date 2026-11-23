@@ -3,6 +3,11 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 
+use context_core::{clear_base_path, get_config_dir, get_config_path, set_base_path};
+use serial_test::serial;
+use std::path::PathBuf;
+use tempfile::TempDir;
+
 use super::*;
 
 fn client() -> reqwest::Client {
@@ -135,14 +140,148 @@ fn health_url_targets_loopback() {
 
 #[cfg(debug_assertions)]
 #[test]
+#[serial]
 fn debug_profile_uses_dev_port_and_trunk_origin() {
+    let base = empty_base();
+
     assert_eq!(api_port(), 3738);
     assert_eq!(spa_origin(), "http://127.0.0.1:8080/");
+
+    clear_base_path();
+    drop(base);
 }
 
 #[cfg(not(debug_assertions))]
 #[test]
+#[serial]
 fn release_profile_uses_production_port_and_embedded_origin() {
+    let base = empty_base();
+
     assert_eq!(api_port(), 3737);
     assert_eq!(spa_origin(), "http://127.0.0.1:3737/");
+
+    clear_base_path();
+    drop(base);
+}
+
+// =============================================================================
+// Stored settings
+// =============================================================================
+
+/// Base path this test alone owns, with no settings file in it.
+fn empty_base() -> TempDir {
+    let base = TempDir::new().expect("Failed to create base temp dir");
+    set_base_path(base.path().to_path_buf());
+    base
+}
+
+/// Base path this test alone owns, with the settings file written.
+fn base_with_config(contents: &str) -> TempDir {
+    let base = empty_base();
+    let config_dir = get_config_dir();
+    std::fs::create_dir_all(&config_dir).expect("config dir creates");
+    std::fs::write(get_config_path(), contents).expect("settings file writes");
+    base
+}
+
+#[test]
+#[serial]
+fn stored_port_reaches_the_port_decision_point() {
+    let base = base_with_config("port = 4000\n");
+
+    let port = api_port();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(port, 4000);
+}
+
+#[test]
+#[serial]
+fn stored_values_reach_the_effective_settings() {
+    let base = base_with_config(
+        "host = \"0.0.0.0\"\nport = 4000\nverbosity = 2\nenable_docs = true\n\
+         skills_dir = \"/tmp/stored-skills\"\n",
+    );
+
+    let settings = effective_settings();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(settings.port, 4000);
+    assert_eq!(settings.verbosity, 2);
+    assert!(settings.enable_docs);
+    assert_eq!(settings.skills_dir, PathBuf::from("/tmp/stored-skills"));
+}
+
+#[test]
+#[serial]
+fn fresh_start_keeps_loopback_and_takes_the_stored_port() {
+    let base = base_with_config("host = \"0.0.0.0\"\nport = 4000\nverbosity = 2\n");
+
+    let config = server_config(&effective_settings(), api_port());
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(config.host.to_string(), "127.0.0.1");
+    assert_eq!(config.port, 4000);
+    assert_eq!(config.verbosity, 2);
+}
+
+#[test]
+#[serial]
+fn corrupt_settings_file_falls_back_to_the_profile_port() {
+    let base = base_with_config("port = \"not-a-number\"\n");
+
+    let port = api_port();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(port, profile_api_port());
+}
+
+#[test]
+#[serial]
+fn invalid_stored_port_falls_back_to_the_profile_port() {
+    let base = base_with_config("port = 0\n");
+
+    let port = api_port();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(port, profile_api_port());
+}
+
+#[test]
+#[serial]
+fn skills_dir_env_beats_the_stored_value() {
+    let base = base_with_config("skills_dir = \"/tmp/stored-skills\"\n");
+    unsafe { std::env::set_var("C5T_SKILLS_DIR", "/tmp/env-skills") };
+
+    let config = server_config(&effective_settings(), api_port());
+
+    unsafe { std::env::remove_var("C5T_SKILLS_DIR") };
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(config.skills_dir, PathBuf::from("/tmp/env-skills"));
+}
+
+#[cfg(not(debug_assertions))]
+#[test]
+#[serial]
+fn release_spa_origin_follows_the_stored_port() {
+    let base = base_with_config("port = 4000\n");
+
+    let origin = spa_origin();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(origin, "http://127.0.0.1:4000/");
 }

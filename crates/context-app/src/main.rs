@@ -5,12 +5,14 @@
 //! endpoint, the app attaches to it instead of starting a second one.
 
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-use context_core::{Database, get_db_path};
+use context_core::settings::{self, Settings, StoredSettings};
+use context_core::{Database, get_config_path, get_db_path};
 use context_db::SqliteDatabase;
 use context_server::api::{self, Config};
 
@@ -28,8 +30,6 @@ const DEBUG_API_PORT: u16 = 3738;
 const RELEASE_API_PORT: u16 = 3737;
 /// Debug SPA origin, served by `trunk serve` on 8080.
 const DEBUG_SPA_ORIGIN: &str = "http://127.0.0.1:8080/";
-/// Release SPA origin, served by the in-process server.
-const RELEASE_SPA_ORIGIN: &str = "http://127.0.0.1:3737/";
 
 /// How long to wait for the server to answer `/health` before giving up.
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -95,12 +95,21 @@ fn close_view(app: &tauri::AppHandle) {
     }
 }
 
-/// Port selected by the build profile.
+/// Port the app talks to: the stored port, else the build profile's port.
+///
+/// This is the single port decision point: the attach probe, the in-process
+/// server, the SPA origin and the tray MCP row all follow it, so a stored port
+/// moves them together.
+pub(crate) fn api_port() -> u16 {
+    stored_settings().port.unwrap_or_else(profile_api_port)
+}
+
+/// Port of the build profile, used when the settings file carries none.
 ///
 /// Uses `cfg!(debug_assertions)` — the same predicate the data directory uses —
 /// so the app attaches to a server of its own profile and opens its own
 /// database. A debug build never touches the production port.
-pub(crate) fn api_port() -> u16 {
+fn profile_api_port() -> u16 {
     if cfg!(debug_assertions) {
         DEBUG_API_PORT
     } else {
@@ -108,13 +117,66 @@ pub(crate) fn api_port() -> u16 {
     }
 }
 
-/// SPA origin selected by the build profile.
-fn spa_origin() -> &'static str {
-    if cfg!(debug_assertions) {
-        DEBUG_SPA_ORIGIN
-    } else {
-        RELEASE_SPA_ORIGIN
+/// Stored settings for this run: the file when it is readable and valid.
+///
+/// A file that cannot be read or parsed, or that carries values outside the
+/// accepted range, is reported and ignored, so the app still starts.
+fn stored_settings() -> StoredSettings {
+    let path = get_config_path();
+
+    let stored = match settings::load(&path) {
+        Ok(stored) => stored,
+        Err(error) => {
+            eprintln!("context: ignoring settings file: {error}");
+            return StoredSettings::default();
+        }
+    };
+
+    if let Err(error) = settings::validate_stored(&stored) {
+        eprintln!(
+            "context: ignoring settings file {}: {error}",
+            path.display()
+        );
+        return StoredSettings::default();
     }
+
+    stored
+}
+
+/// Settings the app works with: stored values over the built-in defaults.
+fn effective_settings() -> Settings {
+    settings::resolve(&stored_settings())
+}
+
+/// SPA origin for this run: the trunk dev server, or the in-process server.
+fn spa_origin() -> String {
+    if cfg!(debug_assertions) {
+        DEBUG_SPA_ORIGIN.to_string()
+    } else {
+        format!("http://127.0.0.1:{}/", api_port())
+    }
+}
+
+/// Config for the in-process server.
+///
+/// The host stays loopback: the webview loads the SPA from it, so the server
+/// must not listen beyond the machine. `port` is the decision the caller made
+/// through [`api_port`].
+fn server_config(settings: &Settings, port: u16) -> Config {
+    Config {
+        host: IpAddr::from([127, 0, 0, 1]),
+        port,
+        verbosity: settings.verbosity,
+        enable_docs: settings.enable_docs,
+        skills_dir: skills_dir_override(settings),
+    }
+}
+
+/// Skills directory: `C5T_SKILLS_DIR` wins over the stored value.
+fn skills_dir_override(settings: &Settings) -> PathBuf {
+    std::env::var("C5T_SKILLS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| settings.skills_dir.clone())
 }
 
 /// Loopback health endpoint of the server on `port`.
@@ -157,11 +219,7 @@ async fn start_server(port: u16, health_url: &str) -> Result<(), String> {
     db.migrate()
         .map_err(|error| format!("Failed to migrate {}: {error}", db_path.display()))?;
 
-    let config = Config {
-        host: IpAddr::from([127, 0, 0, 1]),
-        port,
-        ..Config::new()
-    };
+    let config = server_config(&effective_settings(), port);
 
     let (failure_tx, mut failure_rx) = tokio::sync::mpsc::unbounded_channel();
     tauri::async_runtime::spawn(async move {
