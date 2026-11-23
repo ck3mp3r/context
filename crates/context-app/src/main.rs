@@ -51,6 +51,8 @@ fn main() -> tauri::Result<()> {
                 close_view(app);
             } else if event.id() == tray::SHOW_ITEM_ID {
                 lifecycle::request_main_window(app);
+            } else if event.id() == tray::SETTINGS_ITEM_ID {
+                lifecycle::request_window_at(app, lifecycle::SETTINGS_PATH);
             }
         })
         .setup(|app| {

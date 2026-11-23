@@ -23,11 +23,20 @@ const MAIN_WINDOW_TITLE: &str = "context";
 const MAIN_WINDOW_WIDTH: f64 = 1280.0;
 /// Initial height of the application window in logical pixels.
 const MAIN_WINDOW_HEIGHT: f64 = 800.0;
+/// SPA root path: showing it keeps the route the webview already has.
+const ROOT_PATH: &str = "/";
+/// SPA path of the settings page, the tray's deep link target.
+pub const SETTINGS_PATH: &str = "/settings";
 
-/// Create the application window and load the SPA.
+/// Create the application window and load the SPA at its root.
 pub fn create_main_window(app: &AppHandle) -> WindowResult<()> {
-    let origin: tauri::Url = crate::spa_origin().parse()?;
-    WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::External(origin))
+    create_window_at(app, ROOT_PATH)
+}
+
+/// Create the application window and load the SPA at `path`.
+fn create_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
+    let target = spa_url(path)?;
+    WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::External(target))
         .title(MAIN_WINDOW_TITLE)
         .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
         .build()?;
@@ -35,15 +44,33 @@ pub fn create_main_window(app: &AppHandle) -> WindowResult<()> {
 }
 
 /// Show and focus the application window, creating it when it was closed.
-pub fn show_main_window(app: &AppHandle) -> WindowResult<()> {
+///
+/// A `path` other than the root navigates the SPA there, so a deep link lands on
+/// its page whether the window already existed or was just created. The root
+/// keeps the route the webview already had.
+fn show_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
-        return create_main_window(app);
+        return create_window_at(app, path);
     };
 
     window.unminimize()?;
     window.show()?;
     window.set_focus()?;
+
+    if path != ROOT_PATH {
+        window.navigate(spa_url(path)?)?;
+    }
+
     Ok(())
+}
+
+/// SPA URL of `path` on the origin this build loads.
+///
+/// The origin ends in a slash and `join` resolves the path against it, so the
+/// deep link is a single-slash URL on whichever origin serves the SPA.
+pub(crate) fn spa_url(path: &str) -> WindowResult<tauri::Url> {
+    let origin: tauri::Url = crate::spa_origin().parse()?;
+    Ok(origin.join(path.trim_start_matches('/'))?)
 }
 
 /// Close the application window, leaving the app and the server running.
@@ -67,10 +94,19 @@ pub fn close_main_window(app: &AppHandle) -> WindowResult<()> {
 /// The single-instance plugin calls its callback on a worker thread, and window
 /// operations belong to the main thread.
 pub fn request_main_window(app: &AppHandle) {
+    request_window_at(app, ROOT_PATH);
+}
+
+/// Show the window on the main thread, navigating the SPA to `path`.
+///
+/// The create-or-show and the navigation run in the same main-thread step, so a
+/// deep link lands on its page even when the window had to be created first.
+pub fn request_window_at(app: &AppHandle, path: &str) {
     let scheduler = app.clone();
     let app = app.clone();
+    let path = path.to_string();
     if let Err(error) = scheduler.run_on_main_thread(move || {
-        if let Err(error) = show_main_window(&app) {
+        if let Err(error) = show_window_at(&app, &path) {
             eprintln!("context: failed to show the main window: {error}");
         }
     }) {

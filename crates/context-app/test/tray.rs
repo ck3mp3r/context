@@ -35,6 +35,12 @@ fn release_profile_tray_tooltip_keeps_the_production_name() {
     assert_eq!(tray_tooltip(), "context");
 }
 
+#[test]
+fn settings_item_carries_its_id_and_label() {
+    assert_eq!(SETTINGS_ITEM_ID, "settings");
+    assert_eq!(SETTINGS_TEXT, "Settings…");
+}
+
 fn parse_status(json: &str) -> SyncStatusResponse {
     serde_json::from_str(json).expect("Status response should deserialize")
 }

@@ -285,3 +285,39 @@ fn release_spa_origin_follows_the_stored_port() {
 
     assert_eq!(origin, "http://127.0.0.1:4000/");
 }
+
+// =============================================================================
+// Deep link targets
+// =============================================================================
+
+#[test]
+#[serial]
+fn settings_deep_link_targets_the_settings_page() {
+    let base = empty_base();
+
+    let url = crate::lifecycle::spa_url(crate::lifecycle::SETTINGS_PATH).expect("URL should build");
+
+    clear_base_path();
+    drop(base);
+
+    #[cfg(debug_assertions)]
+    assert_eq!(url.as_str(), "http://127.0.0.1:8080/settings");
+    #[cfg(not(debug_assertions))]
+    assert_eq!(url.as_str(), "http://127.0.0.1:3737/settings");
+}
+
+#[test]
+#[serial]
+fn root_deep_link_targets_the_origin() {
+    let base = empty_base();
+
+    let url = crate::lifecycle::spa_url("/").expect("URL should build");
+
+    clear_base_path();
+    drop(base);
+
+    #[cfg(debug_assertions)]
+    assert_eq!(url.as_str(), "http://127.0.0.1:8080/");
+    #[cfg(not(debug_assertions))]
+    assert_eq!(url.as_str(), "http://127.0.0.1:3737/");
+}

@@ -5,7 +5,9 @@
 //! tray gives the app a permanent handle: it reveals the main window, or quits.
 //!
 //! Both actions reuse delivered code. Show calls `lifecycle::request_main_window`,
-//! the same path the single-instance callback takes. Quit is a custom item
+//! the same path the single-instance callback takes. Settings… calls
+//! `lifecycle::request_window_at` with the SPA settings path, so the window it
+//! reveals lands on the configuration page. Quit is a custom item
 //! carrying `menu::QUIT_ITEM_ID`, so it flows into the existing
 //! `AppHandle::exit(0)` handler and never touches the vetoed `terminate:` path.
 //!
@@ -39,6 +41,10 @@ use crate::menu;
 pub const SHOW_ITEM_ID: &str = "show";
 /// Label of the Show item.
 const SHOW_TEXT: &str = "Show context";
+/// Id of the Settings item, matched by the menu event handler in `main`.
+pub const SETTINGS_ITEM_ID: &str = "settings";
+/// Label of the Settings item, which deep links to the SPA settings page.
+const SETTINGS_TEXT: &str = "Settings…";
 /// Id of the informational MCP item. It never fires a menu event.
 const MCP_ITEM_ID: &str = "mcp";
 /// Prefix of the MCP item label, followed by the endpoint URL.
@@ -116,6 +122,7 @@ pub struct TrayState {
 /// Returns the handles the status poll needs; the caller manages them.
 pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
     let show = MenuItemBuilder::with_id(SHOW_ITEM_ID, SHOW_TEXT).build(app)?;
+    let settings = MenuItemBuilder::with_id(SETTINGS_ITEM_ID, SETTINGS_TEXT).build(app)?;
     let mcp = MenuItemBuilder::with_id(MCP_ITEM_ID, mcp_label())
         .enabled(false)
         .build(app)?;
@@ -126,6 +133,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
 
     let without_sync = MenuBuilder::new(app)
         .item(&show)
+        .item(&settings)
         .separator()
         .item(&mcp)
         .separator()
@@ -134,6 +142,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
 
     let with_sync = MenuBuilder::new(app)
         .item(&show)
+        .item(&settings)
         .separator()
         .item(&mcp)
         .item(&sync)
