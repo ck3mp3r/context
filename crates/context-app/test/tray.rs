@@ -23,6 +23,18 @@ fn mcp_label_matches_the_port_the_app_serves() {
     );
 }
 
+#[cfg(debug_assertions)]
+#[test]
+fn debug_profile_tray_tooltip_names_the_dev_build() {
+    assert_eq!(tray_tooltip(), "context (dev)");
+}
+
+#[cfg(not(debug_assertions))]
+#[test]
+fn release_profile_tray_tooltip_keeps_the_production_name() {
+    assert_eq!(tray_tooltip(), "context");
+}
+
 fn parse_status(json: &str) -> SyncStatusResponse {
     serde_json::from_str(json).expect("Status response should deserialize")
 }

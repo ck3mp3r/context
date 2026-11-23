@@ -81,6 +81,18 @@ fn mcp_label() -> String {
     )
 }
 
+/// Tooltip of the status item for the current build profile.
+///
+/// A debug build names the profile, so the dev icon and the installed app icon
+/// are distinguishable on hover; a release build keeps the bare app name.
+fn tray_tooltip() -> &'static str {
+    if cfg!(debug_assertions) {
+        "context (dev)"
+    } else {
+        TRAY_TOOLTIP
+    }
+}
+
 /// Handles the sync status poll needs to keep the tray in step with the server.
 ///
 /// Both menus are built once at setup. A presence change swaps the whole menu;
@@ -132,7 +144,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(TRAY_ICON)
         .icon_as_template(true)
-        .tooltip(TRAY_TOOLTIP)
+        .tooltip(tray_tooltip())
         .show_menu_on_left_click(true)
         .menu(&without_sync)
         .build(app)?;
