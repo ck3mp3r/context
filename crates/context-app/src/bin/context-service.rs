@@ -1,0 +1,50 @@
+//! `context-service`: windowless service for c5t.
+//!
+//! Owns the tray and the API server. It never creates a window and never builds
+//! an application menu: the GUI menus exist for the webview responder chain, and
+//! this binary has no webview. It bakes `tauri.service.conf.json`, so its
+//! identifier — and therefore its single-instance socket — is its own, and the
+//! GUI never kills it or the other way round.
+
+use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+
+use context_app::{apply_start_at_login, effective_settings, server, tray};
+
+fn main() -> tauri::Result<()> {
+    let app = tauri::Builder::default()
+        // A second service exits through the plugin; there is no window to raise.
+        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.handle()
+                .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
+
+            let port = server::api_port();
+            let health_url = server::health_url(port);
+
+            if let Err(message) =
+                tauri::async_runtime::block_on(server::start_server(port, &health_url))
+            {
+                eprintln!("context-service: {message}");
+                app.dialog()
+                    .message(message)
+                    .title("context-service")
+                    .kind(MessageDialogKind::Error)
+                    .blocking_show();
+                std::process::exit(1);
+            }
+
+            app.manage(tray::build(app.handle())?);
+            tray::spawn_status_poll(app.handle().clone());
+            apply_start_at_login(&effective_settings());
+
+            Ok(())
+        })
+        .build(tauri::generate_context!("service/tauri.conf.json"))?;
+
+    app.run(|_app, _event| {});
+
+    Ok(())
+}

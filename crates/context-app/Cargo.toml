@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+# Two binaries ship from this crate; the GUI is the bundle main.
+default-run = "context"
 
 [lints]
 workspace = true

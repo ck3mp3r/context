@@ -81,7 +81,10 @@ fn stored_settings() -> StoredSettings {
 }
 
 /// Settings the app works with: stored values over the built-in defaults.
-fn effective_settings() -> Settings {
+///
+/// A runner without CLI flags of its own uses this as its whole configuration;
+/// a runner with flags applies them on top.
+pub fn effective_settings() -> Settings {
     settings::resolve(&stored_settings())
 }
 
