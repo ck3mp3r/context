@@ -122,6 +122,46 @@ pub struct Skill {
     pub source_subpath: Option<String>,
 }
 
+/// Settings as stored in `config.toml`: an absent field carries no override.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SettingsValues {
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub verbosity: Option<u8>,
+    pub enable_docs: Option<bool>,
+    pub skills_dir: Option<String>,
+    pub start_at_login: Option<bool>,
+}
+
+/// Built-in defaults for every settings field.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SettingsDefaults {
+    pub host: String,
+    pub port: u16,
+    pub verbosity: u8,
+    pub enable_docs: bool,
+    pub skills_dir: String,
+    pub start_at_login: bool,
+}
+
+/// Settings the running server process started with.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SettingsRunning {
+    pub host: String,
+    pub port: u16,
+    pub verbosity: u8,
+    pub enable_docs: bool,
+    pub skills_dir: String,
+}
+
+/// Response of the settings endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SettingsPayload {
+    pub values: SettingsValues,
+    pub defaults: SettingsDefaults,
+    pub running: SettingsRunning,
+}
+
 /// Paginated response wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Paginated<T> {

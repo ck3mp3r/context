@@ -10,7 +10,7 @@ use thaw::*;
 use crate::breadcrumb_state::BreadcrumbPageState;
 use crate::components::ThemeSwitcher;
 use crate::pages::{
-    NoteDetail, Notes, ProjectDetail, Projects, RepoDetail, Repos, Skills, TaskListDetail,
+    NoteDetail, Notes, ProjectDetail, Projects, RepoDetail, Repos, Settings, Skills, TaskListDetail,
 };
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection};
@@ -145,6 +145,15 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                                 class:hover:text-ctp-text=move || !is_active("/repos")>
                                 "Repos"
                             </a>
+                            <a href="/settings"
+                                class="px-4 py-2 rounded-lg font-medium transition-colors"
+                                class:bg-ctp-surface2=move || is_active("/settings")
+                                class:text-ctp-text=move || is_active("/settings")
+                                class:text-ctp-subtext1=move || !is_active("/settings")
+                                class:hover:bg-ctp-surface1=move || !is_active("/settings")
+                                class:hover:text-ctp-text=move || !is_active("/settings")>
+                                "Settings"
+                            </a>
                         </div>
                         <ThemeSwitcher theme=catppuccin_theme/>
                     </div>
@@ -168,6 +177,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                     <Route path=path!("/repos/:id") view=RepoDetail/>
                     <Route path=path!("/skills") view=Skills/>
                     <Route path=path!("/skills/:id") view=Skills/>
+                    <Route path=path!("/settings") view=Settings/>
                 </Routes>
             </div>
 

@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use std::marker::PhantomData;
 
-use crate::models::{ApiError, Note, Paginated, Project, Repo, Skill, Task, TaskList, TaskStats};
+use crate::models::{
+    ApiError, Note, Paginated, Project, Repo, SettingsPayload, SettingsValues, Skill, Task,
+    TaskList, TaskStats,
+};
 
 // Development: Trunk proxy strips /dev prefix, forwards /api/v1/* to backend
 #[cfg(debug_assertions)]
@@ -186,6 +189,11 @@ async fn handle_response<T: DeserializeOwned>(
         .await
         .map_err(|e| ApiClientError::Network(e.to_string()))?;
 
+    parse_response(response).await
+}
+
+/// Parse a sent response into `T`, or into the server error envelope.
+async fn parse_response<T: DeserializeOwned>(response: gloo_net::http::Response) -> Result<T> {
     let status = response.status();
 
     if (200..300).contains(&status) {
@@ -352,6 +360,30 @@ pub mod notes {
                 .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
             Err(ApiClientError::Server(error))
         }
+    }
+}
+
+/// Settings API
+pub mod settings {
+    use super::*;
+
+    /// Read the stored values, the built-in defaults, and the running config.
+    pub async fn get() -> Result<SettingsPayload> {
+        let url = format!("{}/settings", API_BASE);
+        handle_response(Request::get(&url)).await
+    }
+
+    /// Replace the stored values; the response is the updated triple.
+    pub async fn put(values: &SettingsValues) -> Result<SettingsPayload> {
+        let url = format!("{}/settings", API_BASE);
+        let request = Request::put(&url)
+            .json(values)
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+        parse_response(response).await
     }
 }
 
