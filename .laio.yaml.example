@@ -41,4 +41,6 @@ windows:
                 args:
                   - tauri
                   - dev
+                  - --config
+                  - '{"identifier":"c5t-dev.kemper.wtf"}'
           - flex: 4
