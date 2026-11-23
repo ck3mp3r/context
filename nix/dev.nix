@@ -149,7 +149,8 @@
       echo "dev: the app starts its own server on 3738; it dies with the app"
     fi
 
-    exec cargo tauri dev
+    # the identifier override splits the single-instance lock from production
+    exec cargo tauri dev --config '{"identifier":"c5t-dev.kemper.wtf"}'
   '';
   # The app window loads the SPA from here, so refuse a second instance before
   # trunk fails on the busy port.
@@ -241,7 +242,7 @@ in
       echo "  build    - Build release binary (trunk build --release, then cargo build --release)"
       echo "  coverage - Run workspace coverage (HTML report in coverage/)"
       echo "  release  - Build, notarize and staple the dmg (needs APPLE_API_* credentials)"
-      echo "  dev      - Start the desktop app (needs 'serve' running on 8080)"
+      echo "  dev      - Start the desktop app as c5t-dev.kemper.wtf (needs 'serve' on 8080)"
       echo "  serve    - Start the Trunk dev server on 8080"
       echo "  api      - Start the headless REST and MCP server on 3738"
       echo ""
@@ -256,6 +257,7 @@ in
       echo "    Starts the app in a second pane. With 3738 free the app starts the"
       echo "    REST and MCP server in-process on 127.0.0.1:3738, and the server"
       echo "    lives and dies with the app, so quitting the app frees 3738."
+      echo "    It runs as c5t-dev.kemper.wtf, so it and the installed app coexist."
       echo "  api"
       echo "    Starts the headless REST and MCP server on 127.0.0.1:3738 from a"
       echo "    debug build — same port, same dev database. Headless server work:"

@@ -61,7 +61,7 @@ The laio `misc` window (`.laio.yaml`) holds two panes side by side: `trunk serve
 2. Start the app:
 
    ```sh
-   cargo tauri dev
+   cargo tauri dev --config '{"identifier":"c5t-dev.kemper.wtf"}'
    ```
 
    This builds the debug binary and opens the window titled `context`. The app starts the server in-process on `127.0.0.1:3738` and loads the SPA from the Trunk dev server. The server lives and dies with the app, so quitting frees the port. Expected output line:
@@ -71,6 +71,19 @@ The laio `misc` window (`.laio.yaml`) holds two panes side by side: `trunk serve
    ```
 
 3. Quit the app from the tray icon. The process stops and frees 3738.
+
+### Dev and production coexistence
+
+The single-instance plugin keys its lock on the app identifier. The identifier `c5t.kemper.wtf` maps to the socket `/tmp/c5t_kemper_wtf_si.sock`; the identifier `c5t-dev.kemper.wtf` maps to `/tmp/c5t_dev_kemper_wtf_si.sock`. Two apps hold separate locks only when their identifiers differ, so the `dev` helper passes the dev identifier and the installed app keeps the production one.
+
+| First app running | Second app started | Result |
+|-------------------|--------------------|--------|
+| Production | `dev` | Both run. Separate identifiers, separate sockets. |
+| `dev` | Production | Both run. Separate identifiers, separate sockets. |
+| `dev` | `dev` | The second instance prints `Running .../target/debug/context` and exits within a few seconds. |
+| Production | Production | The second instance exits and the first restores its window. |
+
+The `dev` helper runs `cargo tauri dev --config '{"identifier":"c5t-dev.kemper.wtf"}'`. A bare `cargo tauri dev` without the flag still uses `c5t.kemper.wtf`: it keys the production socket and exits when the installed app runs, so start the app through the helper.
 
 ### Runtime behavior
 
