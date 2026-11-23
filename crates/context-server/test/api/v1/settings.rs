@@ -4,6 +4,8 @@
 //! write to `get_config_path()`, and the validation that must reject bad input
 //! without touching the file.
 
+use std::path::PathBuf;
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -15,7 +17,7 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 use utoipa::OpenApi;
 
-use crate::api::{AppState, RunningSettings, routes};
+use crate::api::{AppState, Config, RunningSettings, routes};
 use context_core::settings::{StoredSettings, load};
 use context_core::{Database, clear_base_path, get_config_path, set_base_path};
 use context_db::SqliteDatabase;
@@ -28,6 +30,7 @@ fn test_running() -> RunningSettings {
         port: 4000,
         verbosity: 2,
         enable_docs: true,
+        host_fixed: false,
     }
 }
 
@@ -155,6 +158,52 @@ async fn get_settings_reports_values_defaults_and_running() {
         !get_config_path().starts_with(base.path()),
         "clearing the base path must restore the real config root"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn get_settings_reports_a_fixed_host() {
+    let _base = base_path();
+    let app = test_app(RunningSettings {
+        host_fixed: true,
+        ..test_running()
+    })
+    .await;
+
+    let (status, body) = get_settings(&app).await;
+    clear_base_path();
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["running"]["host_fixed"], true,
+        "running must report the fixed host, got: {}",
+        body["running"]
+    );
+    assert_eq!(
+        body["defaults"]["host"], "0.0.0.0",
+        "defaults must stay the built-in settings, got: {}",
+        body["defaults"]
+    );
+}
+
+#[test]
+fn running_settings_copy_the_config_fields() {
+    let config = Config {
+        host: "10.0.0.5".parse().expect("host parses"),
+        port: 5050,
+        verbosity: 3,
+        enable_docs: true,
+        skills_dir: PathBuf::from("/tmp/skills"),
+        host_fixed: true,
+    };
+
+    let running = RunningSettings::from_config(&config);
+
+    assert!(running.host_fixed, "host_fixed must come from the config");
+    assert_eq!(running.host, config.host);
+    assert_eq!(running.port, config.port);
+    assert_eq!(running.verbosity, config.verbosity);
+    assert_eq!(running.enable_docs, config.enable_docs);
 }
 
 #[tokio::test(flavor = "multi_thread")]

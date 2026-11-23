@@ -7,7 +7,8 @@
 //!
 //! Neither handler applies values to the running server. A client restarts the
 //! server to pick up the stored values; comparing `values` with `running` is how
-//! it knows a restart would change something.
+//! it knows a restart would change something. `running.host_fixed` is true when
+//! this process binds a fixed host, so a stored host value never applies to it.
 
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -96,6 +97,9 @@ pub struct RunningSettingsResponse {
     /// Whether this process serves the OpenAPI documentation endpoint.
     #[schema(example = false)]
     pub enable_docs: bool,
+    /// Whether this process binds a fixed host and ignores the stored host value.
+    #[schema(example = true)]
+    pub host_fixed: bool,
     /// Skills cache directory this process serves from.
     pub skills_dir: String,
 }
@@ -108,6 +112,9 @@ pub struct SettingsResponse {
     /// Built-in defaults for every field.
     pub defaults: SettingsSnapshot,
     /// Settings this server process started with.
+    ///
+    /// `host_fixed` is true when this process binds a fixed host, so a stored
+    /// host value never applies to it.
     pub running: RunningSettingsResponse,
 }
 
@@ -152,6 +159,7 @@ impl RunningSettingsResponse {
             port: running.port,
             verbosity: running.verbosity,
             enable_docs: running.enable_docs,
+            host_fixed: running.host_fixed,
             skills_dir: skills_dir.display().to_string(),
         }
     }

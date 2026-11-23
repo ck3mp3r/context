@@ -24,6 +24,8 @@ pub struct RunningSettings {
     pub verbosity: u8,
     /// Whether this process serves the OpenAPI documentation endpoint.
     pub enable_docs: bool,
+    /// Whether this process binds a fixed host and ignores the stored host value.
+    pub host_fixed: bool,
 }
 
 impl RunningSettings {
@@ -34,6 +36,7 @@ impl RunningSettings {
             port: config.port,
             verbosity: config.verbosity,
             enable_docs: config.enable_docs,
+            host_fixed: config.host_fixed,
         }
     }
 }

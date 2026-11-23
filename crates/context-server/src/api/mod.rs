@@ -69,6 +69,8 @@ pub struct Config {
     pub enable_docs: bool,
     /// Skills cache directory (where attachments are extracted)
     pub skills_dir: PathBuf,
+    /// Whether this process binds a fixed host and ignores the stored host value (set by the runner)
+    pub host_fixed: bool,
 }
 
 impl Config {
@@ -83,6 +85,7 @@ impl Config {
                 Ok(dir) => PathBuf::from(dir),
                 Err(_) => get_data_dir().join("skills"),
             },
+            host_fixed: false,
         }
     }
 
@@ -101,6 +104,7 @@ impl Default for Config {
             verbosity: 0,
             enable_docs: false,
             skills_dir: get_data_dir().join("skills"),
+            host_fixed: false,
         }
     }
 }
