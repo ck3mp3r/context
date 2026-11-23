@@ -100,9 +100,9 @@
 
     # resolve the dmg before submitting anything to the notary service
     shopt -s nullglob
-    matches=(target/release/bundle/dmg/context*_aarch64.dmg)
+    matches=(target/release/bundle/dmg/Context*_aarch64.dmg)
     if [ "''${#matches[@]}" -ne 1 ]; then
-      echo "release: expected exactly one dmg matching target/release/bundle/dmg/context*_aarch64.dmg, found ''${#matches[@]}:" >&2
+      echo "release: expected exactly one dmg matching target/release/bundle/dmg/Context*_aarch64.dmg, found ''${#matches[@]}:" >&2
       if [ "''${#matches[@]}" -gt 0 ]; then
         printf '  %s\n' "''${matches[@]}" >&2
       fi

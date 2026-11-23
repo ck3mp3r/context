@@ -32,7 +32,7 @@ fn restore_home(previous: Option<String>) {
 
 #[test]
 fn plist_carries_label_program_and_run_at_load() {
-    let program = PathBuf::from("/Applications/context.app/Contents/MacOS/context-service");
+    let program = PathBuf::from("/Applications/Context.app/Contents/MacOS/context-service");
 
     let content = plist_content(&program);
 
@@ -42,7 +42,7 @@ fn plist_carries_label_program_and_run_at_load() {
     );
     assert!(
         content.contains(
-            "<key>Program</key>\n    <string>/Applications/context.app/Contents/MacOS/context-service</string>"
+            "<key>Program</key>\n    <string>/Applications/Context.app/Contents/MacOS/context-service</string>"
         ),
         "program missing, got: {content}"
     );

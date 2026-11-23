@@ -123,7 +123,7 @@ The service is a macOS accessory agent: no Dock icon, no Cmd+Tab entry. It owns 
 
 The tray menu holds:
 
-- **Show context** — launches the GUI, or focuses the running one.
+- **Show Context** — launches the GUI, or focuses the running one.
 - **Settings…** — the same, on the SPA settings page when the GUI has to be spawned.
 - the MCP endpoint row for the configured port, informational.
 - the sync row, after `c5t sync init`, informational.
@@ -196,7 +196,7 @@ A plist or `launchctl` failure is logged and non-fatal: the service keeps servin
 
 ## Release build
 
-The release build produces `context.app` and the dmg `context_<version>_aarch64.dmg`. Both land under `target/release/bundle/`. `Contents/MacOS/` holds three binaries: `context` (the bundle main, from `default-run`), `context-service`, and `c5t` (the CLI, staged as an `externalBin` sidecar); the bundler signs all three.
+The release build produces `Context.app` and the dmg `Context_<version>_aarch64.dmg`. Both land under `target/release/bundle/`. `Contents/MacOS/` holds three binaries: `Context` (the bundle main: `mainBinaryName` renames the cargo binary `context`), `context-service`, and `c5t` (the CLI, staged as an `externalBin` sidecar); the bundler signs all three.
 
 The CLI sidecar is `bundle.externalBin` in `crates/context-app/tauri.conf.json`. The bundler looks for `<path>-aarch64-apple-darwin` and copies it into `Contents/MacOS/` under its own name, so the `release` helper builds and stages it before `cargo tauri build`.
 
@@ -215,10 +215,10 @@ release
 Expected output tail:
 
 ```
-dmg: target/release/bundle/dmg/context_0.8.0_aarch64.dmg
+dmg: target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
 Verify:
-  xcrun stapler validate target/release/bundle/dmg/context_0.8.0_aarch64.dmg
-  spctl --assess --type open --verbose --context context:primary-signature target/release/bundle/dmg/context_0.8.0_aarch64.dmg
+  xcrun stapler validate target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
+  spctl --assess --type open --verbose --context context:primary-signature target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
 ```
 
 The helper runs these steps in order:
@@ -231,7 +231,7 @@ The helper runs these steps in order:
 6. Run `cargo build --release -p context-cli`.
 7. Copy `target/release/c5t` to `target/release/c5t-aarch64-apple-darwin` (the name the bundler looks for).
 8. Run `cargo tauri build`.
-9. Resolve exactly one `target/release/bundle/dmg/context*_aarch64.dmg`.
+9. Resolve exactly one `target/release/bundle/dmg/Context*_aarch64.dmg`.
 10. Run `xcrun notarytool submit <dmg> --key <key path> --key-id <key id> --issuer <issuer id> --wait`.
 11. Run `xcrun stapler staple <dmg>`.
 
@@ -286,14 +286,14 @@ Create a key in App Store Connect under Users and Access → Integrations. Expor
 Run both checks on the produced dmg after a successful `release`:
 
 ```sh
-xcrun stapler validate target/release/bundle/dmg/context_0.8.0_aarch64.dmg
-# Processing: /path/to/context_0.8.0_aarch64.dmg
+xcrun stapler validate target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
+# Processing: /path/to/Context_0.8.0_aarch64.dmg
 # The validate action worked!
 ```
 
 ```sh
-spctl --assess --type open --verbose --context context:primary-signature target/release/bundle/dmg/context_0.8.0_aarch64.dmg
-# /path/to/context_0.8.0_aarch64.dmg: accepted
+spctl --assess --type open --verbose --context context:primary-signature target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
+# /path/to/Context_0.8.0_aarch64.dmg: accepted
 # source=Notarized Developer ID
 ```
 
