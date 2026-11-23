@@ -26,13 +26,18 @@ fn mcp_label_matches_the_port_the_app_serves() {
 #[cfg(debug_assertions)]
 #[test]
 fn debug_profile_tray_tooltip_names_the_dev_build() {
-    assert_eq!(tray_tooltip(), "context (dev)");
+    assert_eq!(tray_tooltip(), "Context (dev)");
 }
 
 #[cfg(not(debug_assertions))]
 #[test]
 fn release_profile_tray_tooltip_keeps_the_production_name() {
-    assert_eq!(tray_tooltip(), "context");
+    assert_eq!(tray_tooltip(), "Context");
+}
+
+#[test]
+fn show_item_names_the_app() {
+    assert_eq!(SHOW_TEXT, "Show Context");
 }
 
 #[test]

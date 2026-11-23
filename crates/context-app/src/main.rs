@@ -38,7 +38,7 @@ fn main() -> tauri::Result<()> {
                 eprintln!("context: {message}");
                 app.dialog()
                     .message(message)
-                    .title("context")
+                    .title("Context")
                     .kind(MessageDialogKind::Error)
                     .blocking_show();
                 std::process::exit(1);

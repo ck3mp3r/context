@@ -12,6 +12,16 @@ fn application_menu_item_closes_the_view() {
 }
 
 #[test]
+fn application_menu_title_names_the_app() {
+    assert_eq!(APP_MENU_TITLE, "Context");
+}
+
+#[test]
+fn about_item_names_the_app() {
+    assert_eq!(ABOUT_TEXT, "About Context");
+}
+
+#[test]
 fn quit_item_keeps_the_platform_shortcut() {
     assert_eq!(QUIT_ACCELERATOR, "CmdOrCtrl+Q");
 }

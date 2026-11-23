@@ -28,7 +28,7 @@ type WindowResult<T> = Result<T, Box<dyn std::error::Error>>;
 /// Label of the application window.
 const MAIN_WINDOW_LABEL: &str = "main";
 /// Title of the application window.
-const MAIN_WINDOW_TITLE: &str = "context";
+const MAIN_WINDOW_TITLE: &str = "Context";
 /// Initial width of the application window in logical pixels.
 const MAIN_WINDOW_WIDTH: f64 = 1280.0;
 /// Initial height of the application window in logical pixels.

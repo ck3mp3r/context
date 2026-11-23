@@ -55,8 +55,13 @@ fn route_must_stay_on_the_spa_origin() {
 fn sibling_gui_sits_next_to_this_executable() {
     let path = sibling_gui_path().expect("Sibling path should resolve");
     let executable = std::env::current_exe().expect("Current exe should resolve");
+    let expected_name = if cfg!(debug_assertions) {
+        "context"
+    } else {
+        "Context"
+    };
 
-    assert_eq!(path.file_name().expect("Sibling has a name"), "context");
+    assert_eq!(path.file_name().expect("Sibling has a name"), expected_name);
     assert_eq!(path.parent(), executable.parent());
 }
 

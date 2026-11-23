@@ -40,7 +40,7 @@ use crate::menu;
 /// Id of the Show item, matched by the menu event handler in `main`.
 pub const SHOW_ITEM_ID: &str = "show";
 /// Label of the Show item.
-const SHOW_TEXT: &str = "Show context";
+const SHOW_TEXT: &str = "Show Context";
 /// Id of the Settings item, matched by the menu event handler in `main`.
 pub const SETTINGS_ITEM_ID: &str = "settings";
 /// Label of the Settings item, which deep links to the SPA settings page.
@@ -50,7 +50,7 @@ const MCP_ITEM_ID: &str = "mcp";
 /// Prefix of the MCP item label, followed by the endpoint URL.
 const MCP_TEXT_PREFIX: &str = "MCP: ";
 /// Tooltip of the status item, shown on hover.
-const TRAY_TOOLTIP: &str = "context";
+const TRAY_TOOLTIP: &str = "Context";
 /// Id of the status item, used to find it again for menu swaps.
 const TRAY_ID: &str = "context";
 /// Id of the informational sync item. It never fires a menu event.
@@ -93,7 +93,7 @@ fn mcp_label() -> String {
 /// are distinguishable on hover; a release build keeps the bare app name.
 fn tray_tooltip() -> &'static str {
     if cfg!(debug_assertions) {
-        "context (dev)"
+        "Context (dev)"
     } else {
         TRAY_TOOLTIP
     }

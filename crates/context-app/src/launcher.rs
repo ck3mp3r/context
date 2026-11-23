@@ -56,10 +56,25 @@ fn is_valid_route(route: &str) -> bool {
 
 // region:    --- Launch
 
+/// File name of the GUI binary for the current build profile.
+///
+/// `cargo build` names the GUI `context`, and the bundle renames it to
+/// `Context` through `mainBinaryName`, so every name-based path, process probe,
+/// and LaunchServices lookup follows the profile.
+fn gui_binary_name() -> &'static str {
+    if cfg!(debug_assertions) {
+        "context"
+    } else {
+        "Context"
+    }
+}
+
 /// Path of the sibling GUI binary: next to this executable.
 ///
 /// The bundler puts both binaries in `Contents/MacOS`, and `cargo build` puts
-/// both in `target/debug`, so the GUI is always a directory away.
+/// both in `target/debug`, so the GUI is always a directory away. The file name
+/// follows `gui_binary_name()`: `Context` in the bundle, `context` in a dev
+/// build.
 pub(crate) fn sibling_gui_path() -> Result<PathBuf, String> {
     let executable = std::env::current_exe()
         .map_err(|error| format!("Failed to locate this executable: {error}"))?;
@@ -67,16 +82,17 @@ pub(crate) fn sibling_gui_path() -> Result<PathBuf, String> {
         .parent()
         .ok_or_else(|| format!("{} has no directory", executable.display()))?;
 
-    Ok(directory.join("context"))
+    Ok(directory.join(gui_binary_name()))
 }
 
 /// Whether a GUI process is already running.
 ///
-/// `pgrep -x` matches the process name exactly, so this service and the other
-/// `context*` helpers never count as a GUI.
+/// `pgrep -x` matches the process name exactly, so the probe uses the profile
+/// name from `gui_binary_name()`: `Context` in the bundle, `context` in a dev
+/// build. This service and the other `context*` helpers never count as a GUI.
 pub(crate) fn gui_running() -> bool {
     Command::new("/usr/bin/pgrep")
-        .args(["-x", "context"])
+        .args(["-x", gui_binary_name()])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -86,11 +102,13 @@ pub(crate) fn gui_running() -> bool {
 /// Ask LaunchServices to open or focus the bundled GUI.
 ///
 /// A bundled GUI has a registered name, and LaunchServices focuses the running
-/// instance instead of starting a second one. A dev build has no bundle, so the
-/// command fails and the caller falls back to the sibling spawn.
+/// instance instead of starting a second one. The name follows
+/// `gui_binary_name()`: the installed bundle registers as `Context`, and a dev
+/// build has no bundle, so the command fails and the caller falls back to the
+/// sibling spawn.
 fn activate_bundled_gui() -> bool {
     Command::new("/usr/bin/open")
-        .args(["-a", "context"])
+        .args(["-a", gui_binary_name()])
         .status()
         .is_ok_and(|status| status.success())
 }

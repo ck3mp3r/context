@@ -29,9 +29,9 @@ use tauri::AppHandle;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 
 /// Title of the application menu, shown next to the Apple menu.
-const APP_MENU_TITLE: &str = "context";
+const APP_MENU_TITLE: &str = "Context";
 /// Label of the About item. Without one, macOS names it after the process.
-const ABOUT_TEXT: &str = "About context";
+const ABOUT_TEXT: &str = "About Context";
 /// Label of the Quit item of the tray menu.
 pub const QUIT_TEXT: &str = "Quit";
 /// Id of the Quit item of the tray menu, matched by the menu event handler in
