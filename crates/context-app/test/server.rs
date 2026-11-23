@@ -257,6 +257,7 @@ fn fresh_start_keeps_loopback_and_takes_the_stored_port() {
     drop(base);
 
     assert_eq!(config.host.to_string(), "127.0.0.1");
+    assert!(config.host_fixed, "app host must be fixed");
     assert_eq!(config.port, 4000);
     assert_eq!(config.verbosity, 2);
 }

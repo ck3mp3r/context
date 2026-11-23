@@ -65,6 +65,7 @@ fn test_config_structure() {
         verbosity: 0,
         enable_docs: false,
         skills_dir: std::path::PathBuf::from("/tmp/skills"),
+        host_fixed: false,
     };
 
     assert_eq!(config.host.to_string(), "127.0.0.1");
@@ -82,6 +83,7 @@ fn test_config_with_docs_enabled() {
         verbosity: 2,
         enable_docs: true,
         skills_dir: std::path::PathBuf::from("/tmp/skills"),
+        host_fixed: false,
     };
 
     assert_eq!(config.host.to_string(), "0.0.0.0");
@@ -139,6 +141,7 @@ fn test_port_ranges() {
             verbosity: 0,
             enable_docs: false,
             skills_dir: std::path::PathBuf::from("/tmp/skills"),
+            host_fixed: false,
         };
         assert_eq!(config.port, port);
     }
@@ -156,6 +159,7 @@ fn test_verbosity_levels() {
             verbosity: level,
             enable_docs: false,
             skills_dir: std::path::PathBuf::from("/tmp/skills"),
+            host_fixed: false,
         };
         assert_eq!(config.verbosity, level);
     }
@@ -201,6 +205,7 @@ fn no_flags_keep_every_stored_value() {
     assert_eq!(config.verbosity, 2);
     assert!(config.enable_docs);
     assert_eq!(config.skills_dir, stored.skills_dir);
+    assert!(!config.host_fixed, "CLI host must not be fixed");
 }
 
 #[test]

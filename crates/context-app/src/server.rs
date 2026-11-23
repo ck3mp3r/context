@@ -109,6 +109,8 @@ fn server_config(settings: &Settings, port: u16) -> Config {
         verbosity: settings.verbosity,
         enable_docs: settings.enable_docs,
         skills_dir: skills_dir_override(settings),
+        // The host stays loopback and ignores the stored value; the webview loads the SPA from it.
+        host_fixed: true,
     }
 }
 

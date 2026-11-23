@@ -124,6 +124,7 @@ pub(crate) fn effective_config(flags: &ApiFlags, stored: &Settings) -> Config {
             .clone()
             .or_else(skills_dir_from_env)
             .unwrap_or_else(|| stored.skills_dir.clone()),
+        host_fixed: false,
     }
 }
 
