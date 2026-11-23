@@ -3,17 +3,20 @@
 //! Two binaries ship from this crate: the GUI (`context`) wires these modules
 //! into a windowed Tauri app, and the service (`context-service`) wires the same
 //! modules into a windowless one. `lifecycle` owns the GUI window and its deep
-//! links, `menu` and `tray` own the menu bar surfaces, `server` decides the port
-//! and attaches to or starts the server in-process, and `autostart` is the
-//! start-at-login hook the service calls.
+//! links, `menu` and `tray` own the menu bar surfaces, `launcher` brings the GUI
+//! forward from the service tray and ends the GUIs the service started, `server`
+//! decides the port and attaches to or starts the server in-process, and
+//! `autostart` is the start-at-login hook the service calls.
 
 pub mod autostart;
+pub mod launcher;
 pub mod lifecycle;
 pub mod menu;
 pub mod server;
 pub mod tray;
 
 pub use autostart::apply_start_at_login;
+pub use launcher::{OPEN_ROUTE_FLAG, ServiceState, open_route};
 pub use lifecycle::{SETTINGS_PATH, request_main_window, request_window_at};
 pub use menu::{CLOSE_VIEW_ITEM_ID, QUIT_ITEM_ID, QUIT_TEXT};
 pub use server::{

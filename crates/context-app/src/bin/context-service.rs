@@ -2,20 +2,35 @@
 //!
 //! Owns the tray and the API server. It never creates a window and never builds
 //! an application menu: the GUI menus exist for the webview responder chain, and
-//! this binary has no webview. It bakes `tauri.service.conf.json`, so its
+//! this binary has no webview. It bakes `service/tauri.conf.json`, so its
 //! identifier — and therefore its single-instance socket — is its own, and the
 //! GUI never kills it or the other way round.
+//!
+//! The tray drives the two halves: Show and Settings bring the GUI forward, and
+//! Quit ends the GUIs this service spawned before exiting.
 
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-use context_app::{apply_start_at_login, effective_settings, server, tray};
+use context_app::{
+    SETTINGS_PATH, ServiceState, apply_start_at_login, effective_settings, menu, server, tray,
+};
 
 fn main() -> tauri::Result<()> {
     let app = tauri::Builder::default()
         // A second service exits through the plugin; there is no window to raise.
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            if event.id() == tray::SHOW_ITEM_ID {
+                app.state::<ServiceState>().launch_gui(None);
+            } else if event.id() == tray::SETTINGS_ITEM_ID {
+                app.state::<ServiceState>().launch_gui(Some(SETTINGS_PATH));
+            } else if event.id() == menu::QUIT_ITEM_ID {
+                app.state::<ServiceState>().terminate_children();
+                app.exit(0);
+            }
+        })
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.handle()
@@ -36,6 +51,7 @@ fn main() -> tauri::Result<()> {
                 std::process::exit(1);
             }
 
+            app.manage(ServiceState::new());
             app.manage(tray::build(app.handle())?);
             tray::spawn_status_poll(app.handle().clone());
             apply_start_at_login(&effective_settings());

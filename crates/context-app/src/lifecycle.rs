@@ -28,9 +28,12 @@ const ROOT_PATH: &str = "/";
 /// SPA path of the settings page, the tray's deep link target.
 pub const SETTINGS_PATH: &str = "/settings";
 
-/// Create the application window and load the SPA at its root.
-pub fn create_main_window(app: &AppHandle) -> WindowResult<()> {
-    create_window_at(app, ROOT_PATH)
+/// Create the application window, loading the SPA at `route`.
+///
+/// No route means the SPA root. The route arrives as a launch argument from the
+/// service tray, so Settings… can open the window on its page.
+pub fn create_main_window(app: &AppHandle, route: Option<&str>) -> WindowResult<()> {
+    create_window_at(app, route.unwrap_or(ROOT_PATH))
 }
 
 /// Create the application window and load the SPA at `path`.

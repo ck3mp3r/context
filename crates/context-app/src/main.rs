@@ -3,12 +3,18 @@
 //! The GUI is a pure view: it ensures a `context-service` answers on the
 //! configured port, then loads the SPA that talks to it. It starts no server of
 //! its own and owns no tray — quitting the GUI leaves the service running.
+//!
+//! `--open-route <path>` is the service's deep link: the window loads the SPA on
+//! that path instead of the root.
 
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-use context_app::{lifecycle, menu, server};
+use context_app::{launcher, lifecycle, menu, server};
 
 fn main() -> tauri::Result<()> {
+    // Read the route before the window exists: creation loads it.
+    let route = launcher::open_route(std::env::args().skip(1));
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             lifecycle::request_main_window(app);
@@ -21,7 +27,7 @@ fn main() -> tauri::Result<()> {
                 close_view(app);
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             // Regular policy: the GUI owns a Dock icon and a Cmd+Tab entry.
             app.handle()
                 .set_activation_policy(tauri::ActivationPolicy::Regular)?;
@@ -38,7 +44,7 @@ fn main() -> tauri::Result<()> {
                 std::process::exit(1);
             }
 
-            lifecycle::create_main_window(app.handle())?;
+            lifecycle::create_main_window(app.handle(), route.as_deref())?;
             menu::build(app.handle())?;
 
             Ok(())

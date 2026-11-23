@@ -770,6 +770,7 @@ dependencies = [
  "context-core",
  "context-db",
  "context-server",
+ "libc",
  "reqwest",
  "rustls",
  "serde",
