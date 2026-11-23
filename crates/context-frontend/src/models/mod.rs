@@ -151,6 +151,7 @@ pub struct SettingsRunning {
     pub port: u16,
     pub verbosity: u8,
     pub enable_docs: bool,
+    pub host_fixed: bool,
     pub skills_dir: String,
 }
 

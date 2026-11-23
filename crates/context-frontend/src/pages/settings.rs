@@ -113,8 +113,19 @@ fn SettingsEditor() -> impl IntoView {
             .unwrap_or_default()
     });
 
+    // The app runner binds a fixed host: the stored host never applies to it.
+    let host_fixed = Signal::derive(move || running.get().is_some_and(|r| r.host_fixed));
+    let hint_host = Signal::derive(move || match running.get() {
+        Some(running) if running.host_fixed => {
+            format!("fixed by the running service: {}", running.host)
+        }
+        _ => format!("default: {}", default_host.get()),
+    });
+
     let reset_host = Callback::new(move |()| {
-        if let Some(defaults) = defaults.get_untracked() {
+        if let Some(defaults) = defaults.get_untracked()
+            && !host_fixed.get_untracked()
+        {
             host.set(defaults.host);
         }
     });
@@ -159,8 +170,16 @@ fn SettingsEditor() -> impl IntoView {
             return;
         };
 
+        // A fixed host never applies to the running process, so the save keeps
+        // whatever the file stored instead of comparing the draft.
+        let host_value = if host_fixed.get_untracked() {
+            stored.get_untracked().host
+        } else {
+            override_string(host.get_untracked(), &defaults.host)
+        };
+
         let values = SettingsValues {
-            host: override_string(host.get_untracked(), &defaults.host),
+            host: host_value,
             port: override_u16(port_number, defaults.port),
             verbosity: override_u8(verbosity.get_untracked(), defaults.verbosity),
             enable_docs: override_bool(enable_docs.get_untracked(), defaults.enable_docs),
@@ -223,22 +242,25 @@ fn SettingsEditor() -> impl IntoView {
                         <div class="mt-4">
                             <SettingsField
                                 title="Host"
-                                default_hint=default_host
+                                hint=hint_host
                                 restart=restart_host
+                                reset_disabled=host_fixed
                                 on_reset=reset_host
                             >
                                 <input
                                     type="text"
+                                    disabled=move || host_fixed.get()
                                     prop:value=move || host.get()
                                     on:input=move |ev| host.set(event_target_value(&ev))
-                                    class="w-full rounded-lg border border-ctp-surface1 bg-ctp-surface0 px-4 py-2 text-ctp-text placeholder-ctp-subtext0 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue focus:outline-none"
+                                    class="w-full rounded-lg border border-ctp-surface1 bg-ctp-surface0 px-4 py-2 text-ctp-text placeholder-ctp-subtext0 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                                 />
                             </SettingsField>
 
                             <SettingsField
                                 title="Port"
-                                default_hint=default_port
+                                hint=default_line(default_port)
                                 restart=restart_port
+                                reset_disabled=Signal::derive(|| false)
                                 on_reset=reset_port
                             >
                                 <input
@@ -252,8 +274,9 @@ fn SettingsEditor() -> impl IntoView {
 
                             <SettingsField
                                 title="Verbosity"
-                                default_hint=default_verbosity
+                                hint=default_line(default_verbosity)
                                 restart=restart_verbosity
+                                reset_disabled=Signal::derive(|| false)
                                 on_reset=reset_verbosity
                             >
                                 <select
@@ -281,8 +304,9 @@ fn SettingsEditor() -> impl IntoView {
 
                             <SettingsField
                                 title="Enable docs"
-                                default_hint=default_enable_docs
+                                hint=default_line(default_enable_docs)
                                 restart=restart_enable_docs
+                                reset_disabled=Signal::derive(|| false)
                                 on_reset=reset_enable_docs
                             >
                                 <input
@@ -295,8 +319,9 @@ fn SettingsEditor() -> impl IntoView {
 
                             <SettingsField
                                 title="Skills directory"
-                                default_hint=default_skills_dir
+                                hint=default_line(default_skills_dir)
                                 restart=restart_skills_dir
+                                reset_disabled=Signal::derive(|| false)
                                 on_reset=reset_skills_dir
                             >
                                 <input
@@ -309,8 +334,9 @@ fn SettingsEditor() -> impl IntoView {
 
                             <SettingsField
                                 title="Start at login"
-                                default_hint=default_start_at_login
+                                hint=default_line(default_start_at_login)
                                 restart=Signal::derive(|| false)
+                                reset_disabled=Signal::derive(|| false)
                                 on_reset=reset_start_at_login
                             >
                                 <div class="flex items-center gap-3">
@@ -360,14 +386,16 @@ fn SettingsEditor() -> impl IntoView {
     }
 }
 
-/// One labelled field with its default, reset button, and restart marker.
+/// One labelled field with its hint line, reset button, and restart marker.
 #[component]
 fn SettingsField(
     title: &'static str,
-    /// Built-in default rendered under the control.
-    default_hint: Signal<String>,
+    /// Line rendered under the control.
+    hint: Signal<String>,
     /// Whether the stored value waits for a restart.
     restart: Signal<bool>,
+    /// Whether the reset button is unavailable.
+    reset_disabled: Signal<bool>,
     /// Put the draft back to the built-in default.
     on_reset: Callback<()>,
     children: Children,
@@ -392,8 +420,9 @@ fn SettingsField(
                 <button
                     type="button"
                     title="Reset this field to its built-in default"
+                    disabled=move || reset_disabled.get()
                     on:click=move |_| on_reset.run(())
-                    class="rounded border border-ctp-surface1 px-2 py-1 text-xs text-ctp-subtext1 transition-colors hover:border-ctp-blue hover:text-ctp-text"
+                    class="rounded border border-ctp-surface1 px-2 py-1 text-xs text-ctp-subtext1 transition-colors hover:border-ctp-blue hover:text-ctp-text disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     "Reset"
                 </button>
@@ -401,9 +430,7 @@ fn SettingsField(
 
             <div class="mt-2">{children()}</div>
 
-            <p class="mt-1 text-xs text-ctp-overlay0">
-                "default: " {move || default_hint.get()}
-            </p>
+            <p class="mt-1 text-xs text-ctp-overlay0">{move || hint.get()}</p>
         </div>
     }
 }
@@ -439,9 +466,11 @@ struct RestartFields {
 
 impl RestartFields {
     /// Compare the effective stored values with what the process runs.
+    ///
+    /// A fixed host is never read from the file, so it never waits for a restart.
     fn between(stored: &SettingsDefaults, running: &SettingsRunning) -> Self {
         Self {
-            host: stored.host != running.host,
+            host: !running.host_fixed && stored.host != running.host,
             port: stored.port != running.port,
             verbosity: stored.verbosity != running.verbosity,
             enable_docs: stored.enable_docs != running.enable_docs,
@@ -469,6 +498,11 @@ impl RestartFields {
         }
         labels
     }
+}
+
+/// The hint line of a row that falls back to its built-in default.
+fn default_line(value: Signal<String>) -> Signal<String> {
+    Signal::derive(move || format!("default: {}", value.get()))
 }
 
 /// A string override, or `None` when the draft equals the default.
