@@ -143,7 +143,7 @@ impl GitOps for RealGit {
     }
 
     fn pull(&self, path: &Path, remote: &str, branch: &str) -> Result<Output, GitError> {
-        let output = self.run_git(path, &["pull", remote, branch])?;
+        let output = self.run_git(path, &["pull", "--no-gpg-sign", remote, branch])?;
         self.check_output(output)
     }
 
