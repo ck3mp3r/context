@@ -1,14 +1,24 @@
 //! Window lifecycle for the desktop shell.
 //!
-//! The app runs as a macOS accessory agent: it has no Dock icon and no Cmd+Tab
-//! entry, and the menu bar belongs to the frontmost regular app. The window is a
-//! transient view. Closing it leaves the app and the embedded server running,
-//! because MCP clients keep using the server while the window is closed. The
-//! tray's Show and the single-instance callback are the restore paths. The tray
-//! owns the only process exit; every window-closing surface — the application-menu
-//! item, Cmd+Q, Cmd+W, the close button — only closes the view.
+//! The GUI runs as a regular app and is a view over the service: the window is
+//! transient, and closing it leaves the GUI and the service running. The tray's
+//! Show, the Dock reopen, and the single-instance callback are the restore paths.
+//! Quit ends the GUI only; the service keeps serving.
+//!
+//! External links leave the window: the SPA origin keeps its navigations, and any
+//! other http(s) URL goes to the OS default browser without opening a second
+//! window.
 
+use std::process::Command;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+use tauri::webview::{NewWindowFeatures, NewWindowResponse};
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+
+#[cfg(test)]
+#[path = "../test/lifecycle.rs"]
+mod lifecycle_test;
 
 /// Error raised while managing the application window.
 ///
@@ -27,6 +37,20 @@ const MAIN_WINDOW_HEIGHT: f64 = 800.0;
 const ROOT_PATH: &str = "/";
 /// SPA path of the settings page, the tray's deep link target.
 pub const SETTINGS_PATH: &str = "/settings";
+/// Window in which a second report of the same external URL is the same click.
+const OPEN_DEDUP_WINDOW: Duration = Duration::from_millis(200);
+
+/// Last external URL handed to the OS, with the moment it happened.
+static LAST_OPENED: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+
+/// How a navigation request is handled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NavigationDecision {
+    /// Keep the request in the window.
+    Allow,
+    /// Hand the URL to the operating system and keep the SPA where it is.
+    OpenInBrowser,
+}
 
 /// Create the application window, loading the SPA at `route`.
 ///
@@ -37,13 +61,90 @@ pub fn create_main_window(app: &AppHandle, route: Option<&str>) -> WindowResult<
 }
 
 /// Create the application window and load the SPA at `path`.
+///
+/// Both navigation surfaces are hooked: a same-webview navigation keeps the SPA
+/// origin and sends anything else to the OS browser, and a new-window request is
+/// denied after the same handover, so a `target="_blank"` link never opens a
+/// second window.
 fn create_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
     let target = spa_url(path)?;
     WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::External(target))
         .title(MAIN_WINDOW_TITLE)
         .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
+        .on_navigation(|url| match navigation_decision(url) {
+            NavigationDecision::Allow => true,
+            NavigationDecision::OpenInBrowser => {
+                open_in_os_browser(url);
+                false
+            }
+        })
+        .on_new_window(|url, _features: NewWindowFeatures| {
+            open_in_os_browser(&url);
+            NewWindowResponse::Deny
+        })
         .build()?;
     Ok(())
+}
+
+/// Decide what to do with a navigation request.
+///
+/// The SPA origin serves every route the router knows, so it stays in the window.
+/// Any other URL is a link the user wants in their own browser.
+fn navigation_decision(url: &tauri::Url) -> NavigationDecision {
+    if is_spa_origin(url) {
+        NavigationDecision::Allow
+    } else {
+        NavigationDecision::OpenInBrowser
+    }
+}
+
+/// Whether `url` sits on the origin this build serves the SPA from.
+///
+/// Compares scheme, host, and port, so any path and query on that origin passes.
+fn is_spa_origin(url: &tauri::Url) -> bool {
+    let Ok(origin) = tauri::Url::parse(&crate::server::spa_origin()) else {
+        return false;
+    };
+
+    url.scheme() == origin.scheme()
+        && url.host_str() == origin.host_str()
+        && url.port_or_known_default() == origin.port_or_known_default()
+}
+
+/// Hand `url` to the OS default browser; anything not http(s) is ignored.
+///
+/// Returns whether a browser was started. The command runs detached: the window
+/// never waits for the browser, and a failure leaves the SPA untouched.
+fn open_in_os_browser(url: &tauri::Url) -> bool {
+    if !matches!(url.scheme(), "http" | "https") {
+        return false;
+    }
+
+    if !claim_open(url.as_str()) {
+        return false;
+    }
+
+    Command::new("open").arg(url.as_str()).spawn().is_ok()
+}
+
+/// Whether this URL may open now, or already opened a moment ago.
+///
+/// WebKit can report one click through both policy hooks; the window turns that
+/// pair into a single browser tab.
+fn claim_open(url: &str) -> bool {
+    let Ok(mut last) = LAST_OPENED.lock() else {
+        return false;
+    };
+
+    if let Some((previous, at)) = last.as_ref()
+        && previous == url
+        && at.elapsed() < OPEN_DEDUP_WINDOW
+    {
+        return false;
+    }
+
+    *last = Some((url.to_string(), Instant::now()));
+    true
 }
 
 /// Show and focus the application window, creating it when it was closed.
