@@ -37,6 +37,13 @@ windows:
         panes:
           - flex: 1
             commands:
+              - command: scripts/dev-service
+          - flex: 4
+      - flex: 1
+        flex_direction: column
+        panes:
+          - flex: 1
+            commands:
               - command: cargo
                 args:
                   - tauri

@@ -142,15 +142,43 @@
       exit 1
     fi
 
-    # both 3738 states work: say which one this launch gets
-    if lsof -nP -iTCP:3738 -sTCP:LISTEN >/dev/null 2>&1; then
-      echo "dev: 3738 is held — the app attaches to it; quitting the app leaves 3738 taken"
-    else
-      echo "dev: the app starts its own server on 3738; it dies with the app"
+    # the GUI only attaches to a service: start 'dev-service' in its own pane
+    if ! lsof -nP -iTCP:3738 -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "dev: nothing serves 3738 — start 'dev-service' first" >&2
+      echo "dev: the GUI spawns the service only outside the dev loop" >&2
+      exit 1
     fi
+    echo "dev: 3738 is served — the GUI attaches to that service"
 
     # the identifier override splits the single-instance lock from production
     exec cargo tauri dev --config '{"identifier":"c5t-dev.kemper.wtf"}'
+  '';
+  # The service owns the tray and the API server; the GUI is only a view over it.
+  # Both 3738 states are valid here: the service attaches or starts the server.
+  dev-service = pkgs.writeShellScriptBin "dev-service" ''
+    set -euo pipefail
+
+    # the app crate and the Apple toolchain are macOS-only
+    if [ "$(uname -s)" != "Darwin" ]; then
+      echo "dev-service: macOS only — the app crate needs the Apple toolchain" >&2
+      exit 1
+    fi
+
+    # the port probe below is only meaningful when lsof exists: fail closed
+    if ! command -v lsof >/dev/null 2>&1; then
+      echo "dev-service: lsof is required but not found in PATH" >&2
+      exit 1
+    fi
+
+    # both 3738 states work: say which one this launch gets
+    if lsof -nP -iTCP:3738 -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "dev-service: 3738 is held — the service attaches to it; it does not own the server"
+    else
+      echo "dev-service: the service starts the server on 3738; it dies with the service"
+    fi
+
+    # TAURI_CONFIG bakes the identifier, so this value must differ from 'dev'
+    exec env TAURI_CONFIG='{"identifier":"c5t-dev.service.kemper.wtf"}' cargo run --bin context-service
   '';
   # The app window loads the SPA from here, so refuse a second instance before
   # trunk fails on the busy port.
@@ -222,6 +250,7 @@ in
       coverage
       release
       dev
+      dev-service
       serve
       api
     ];
@@ -242,7 +271,8 @@ in
       echo "  build    - Build release binary (trunk build --release, then cargo build --release)"
       echo "  coverage - Run workspace coverage (HTML report in coverage/)"
       echo "  release  - Build, notarize and staple the dmg (needs APPLE_API_* credentials)"
-      echo "  dev      - Start the desktop app as c5t-dev.kemper.wtf (needs 'serve' on 8080)"
+      echo "  dev      - Start the GUI as c5t-dev.kemper.wtf (needs 'dev-service' on 3738)"
+      echo "  dev-service - Start the service: tray + API on 3738, c5t-dev.service.kemper.wtf"
       echo "  serve    - Start the Trunk dev server on 8080"
       echo "  api      - Start the headless REST and MCP server on 3738"
       echo ""
@@ -252,18 +282,24 @@ in
       echo "Desktop app (macOS only), run from this shell:"
       echo "  serve"
       echo "    Starts the Trunk dev server on 127.0.0.1:8080. Run it in one pane;"
-      echo "    the app window loads the SPA from there, so start it first."
+      echo "    the GUI window loads the SPA from there, so start it first."
+      echo "  dev-service"
+      echo "    Starts the service in a second pane: it owns the tray and the REST"
+      echo "    and MCP server on 127.0.0.1:3738. With 3738 free it starts the"
+      echo "    server; when a server already answers, it attaches to that one."
+      echo "    It runs as c5t-dev.service.kemper.wtf with its own single-instance"
+      echo "    socket, so the service, the GUI and the installed app coexist."
       echo "  dev"
-      echo "    Starts the app in a second pane. With 3738 free the app starts the"
-      echo "    REST and MCP server in-process on 127.0.0.1:3738, and the server"
-      echo "    lives and dies with the app, so quitting the app frees 3738."
+      echo "    Starts the GUI in a third pane. The GUI is a view over the service:"
+      echo "    it attaches to 3738 and needs 'dev-service' running. Cmd+Q quits"
+      echo "    the GUI only; the service tray Quit stops the whole pair."
       echo "    It runs as c5t-dev.kemper.wtf, so it and the installed app coexist."
       echo "  api"
       echo "    Starts the headless REST and MCP server on 127.0.0.1:3738 from a"
       echo "    debug build — same port, same dev database. Headless server work:"
-      echo "    stop the app pane, then run this in a spare pane. Run one or the"
-      echo "    other: if both run, the app attaches to the headless server and"
-      echo "    quitting the app leaves 3738 taken."
+      echo "    stop the service pane, then run this in a spare pane. Run one or"
+      echo "    the other: if both run, the service attaches to the headless server"
+      echo "    and quitting the service leaves 3738 taken."
       echo "  cargo tauri build"
       echo "    Release bundle. Run 'trunk build --release' first so the bundle"
       echo "    embeds the real SPA instead of the fresh-clone stub."

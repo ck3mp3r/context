@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# Start the c5t service for the laio dev loop.
+#
+# The panes run outside the nix shell, so this script carries what the
+# 'dev-service' helper does there: the dev identifier for the service. The
+# identifier is baked at compile time from TAURI_CONFIG, so it must differ from
+# the GUI's value ('c5t-dev.kemper.wtf'); otherwise both binaries would share one
+# single-instance socket.
+set -euo pipefail
+
+if [ "$(uname -s)" != "Darwin" ]; then
+  echo "dev-service: macOS only — the app crate needs the Apple toolchain" >&2
+  exit 1
+fi
+
+export TAURI_CONFIG='{"identifier":"c5t-dev.service.kemper.wtf"}'
+
+exec cargo run --bin context-service

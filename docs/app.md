@@ -1,15 +1,22 @@
 # Desktop App
 
-The `context` desktop app wraps the REST and MCP server in a native window. The app crate is `crates/context-app` (package `context`, binary `context`). It uses Tauri 2.12 and targets macOS. The CLI binary stays `c5t`.
+The `context` desktop app ships as two binaries from `crates/context-app`:
 
-The app probes `http://127.0.0.1:<port>/health` first. When a server answers with HTTP 200, the app attaches to it. Otherwise the app starts its own server. The port and the SPA origin depend on the build profile:
+| Binary | Role | Activation policy | Identifier |
+|--------|------|-------------------|------------|
+| `context` | GUI: a view over the SPA | Regular (Dock icon, Cmd+Tab) | `c5t.kemper.wtf` |
+| `context-service` | Service: tray, REST and MCP server | Accessory (menu bar only) | `c5t.service.kemper.wtf` |
+
+The GUI starts no server. When it launches it looks for a healthy service on the configured port; when none answers it spawns the sibling `context-service` and waits for `/health`. The service owns the tray, the API server and the SPA it serves.
+
+The service probes `http://127.0.0.1:<port>/health` first. When a server answers with HTTP 200, it attaches to it. Otherwise it starts its own server. The port and the SPA origin depend on the build profile:
 
 | Build | Server port | SPA loaded from |
 |-------|-------------|-----------------|
 | Debug | 3738 | `trunk serve` on `127.0.0.1:8080` |
 | Release | 3737 | the in-process server |
 
-A debug build never touches the production port. A debug build also uses its own data directory, `~/.local/share/c5t-dev/`; a release build uses `~/.local/share/c5t/`.
+A stored `port` in `config.toml` replaces the profile port; see [Settings and config.toml](#settings-and-configtoml). A debug build never touches the production port by default. A debug build also uses its own data directory, `~/.local/share/c5t-dev/`; a release build uses `~/.local/share/c5t/`.
 
 ## Prerequisites
 
@@ -42,7 +49,7 @@ A debug build never touches the production port. A debug build also uses its own
 
 ## Dev workflow
 
-The laio `misc` window (`.laio.yaml`) holds two panes side by side: `trunk serve` on the left and `cargo tauri dev` on the right. Run the panes in that order.
+The laio `misc` window (`.laio.yaml`) holds three panes side by side: `trunk serve`, `scripts/dev-service`, and the GUI. Run the panes in that order, after `nix develop` (or `direnv allow`).
 
 1. Start the frontend dev server:
 
@@ -58,51 +65,81 @@ The laio `misc` window (`.laio.yaml`) holds two panes side by side: `trunk serve
    INFO 📡 server listening at: http://127.0.0.1:8080/
    ```
 
-2. Start the app:
+2. Start the service:
 
    ```sh
-   cargo tauri dev --config '{"identifier":"c5t-dev.kemper.wtf"}'
+   nix develop -c dev-service   # or: scripts/dev-service
    ```
 
-   This builds the debug binary and opens the window titled `context`. The app starts the server in-process on `127.0.0.1:3738` and loads the SPA from the Trunk dev server. The server lives and dies with the app, so quitting frees the port. Expected output line:
+   The helper exports `TAURI_CONFIG='{"identifier":"c5t-dev.service.kemper.wtf"}'` and runs `cargo run --bin context-service`. The service owns the tray and the REST and MCP server. With 3738 free it starts the server there; when a server already answers it attaches to that one. It runs as its own identifier, so its single-instance socket (`/tmp/c5t_dev_service_kemper_wtf_si.sock`) never collides with the GUI's.
+
+3. Start the GUI:
+
+   ```sh
+   nix develop -c dev   # or: cargo tauri dev --config '{"identifier":"c5t-dev.kemper.wtf"}'
+   ```
+
+   The GUI attaches to the service on 3738 and loads the SPA from the Trunk dev server. It needs both panes: `dev` refuses when nothing serves 3738, because a bare `cargo tauri dev` would otherwise spawn a sibling service baked with the GUI's identifier. Expected output line:
 
    ```
    Running `/path/to/context/target/debug/context`
    ```
 
-3. Quit the app from the tray icon. The process stops and frees 3738.
+4. Quit the GUI with Cmd+Q or the application menu. The service and its tray keep running; use the tray item **Quit** to stop the pair.
 
 ### Dev and production coexistence
 
-The single-instance plugin keys its lock on the app identifier. The identifier `c5t.kemper.wtf` maps to the socket `/tmp/c5t_kemper_wtf_si.sock`; the identifier `c5t-dev.kemper.wtf` maps to `/tmp/c5t_dev_kemper_wtf_si.sock`. Two apps hold separate locks only when their identifiers differ, so the `dev` helper passes the dev identifier and the installed app keeps the production one.
+The single-instance plugin keys its lock on the app identifier. Each binary has its own, and the dev builds add one more each, so four sockets can exist at once:
+
+| Build | Identifier | Socket |
+|-------|------------|--------|
+| Production GUI | `c5t.kemper.wtf` | `/tmp/c5t_kemper_wtf_si.sock` |
+| Production service | `c5t.service.kemper.wtf` | `/tmp/c5t_service_kemper_wtf_si.sock` |
+| Dev GUI | `c5t-dev.kemper.wtf` | `/tmp/c5t_dev_kemper_wtf_si.sock` |
+| Dev service | `c5t-dev.service.kemper.wtf` | `/tmp/c5t_dev_service_kemper_wtf_si.sock` |
+
+The identifier is baked at compile time from `TAURI_CONFIG`, and that variable applies to the whole crate. The two dev commands therefore differ: `dev` passes the GUI identifier, `dev-service` exports the service identifier. A second instance of any surface exits immediately and the first one takes over.
 
 | First app running | Second app started | Result |
 |-------------------|--------------------|--------|
-| Production | `dev` | Both run. Separate identifiers, separate sockets. |
-| `dev` | Production | Both run. Separate identifiers, separate sockets. |
-| `dev` | `dev` | The second instance prints `Running .../target/debug/context` and exits within a few seconds. |
-| Production | Production | The second instance exits and the first restores its window. |
+| Production GUI | Dev GUI | Both run. Separate identifiers, separate sockets. |
+| Production service | Dev service | Both run. Separate identifiers, separate sockets. |
+| Dev GUI | Dev GUI | The second instance prints `Running .../target/debug/context` and exits within a few seconds. |
+| Production GUI | Production GUI | The second instance exits and the first shows its window. |
 
-The `dev` helper runs `cargo tauri dev --config '{"identifier":"c5t-dev.kemper.wtf"}'`. A bare `cargo tauri dev` without the flag still uses `c5t.kemper.wtf`: it keys the production socket and exits when the installed app runs, so start the app through the helper.
+The service and the GUI share a build profile, not a lock: a dev GUI attaches to whichever server answers on the dev port.
 
 ### Runtime behavior
 
-The app is a macOS accessory agent. It has no Dock icon and no Cmd+Tab entry, and the menu bar belongs to the frontmost regular app. The window is a transient view of a service that keeps running, because MCP clients keep using the server while the window is closed.
+The GUI is a regular app: it has a Dock icon and a Cmd+Tab entry, and it is a pure view over the service. Closing its window keeps the GUI alive, and a Dock click brings the window back.
 
-- The close button, Cmd+W, Cmd+Q, and the application menu item Close Window close the window only. The app and its server keep running.
-- The menu bar tray icon restores the window: choose **Show context**. Launching the app again does the same through the single-instance handler.
-- The tray menu shows the MCP endpoint for the build profile. The sync row appears after `c5t sync init` and reports the working tree state.
-- The tray item **Quit** is the only process exit. It stops the server.
+- Cmd+Q, the application-menu **Quit**, and the Dock's Quit end the GUI process only. The service keeps serving.
+- The close button, Cmd+W, and the application-menu **Close Window** close the window. The GUI stays running; a Dock click reopens the window through the reopen event.
+- Launching the GUI again focuses the running one through its single-instance handler.
+
+When a healthy service does not answer on the configured port, the GUI spawns the sibling `context-service` and waits up to ten seconds for `/health`. When the service never answers, the GUI shows an error dialog and exits.
+
+The service is a macOS accessory agent: no Dock icon, no Cmd+Tab entry. It owns the tray, and the window is a transient view of it, because MCP clients keep using the server while the window is closed.
+
+The tray menu holds:
+
+- **Show context** — launches the GUI, or focuses the running one.
+- **Settings…** — the same, on the SPA settings page when the GUI has to be spawned.
+- the MCP endpoint row for the configured port, informational.
+- the sync row, after `c5t sync init`, informational.
+- **Quit** — ends the service and the GUIs the service spawned, then stops the server.
+
+A GUI that the user started outside the tray — from Finder, a terminal, or the dev panes — is not a child of the service. The tray **Quit** leaves it running: the SPA shows its connection-lost state, and the user quits that GUI. The service does not respawn itself or the GUI this iteration.
 
 ### Headless server
 
-To work on the server without the window, stop the app pane, then run the server in a spare pane:
+To work on the server without the tray, stop the service pane, then run the server in a spare pane:
 
 ```sh
 cargo run --bin c5t api
 ```
 
-A debug build binds `0.0.0.0:3738` by default and uses the same dev database, `~/.local/share/c5t-dev/context.db`. Run one server per port: when the headless server already runs, the app attaches to it, and quitting the app leaves 3738 taken.
+A debug build binds `0.0.0.0:3738` by default and uses the same dev database, `~/.local/share/c5t-dev/context.db`. Run one server per port: when the headless server already runs, the service attaches to it, and quitting the service leaves 3738 taken.
 
 This command fails when 3738 is in use. Expected error:
 
@@ -110,13 +147,58 @@ This command fails when 3738 is in use. Expected error:
 Error:   × Failed to bind to address 0.0.0.0:3738: Address already in use
 ```
 
-Frontend-only work does not need the app. See [Frontend Architecture](frontend.md).
+Frontend-only work does not need either binary. See [Frontend Architecture](frontend.md).
+
+## Settings and config.toml
+
+Stored settings live in `config.toml` under the profile configuration directory:
+
+| Build | File |
+|-------|------|
+| Debug | `~/Library/Application Support/c5t-dev/config.toml` |
+| Release | `~/Library/Application Support/c5t/config.toml` |
+
+`XDG_CONFIG_HOME` replaces the macOS configuration root, and `c5t api --home` replaces the root for one run.
+
+The file holds any of `host`, `port`, `verbosity`, `enable_docs`, `skills_dir`, and `start_at_login`. An absent key means "use the built-in default"; the service resolves the file over the defaults at startup.
+
+Precedence, highest first:
+
+1. CLI flags (`c5t api --port …`, `--host`, `--skills-dir`, `-v`, `--docs`).
+2. `C5T_SKILLS_DIR`, which behaves like an explicit flag for `skills_dir` only.
+3. `config.toml`.
+4. Built-in defaults: port 3738 (debug) or 3737 (release), host `0.0.0.0` for the CLI and loopback for the service, verbosity 0, docs off, `skills_dir` under the data directory, `start_at_login` on.
+
+A stored value applies after the next restart of the process that reads it. The SPA **Settings** page (`/settings`) shows the stored values, the built-in defaults and what the running process uses; a field that differs from the running process is marked **restart to apply**.
+
+A `config.toml` that cannot be parsed, or that carries an out-of-range value, is logged and ignored: the service starts on the built-in defaults.
+
+## Start at login
+
+`start_at_login` registers a per-user launchd agent for the service. The service writes it at startup, so the setting applies on the next service start.
+
+| Part | Value |
+|------|-------|
+| Plist | `~/Library/LaunchAgents/wtf.kemper.c5t.service.plist` |
+| Label | `wtf.kemper.c5t.service` |
+| Program | the running service binary, absolute path |
+| RunAtLoad | `true` |
+| KeepAlive | absent: launchd does not respawn the service |
+
+To disable it, set `start_at_login = false` in `config.toml` (or clear it on the Settings page) and restart the service: it unregisters the agent and removes the plist. To undo a registration by hand:
+
+```sh
+launchctl bootout gui/$(id -u)/wtf.kemper.c5t.service
+rm ~/Library/LaunchAgents/wtf.kemper.c5t.service.plist
+```
+
+A plist or `launchctl` failure is logged and non-fatal: the service keeps serving.
 
 ## Release build
 
-The release build produces `context.app` (executable `Contents/MacOS/context`) and the dmg `context_<version>_aarch64.dmg`. Both land under `target/release/bundle/`.
+The release build produces `context.app` and the dmg `context_<version>_aarch64.dmg`. Both land under `target/release/bundle/`. `Contents/MacOS/` holds both binaries, `context` (the bundle main, from `default-run`) and `context-service`; the bundler signs both.
 
-A release build binds 3737 for its in-process server. The port must be free, or answered by a healthy server the app can attach to. A debug build uses 3738.
+A release build binds 3737 for its in-process server unless `config.toml` stores another port. The port must be free, or answered by a healthy server the service can attach to. A debug build uses 3738.
 
 Run the `release` helper from the development shell. It builds, notarizes, and staples in one step:
 
@@ -242,7 +324,7 @@ On macOS `lsof` lives in `/usr/sbin` and `uname` in `/usr/bin`, so `PATH=/usr/bi
 
 ## Troubleshooting
 
-### The app reports "Failed to start the context server"
+### The service reports "Failed to start the context server"
 
 The dialog text names the cause, for example:
 
@@ -250,9 +332,11 @@ The dialog text names the cause, for example:
 Failed to start the context server: Failed to bind to address 127.0.0.1:3738: Address already in use (os error 48)
 ```
 
-A debug build binds 3738; a release build binds 3737. The port is held by a process that does not answer `/health` with HTTP 200. Find the process, stop it, and start the app again. To see the same error from the command line, run `cargo run --bin c5t api` while the port is taken; it exits with status 1 and `Failed to bind to address 0.0.0.0:3738: Address already in use`.
+A debug build binds 3738; a release build binds 3737; a stored `port` in `config.toml` replaces either. The port is held by a process that does not answer `/health` with HTTP 200. Find the process, stop it, and start the service again. To see the same error from the command line, run `cargo run --bin c5t api` while the port is taken; it exits with status 1 and `Failed to bind to address 0.0.0.0:3738: Address already in use`.
 
-### Port 3737 or 3738 is already in use
+When the GUI shows this text, the service it spawned could not start. Start the service in its own pane to read the error on its stdout.
+
+### The port is already in use
 
 Find the listener:
 
@@ -262,9 +346,16 @@ lsof -nP -iTCP:3738 -sTCP:LISTEN
 # c5t     69904 christian   12u  IPv4 ...  TCP *:3738 (LISTEN)
 ```
 
-No output means the port is free. Use the same command with 3737 for a release build.
+No output means the port is free. Use the same command with 3737 for a release build, or with the stored `port` when `config.toml` names one.
 
-A debug app and the headless dev server share 3738. A release app and a headless `c5t api` share 3737. Run one server per port: quit the extra app from the tray, or stop the extra server. The app attaches to a healthy server instead of starting a second one.
+The service and the headless dev server share the configured port: a debug pair uses 3738, a release pair 3737. Run one server per port: quit the extra service from the tray, or stop the extra server. The service attaches to a healthy server instead of starting a second one.
+
+### The GUI cannot find the service
+
+The GUI probes the configured port, spawns the sibling `context-service` when nothing answers, and shows an error dialog when the health wait times out. Two cases are worth checking:
+
+- The spawned sibling must be next to the GUI binary. A GUI copied out of `target/debug` or out of `Contents/MacOS` has no sibling to start.
+- Another process holds the port without answering `/health`. Stop it and launch the GUI again.
 
 ### The window is blank or shows "The frontend assets are not embedded in this build"
 
