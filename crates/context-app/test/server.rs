@@ -1,4 +1,5 @@
-//! Tests for the build-profile endpoints and the health probe.
+//! Tests for the server module: the port decision, the SPA origin, the stored
+//! settings it reads, and the health probe that watches the in-process server.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;

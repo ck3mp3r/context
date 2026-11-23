@@ -1,42 +1,13 @@
 //! Tauri desktop shell for c5t.
 //!
-//! Runs the REST and MCP server in-process for the current build profile, then
-//! loads the SPA that talks to it. When a server already answers the health
-//! endpoint, the app attaches to it instead of starting a second one.
-
-use std::net::IpAddr;
-use std::path::PathBuf;
-use std::time::Duration;
+//! Wires the shared `context_app` modules into a Tauri app: the server is
+//! attached or started in-process for the current build profile, then the window
+//! loads the SPA that talks to it.
 
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-use context_core::settings::{self, Settings, StoredSettings};
-use context_core::{Database, get_config_path, get_db_path};
-use context_db::SqliteDatabase;
-use context_server::api::{self, Config};
-
-mod lifecycle;
-mod menu;
-mod tray;
-
-#[cfg(test)]
-#[path = "../test/endpoint.rs"]
-mod endpoint_test;
-
-/// Dev server port. `trunk serve` proxies `/dev` and `/dev/ws` here.
-const DEBUG_API_PORT: u16 = 3738;
-/// Production port. MCP clients are configured for `localhost:3737/mcp`.
-const RELEASE_API_PORT: u16 = 3737;
-/// Debug SPA origin, served by `trunk serve` on 8080.
-const DEBUG_SPA_ORIGIN: &str = "http://127.0.0.1:8080/";
-
-/// How long to wait for the server to answer `/health` before giving up.
-const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
-/// Delay between health probes while waiting for the server.
-const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(200);
-/// Timeout of a single health probe.
-const HEALTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
+use context_app::{lifecycle, menu, server, tray};
 
 fn main() -> tauri::Result<()> {
     let app = tauri::Builder::default()
@@ -60,10 +31,12 @@ fn main() -> tauri::Result<()> {
             app.handle()
                 .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
 
-            let port = api_port();
-            let health_url = health_url(port);
+            let port = server::api_port();
+            let health_url = server::health_url(port);
 
-            if let Err(message) = tauri::async_runtime::block_on(start_server(port, &health_url)) {
+            if let Err(message) =
+                tauri::async_runtime::block_on(server::start_server(port, &health_url))
+            {
                 eprintln!("context: {message}");
                 app.dialog()
                     .message(message)
@@ -95,190 +68,4 @@ fn close_view(app: &tauri::AppHandle) {
     if let Err(error) = lifecycle::close_main_window(app) {
         eprintln!("context: failed to close the main window: {error}");
     }
-}
-
-/// Port the app talks to: the stored port, else the build profile's port.
-///
-/// This is the single port decision point: the attach probe, the in-process
-/// server, the SPA origin and the tray MCP row all follow it, so a stored port
-/// moves them together.
-pub(crate) fn api_port() -> u16 {
-    stored_settings().port.unwrap_or_else(profile_api_port)
-}
-
-/// Port of the build profile, used when the settings file carries none.
-///
-/// Uses `cfg!(debug_assertions)` — the same predicate the data directory uses —
-/// so the app attaches to a server of its own profile and opens its own
-/// database. A debug build never touches the production port.
-fn profile_api_port() -> u16 {
-    if cfg!(debug_assertions) {
-        DEBUG_API_PORT
-    } else {
-        RELEASE_API_PORT
-    }
-}
-
-/// Stored settings for this run: the file when it is readable and valid.
-///
-/// A file that cannot be read or parsed, or that carries values outside the
-/// accepted range, is reported and ignored, so the app still starts.
-fn stored_settings() -> StoredSettings {
-    let path = get_config_path();
-
-    let stored = match settings::load(&path) {
-        Ok(stored) => stored,
-        Err(error) => {
-            eprintln!("context: ignoring settings file: {error}");
-            return StoredSettings::default();
-        }
-    };
-
-    if let Err(error) = settings::validate_stored(&stored) {
-        eprintln!(
-            "context: ignoring settings file {}: {error}",
-            path.display()
-        );
-        return StoredSettings::default();
-    }
-
-    stored
-}
-
-/// Settings the app works with: stored values over the built-in defaults.
-fn effective_settings() -> Settings {
-    settings::resolve(&stored_settings())
-}
-
-/// SPA origin for this run: the trunk dev server, or the in-process server.
-fn spa_origin() -> String {
-    if cfg!(debug_assertions) {
-        DEBUG_SPA_ORIGIN.to_string()
-    } else {
-        format!("http://127.0.0.1:{}/", api_port())
-    }
-}
-
-/// Config for the in-process server.
-///
-/// The host stays loopback: the webview loads the SPA from it, so the server
-/// must not listen beyond the machine. `port` is the decision the caller made
-/// through [`api_port`].
-fn server_config(settings: &Settings, port: u16) -> Config {
-    Config {
-        host: IpAddr::from([127, 0, 0, 1]),
-        port,
-        verbosity: settings.verbosity,
-        enable_docs: settings.enable_docs,
-        skills_dir: skills_dir_override(settings),
-    }
-}
-
-/// Skills directory: `C5T_SKILLS_DIR` wins over the stored value.
-fn skills_dir_override(settings: &Settings) -> PathBuf {
-    std::env::var("C5T_SKILLS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| settings.skills_dir.clone())
-}
-
-/// Loopback health endpoint of the server on `port`.
-fn health_url(port: u16) -> String {
-    format!("http://127.0.0.1:{port}/health")
-}
-
-/// Build the client used for health probes.
-fn health_client() -> Result<reqwest::Client, String> {
-    // Install ring as the default crypto provider for rustls. Workspace builds
-    // enable rustls without a provider, and building a client then panics.
-    let _ = rustls::crypto::ring::default_provider().install_default();
-
-    reqwest::Client::builder()
-        .timeout(HEALTH_REQUEST_TIMEOUT)
-        .build()
-        .map_err(|error| format!("Failed to create the health probe client: {error}"))
-}
-
-/// Attach to a running server, or start one and wait until it is healthy.
-///
-/// Returns an error message for the operator when the server cannot be
-/// reached and cannot be started.
-async fn start_server(port: u16, health_url: &str) -> Result<(), String> {
-    let client = health_client()?;
-
-    if probe_health(&client, health_url).await {
-        return Ok(());
-    }
-
-    let db_path = get_db_path();
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
-    }
-
-    let db = SqliteDatabase::open(&db_path)
-        .await
-        .map_err(|error| format!("Failed to open {}: {error}", db_path.display()))?;
-    db.migrate()
-        .map_err(|error| format!("Failed to migrate {}: {error}", db_path.display()))?;
-
-    let config = server_config(&effective_settings(), port);
-
-    let (failure_tx, mut failure_rx) = tokio::sync::mpsc::unbounded_channel();
-    tauri::async_runtime::spawn(async move {
-        let failure = match api::run(config, db).await {
-            Ok(()) => "The context server stopped before it became ready.".to_string(),
-            Err(error) => {
-                eprintln!("context: API server stopped: {error}");
-                error.to_string()
-            }
-        };
-        let _ = failure_tx.send(failure);
-    });
-
-    await_health(&client, health_url, HEALTH_TIMEOUT, &mut failure_rx).await
-}
-
-/// Wait for the server to answer `/health`, or report why it never will.
-///
-/// Stops early with the server's own error, so the operator sees the real
-/// cause — a bind failure, for example — instead of a timeout message.
-async fn await_health(
-    client: &reqwest::Client,
-    health_url: &str,
-    timeout: Duration,
-    failure_rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
-) -> Result<(), String> {
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        if probe_health(client, health_url).await {
-            return Ok(());
-        }
-
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-
-        tokio::select! {
-            failure = failure_rx.recv() => {
-                let cause = failure
-                    .unwrap_or_else(|| "The context server task ended unexpectedly.".to_string());
-                return Err(format!("Failed to start the context server: {cause}"));
-            }
-            () = tokio::time::sleep(HEALTH_POLL_INTERVAL.min(remaining)) => {}
-        }
-    }
-
-    Err(format!(
-        "The context server did not answer {health_url} within {} seconds.",
-        timeout.as_secs_f64()
-    ))
-}
-
-/// Report whether `url` answers HTTP 200.
-async fn probe_health(client: &reqwest::Client, url: &str) -> bool {
-    matches!(
-        client.get(url).send().await,
-        Ok(response) if response.status() == reqwest::StatusCode::OK
-    )
 }

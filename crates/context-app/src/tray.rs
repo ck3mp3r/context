@@ -78,12 +78,12 @@ mod tray_test;
 
 /// Label of the informational MCP item for the current build profile.
 ///
-/// The port comes from `crate::api_port()`, the single port decision point, so
+/// The port comes from `crate::server::api_port()`, the single port decision point, so
 /// the row always names the endpoint the app actually serves.
 fn mcp_label() -> String {
     format!(
         "{MCP_TEXT_PREFIX}http://localhost:{}/mcp",
-        crate::api_port()
+        crate::server::api_port()
     )
 }
 
@@ -173,7 +173,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
 /// fetch is skipped, so the row keeps its last known state.
 pub fn spawn_status_poll(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let client = match crate::health_client() {
+        let client = match crate::server::health_client() {
             Ok(client) => client,
             Err(error) => {
                 eprintln!("context: {error}");
@@ -232,7 +232,10 @@ fn sync_label(data: Option<&SyncData>) -> Option<String> {
 
 /// Loopback status endpoint of the server on the build profile's port.
 fn status_url() -> String {
-    format!("http://127.0.0.1:{}/api/v1/sync/status", crate::api_port())
+    format!(
+        "http://127.0.0.1:{}/api/v1/sync/status",
+        crate::server::api_port()
+    )
 }
 
 /// Fetch one status snapshot, or `None` when the server cannot answer.

@@ -8,6 +8,9 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[lib]
+name = "context_app"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

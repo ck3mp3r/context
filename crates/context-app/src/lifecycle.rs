@@ -69,7 +69,7 @@ fn show_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
 /// The origin ends in a slash and `join` resolves the path against it, so the
 /// deep link is a single-slash URL on whichever origin serves the SPA.
 pub(crate) fn spa_url(path: &str) -> WindowResult<tauri::Url> {
-    let origin: tauri::Url = crate::spa_origin().parse()?;
+    let origin: tauri::Url = crate::server::spa_origin().parse()?;
     Ok(origin.join(path.trim_start_matches('/'))?)
 }
 
