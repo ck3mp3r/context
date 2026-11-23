@@ -9,6 +9,10 @@ mod repos;
 #[cfg(test)]
 #[path = "../../../test/api/v1/restore.rs"]
 mod restore_test;
+mod settings;
+#[cfg(test)]
+#[path = "../../../test/api/v1/settings.rs"]
+mod settings_test;
 mod skills;
 #[cfg(test)]
 #[path = "../../../test/api/v1/skills.rs"]
@@ -29,6 +33,7 @@ mod tasks_test;
 pub use notes::*;
 pub use projects::*;
 pub use repos::*;
+pub use settings::*;
 pub use skills::*;
 pub use sync::*;
 pub use task_lists::*;

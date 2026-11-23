@@ -30,7 +30,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-pub use state::AppState;
+pub use state::{AppState, RunningSettings};
 
 use context_core::Database;
 use context_core::get_data_dir;
@@ -135,8 +135,9 @@ pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), Api
     // Create change notifier for WebSocket pub/sub
     let notifier = notifier::ChangeNotifier::new();
 
-    // Create application state
-    let state = AppState::new(db, sync_manager, notifier, config.skills_dir);
+    // Create application state: the config reaches the handlers as `running`
+    let running = RunningSettings::from_config(&config);
+    let state = AppState::new(db, sync_manager, notifier, config.skills_dir).with_running(running);
 
     let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 

@@ -14,9 +14,10 @@ use super::v1::{
     CreateTaskListRequest, CreateTaskRequest, CreateTransitionRequest, DisableSkillResponse,
     EnableSkillResponse, ErrorResponse, ImportSkillRequest, NoteResponse, PatchNoteRequest,
     PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse,
-    ReplaceSkillRequest, RepoResponse, SkillResponse, TaskListResponse, TaskResponse,
-    TransitionResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
-    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
+    ReplaceSkillRequest, RepoResponse, RunningSettingsResponse, SettingsResponse, SettingsSnapshot,
+    SettingsValues, SkillResponse, TaskListResponse, TaskResponse, TransitionResponse,
+    UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest,
+    UpdateTaskListRequest, UpdateTaskRequest,
 };
 
 use context_core::Database;
@@ -101,6 +102,8 @@ macro_rules! routes {
         super::v1::export_sync,
         super::v1::import_sync,
         super::v1::get_sync_status,
+        super::v1::get_settings,
+        super::v1::put_settings,
     ),
     components(
         schemas(
@@ -145,6 +148,11 @@ macro_rules! routes {
               UpdateSkillRequest,
               EnableSkillResponse,
               DisableSkillResponse,
+              // --- Settings ---
+              SettingsResponse,
+              SettingsValues,
+              SettingsSnapshot,
+              RunningSettingsResponse,
         )
     ),
     tags(
@@ -156,6 +164,7 @@ macro_rules! routes {
         (name = "notes", description = "Note management endpoints with FTS search"),
          (name = "sync", description = "Git-based sync operations"),
          (name = "skills", description = "Skills management endpoints"),
+         (name = "settings", description = "Settings file and running configuration endpoints"),
 ))]
 pub struct ApiDoc;
 
@@ -243,6 +252,9 @@ pub fn create_router<D: Database + 'static, G: context_sync::GitOps + Send + Syn
         post "/sync/export" => super::v1::export_sync,
         post "/sync/import" => super::v1::import_sync,
         get "/sync/status" => super::v1::get_sync_status,
+        // Settings
+        get "/settings" => super::v1::get_settings,
+        put "/settings" => super::v1::put_settings,
         get "/task-lists/{id}/stats" => super::v1::get_task_list_stats,
     });
 
