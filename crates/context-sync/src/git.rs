@@ -138,7 +138,7 @@ impl GitOps for RealGit {
     }
 
     fn commit(&self, path: &Path, message: &str) -> Result<Output, GitError> {
-        let output = self.run_git(path, &["commit", "-m", message])?;
+        let output = self.run_git(path, &["commit", "--no-gpg-sign", "-m", message])?;
         self.check_output(output)
     }
 

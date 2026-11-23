@@ -1,8 +1,12 @@
 use crate::git::*;
 use mockall::predicate::*;
+use serial_test::serial;
+use std::env;
+use std::fs;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
-use std::process::{ExitStatus, Output};
+use std::process::{Command, ExitStatus, Output};
+use tempfile::TempDir;
 
 /// Helper to create a mock Output
 fn mock_output(code: i32, stdout: &str, stderr: &str) -> Output {
@@ -163,4 +167,108 @@ fn test_mock_network_error() {
     } else {
         panic!("Expected NonZeroExit error");
     }
+}
+
+/// Set a repo-local git config key in the given repository.
+fn set_config(dir: &Path, key: &str, value: &str) {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["config", key, value])
+        .output()
+        .expect("git config should run");
+
+    assert!(
+        output.status.success(),
+        "git config {key} should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Count the commits reachable from HEAD in the given repository.
+fn rev_list_count(dir: &Path) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-list", "--count", "HEAD"])
+        .output()
+        .expect("git rev-list should run");
+
+    assert!(
+        output.status.success(),
+        "git rev-list --count HEAD should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[test]
+fn test_real_git_commit_with_hostile_repo_local_signing() {
+    let repo = TempDir::new().expect("test temp dir should be created");
+    let path = repo.path();
+    let git = RealGit::new();
+    git.init(path).expect("git init should succeed");
+
+    set_config(path, "user.name", "C5t Test");
+    set_config(path, "user.email", "c5t-test@example.com");
+    set_config(path, "commit.gpgsign", "true");
+    set_config(path, "gpg.format", "ssh");
+    set_config(
+        path,
+        "user.signingkey",
+        &path.join("nonexistent-key").to_string_lossy(),
+    );
+
+    fs::write(path.join("data.jsonl"), "{\"id\":\"test0000\"}\n")
+        .expect("data.jsonl should be written");
+
+    git.add_files(path, &[".".to_string()])
+        .expect("git add should succeed");
+    git.commit(path, "test")
+        .expect("commit should succeed when signing is neutralized");
+
+    assert_eq!(
+        rev_list_count(path),
+        "1",
+        "commit should create exactly one commit"
+    );
+}
+
+#[test]
+#[serial]
+fn test_real_git_commit_with_hostile_global_signing() {
+    let repo = TempDir::new().expect("test temp dir should be created");
+    let path = repo.path();
+    let git = RealGit::new();
+    git.init(path).expect("git init should succeed");
+
+    let config_dir = TempDir::new().expect("config temp dir should be created");
+    let global_config = config_dir.path().join("gitconfig");
+    let signing_key = config_dir.path().join("nonexistent-key");
+    fs::write(
+        &global_config,
+        format!(
+            "[user]\n\tname = C5t Test\n\temail = c5t-test@example.com\n\tsigningkey = {}\n[commit]\n\tgpgsign = true\n[gpg]\n\tformat = ssh\n",
+            signing_key.display()
+        ),
+    )
+    .expect("hostile global config should be written");
+
+    fs::write(path.join("data.jsonl"), "{\"id\":\"test0000\"}\n")
+        .expect("data.jsonl should be written");
+
+    unsafe { env::set_var("GIT_CONFIG_GLOBAL", &global_config) };
+    let added = git.add_files(path, &[".".to_string()]);
+    let committed = git.commit(path, "test");
+    unsafe { env::remove_var("GIT_CONFIG_GLOBAL") };
+
+    added.expect("git add should succeed");
+    committed.expect("commit should succeed when signing is neutralized");
+
+    assert_eq!(
+        rev_list_count(path),
+        "1",
+        "commit should create exactly one commit"
+    );
 }
