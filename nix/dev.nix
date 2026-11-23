@@ -90,6 +90,12 @@
     fi
 
     trunk build --release
+    # the bundler copies the sidecar into Contents/MacOS and signs it with the app,
+    # so it must exist before the build: a missing path fails the bundle. The
+    # suffix is the target triple the bundler appends for lookup and strips at
+    # the destination.
+    cargo build --release -p context-cli
+    cp target/release/c5t target/release/c5t-aarch64-apple-darwin
     cargo tauri build
 
     # resolve the dmg before submitting anything to the notary service

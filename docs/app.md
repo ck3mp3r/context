@@ -196,7 +196,9 @@ A plist or `launchctl` failure is logged and non-fatal: the service keeps servin
 
 ## Release build
 
-The release build produces `context.app` and the dmg `context_<version>_aarch64.dmg`. Both land under `target/release/bundle/`. `Contents/MacOS/` holds both binaries, `context` (the bundle main, from `default-run`) and `context-service`; the bundler signs both.
+The release build produces `context.app` and the dmg `context_<version>_aarch64.dmg`. Both land under `target/release/bundle/`. `Contents/MacOS/` holds three binaries: `context` (the bundle main, from `default-run`), `context-service`, and `c5t` (the CLI, staged as an `externalBin` sidecar); the bundler signs all three.
+
+The CLI sidecar is `bundle.externalBin` in `crates/context-app/tauri.conf.json`. The bundler looks for `<path>-aarch64-apple-darwin` and copies it into `Contents/MacOS/` under its own name, so the `release` helper builds and stages it before `cargo tauri build`.
 
 A release build binds 3737 for its in-process server unless `config.toml` stores another port. The port must be free, or answered by a healthy server the service can attach to. A debug build uses 3738.
 
@@ -226,10 +228,12 @@ The helper runs these steps in order:
 3. Refuse to start when `lsof` is not on `PATH`.
 4. Refuse to start when port 8080 has a listener (a live `trunk serve`).
 5. Run `trunk build --release`.
-6. Run `cargo tauri build`.
-7. Resolve exactly one `target/release/bundle/dmg/context*_aarch64.dmg`.
-8. Run `xcrun notarytool submit <dmg> --key <key path> --key-id <key id> --issuer <issuer id> --wait`.
-9. Run `xcrun stapler staple <dmg>`.
+6. Run `cargo build --release -p context-cli`.
+7. Copy `target/release/c5t` to `target/release/c5t-aarch64-apple-darwin` (the name the bundler looks for).
+8. Run `cargo tauri build`.
+9. Resolve exactly one `target/release/bundle/dmg/context*_aarch64.dmg`.
+10. Run `xcrun notarytool submit <dmg> --key <key path> --key-id <key id> --issuer <issuer id> --wait`.
+11. Run `xcrun stapler staple <dmg>`.
 
 `cargo tauri build` signs the app with the Developer ID identity. When the three `APPLE_API_*` variables are exported, it also notarizes and staples the `.app` **only**. It codesigns the dmg but never submits it to the notary service. Without the helper's submit and staple steps the dmg is signed but not notarized, and `xcrun stapler validate` fails on it.
 

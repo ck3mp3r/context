@@ -10,6 +10,7 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
+    "externalBin": ["../../target/release/c5t"],
     "category": "public.app-category.developer-tools",
     "copyright": "GPL-2.0 — Copyright (c) Christian Kemper",
     "icon": [
