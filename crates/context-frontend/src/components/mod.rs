@@ -6,6 +6,7 @@ pub mod sort_controls;
 pub mod task_components;
 pub mod theme_switcher;
 pub mod ui_components;
+pub mod update_banner;
 
 pub use note_components::{MarkdownContent, NoteCard, NoteStackSidebar};
 pub use repo_components::RepoCard;
@@ -15,3 +16,4 @@ pub use sort_controls::SortControls;
 pub use task_components::{ExternalRefLink, TaskListCard, TaskListContent, TaskListDetailModal};
 pub use theme_switcher::ThemeSwitcher;
 pub use ui_components::{Breadcrumb, BreadcrumbItem, CopyableId, Pagination};
+pub use update_banner::{UpdateBadge, UpdateBanner};

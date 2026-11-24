@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use leptos_router::{
     components::{Route, Router, Routes},
     hooks::use_location,
@@ -8,7 +9,8 @@ use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
 use crate::breadcrumb_state::BreadcrumbPageState;
-use crate::components::ThemeSwitcher;
+use crate::components::{ThemeSwitcher, UpdateBadge, UpdateBanner};
+use crate::models::UpdateStatusPayload;
 use crate::pages::{
     NoteDetail, Notes, ProjectDetail, Projects, RepoDetail, Repos, Settings, Skills, TaskListDetail,
 };
@@ -35,6 +37,18 @@ pub fn App() -> impl IntoView {
     // Sync Catppuccin theme changes to Thaw theme
     Effect::new(move || {
         thaw_theme.set(catppuccin_theme.get().to_thaw_theme());
+    });
+
+    // One non-manual check per mount: the service skips it while auto-update
+    // is off, so this stays quiet unless the user asked for checks.
+    Effect::new(move |_| {
+        spawn_local(async move {
+            if let Err(error) = crate::api::update::check(false).await {
+                web_sys::console::error_1(
+                    &format!("Failed to trigger the update check: {error}").into(),
+                );
+            }
+        });
     });
 
     view! {
@@ -70,6 +84,9 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     let ws_state = use_websocket_connection();
     let location = use_location();
 
+    // Update state shared by the shell banner and the nav badge.
+    let update_status = RwSignal::new(None::<UpdateStatusPayload>);
+
     // Determine active tab based on current path
     let is_active = move |path: &str| {
         let current = location.pathname.get();
@@ -97,6 +114,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                     class:bg-ctp-red=move || matches!(ws_state.get(), ConnectionReadyState::Closed)>
                 </div>
             </Tooltip>
+            <UpdateBanner status=update_status/>
             <nav class="bg-ctp-surface0 border-b border-ctp-surface1 relative">
                 <div class="container mx-auto flex justify-between items-center px-6 py-4">
                     <a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
@@ -106,6 +124,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                         <span class="text-xs text-ctp-subtext0 font-mono">
                             {env!("CARGO_PKG_VERSION")}
                         </span>
+                        <UpdateBadge status=update_status/>
                     </a>
                     <div class="flex gap-4 items-center">
                         <div class="flex gap-2 items-center">

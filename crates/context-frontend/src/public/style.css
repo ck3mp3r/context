@@ -460,6 +460,9 @@
   .shrink {
     flex-shrink: 1;
   }
+  .shrink-0 {
+    flex-shrink: 0;
+  }
   .flex-grow {
     flex-grow: 1;
   }
@@ -624,10 +627,31 @@
       border-color: color-mix(in oklab, var(--ctp-blue) 30%, transparent);
     }
   }
+  .border-ctp-blue\/40 {
+    border-color: var(--ctp-blue);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--ctp-blue) 40%, transparent);
+    }
+  }
+  .border-ctp-green {
+    border-color: var(--ctp-green);
+  }
+  .border-ctp-green\/40 {
+    border-color: var(--ctp-green);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--ctp-green) 40%, transparent);
+    }
+  }
   .border-ctp-mauve\/30 {
     border-color: var(--ctp-mauve);
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--ctp-mauve) 30%, transparent);
+    }
+  }
+  .border-ctp-mauve\/40 {
+    border-color: var(--ctp-mauve);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--ctp-mauve) 40%, transparent);
     }
   }
   .border-ctp-overlay0 {
@@ -1128,6 +1152,14 @@
     }
     .hover\:border-ctp-green:hover {
       border-color: var(--ctp-green);
+    }
+    .hover\:bg-ctp-green\/20:hover {
+      background-color: var(--ctp-green);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-ctp-green\/20:hover {
+        background-color: color-mix(in oklab, var(--ctp-green) 20%, transparent);
+      }
     }
     .hover\:bg-ctp-overlay0:hover {
       background-color: var(--ctp-overlay0);
