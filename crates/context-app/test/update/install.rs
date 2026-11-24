@@ -5,7 +5,9 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::install::{BundleExecutor, InstallError, install, install_target, restart_command};
+use super::install::{
+    BundleExecutor, InstallError, install, install_target, restart_command, shell_quote,
+};
 use crate::update::releases::manifest_url;
 use context_core::update::{UpdateState, UpdateStatus, load as load_state, write as write_state};
 use tempfile::TempDir;
@@ -317,5 +319,40 @@ fn restart_command_restarts_through_a_shell() {
             "sleep 1; exec '/Applications/Context.app/Contents/MacOS/context-service'".to_string()
         ],
         "the shell waits for the old single-instance socket, then execs the new binary"
+    );
+}
+
+#[test]
+fn restart_command_quotes_a_path_that_carries_a_single_quote() {
+    let service = Path::new("/Users/o'brien/Context.app/Contents/MacOS/context-service");
+
+    let command = restart_command(service);
+
+    let args: Vec<String> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        args,
+        vec![
+            "-c".to_string(),
+            "sleep 1; exec '/Users/o'\\''brien/Context.app/Contents/MacOS/context-service'"
+                .to_string()
+        ],
+        "the quote must not end the quoted argument"
+    );
+
+    // The escaped form must hand the shell the exact path back.
+    let quoted = shell_quote(&service.display().to_string());
+    let output = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!("printf '%s' {quoted}"))
+        .output()
+        .expect("the shell runs");
+
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("the shell emits UTF-8"),
+        service.display().to_string(),
+        "the shell must read back the exact path"
     );
 }

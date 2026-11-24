@@ -164,7 +164,10 @@ pub(crate) fn restart_command(service_path: &Path) -> Command {
     let mut command = Command::new("/bin/sh");
     command
         .arg("-c")
-        .arg(format!("sleep 1; exec '{}'", service_path.display()))
+        .arg(format!(
+            "sleep 1; exec {}",
+            shell_quote(&service_path.display().to_string())
+        ))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -176,6 +179,14 @@ pub(crate) fn restart_command(service_path: &Path) -> Command {
     }
 
     command
+}
+
+/// Quote `value` for the shell: single quotes, embedded quotes escaped.
+///
+/// The POSIX form for a literal single quote inside single quotes: close the
+/// quoted run, emit an escaped quote, and reopen it.
+pub(crate) fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
 }
 
 /// State a finished swap records.

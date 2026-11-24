@@ -205,6 +205,21 @@ fn a_ready_state_whose_candidate_is_the_running_version_is_settled() {
 }
 
 #[test]
+fn a_ready_state_for_another_version_is_not_settled() {
+    let state = UpdateState {
+        status: UpdateStatus::Ready,
+        current_version: "0.8.0".to_string(),
+        candidate_version: Some("0.9.0".to_string()),
+        ..UpdateState::default()
+    };
+
+    assert!(
+        !settled_after_install(&state),
+        "the restarted service runs a version the state never installed"
+    );
+}
+
+#[test]
 fn an_installing_state_whose_candidate_is_the_running_version_is_settled() {
     let state = UpdateState {
         status: UpdateStatus::Installing,
