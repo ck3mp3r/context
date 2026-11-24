@@ -1,21 +1,38 @@
 //! Tests for the GitHub release candidate selection.
 //!
 //! Selection is pure, so every rule is pinned against the frozen release list in
-//! `testdata/releases.json`; the fetch function needs the network and is verified
-//! by hand against the real API.
+//! `testdata/releases.json`. The fetch itself needs the network and is verified by
+//! hand against the real API, so its branches are pinned through the pure
+//! classifiers it delegates to: the content-type check, the rate-limit check, and
+//! the token header.
 
-use crate::update::releases::{GITHUB_REPO, GitHubRelease, manifest_url, select_candidate};
+use crate::update::releases::{
+    GITHUB_REPO, GitHubRelease, auth_header, content_type_error, manifest_url, rate_limit_error,
+    select_candidate,
+};
 
-/// The frozen GitHub release list this test tree owns.
-fn fixture() -> Vec<GitHubRelease> {
+/// The frozen GitHub release list this test tree owns, as GitHub returns it.
+fn fixture_raw() -> String {
     let path = format!(
         "{}/test/update/testdata/releases.json",
         env!("CARGO_MANIFEST_DIR")
     );
-    let raw = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("Failed to read {path}: {error}"));
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("Failed to read {path}: {error}"))
+}
 
-    serde_json::from_str(&raw).expect("the fixture parses as a release list")
+/// The frozen GitHub release list this test tree owns.
+fn fixture() -> Vec<GitHubRelease> {
+    serde_json::from_str(&fixture_raw()).expect("the fixture parses as a release list")
+}
+
+/// An interception page 300 characters long: longer than the head an error reports.
+fn canned_html() -> String {
+    format!("<html><body>{}</body></html>", "x".repeat(274))
+}
+
+/// The first 120 characters of `body`, the head every content-type error carries.
+fn head(body: &str) -> String {
+    body.chars().take(120).collect()
 }
 
 /// One release with the given flags.
@@ -151,5 +168,122 @@ fn manifest_url_names_the_release_asset() {
     assert_eq!(
         manifest_url("v0.7.10"),
         "https://github.com/ck3mp3r/context/releases/download/v0.7.10/latest.json"
+    );
+}
+
+#[test]
+fn an_interception_page_is_named_not_parsed() {
+    let body = canned_html();
+    assert_eq!(
+        body.chars().count(),
+        300,
+        "the canned page must be longer than the reported head"
+    );
+
+    let error = content_type_error(Some("text/html; charset=utf-8"), &body)
+        .expect("an HTML answer is an error");
+
+    assert!(
+        error.contains("GitHub API answered with text/html; charset=utf-8"),
+        "the error names the content type, got: {error}"
+    );
+    assert!(
+        error.contains("is intercepted or blocked"),
+        "the error names the likely cause, got: {error}"
+    );
+    assert!(
+        error.contains(&head(&body)),
+        "the error carries the first response bytes, got: {error}"
+    );
+    assert!(
+        !error.contains(&body),
+        "the error must truncate the body, got: {error}"
+    );
+    assert!(
+        !error.contains("Failed to parse"),
+        "an intercepted answer must not be reported as a parse failure, got: {error}"
+    );
+}
+
+#[test]
+fn an_absent_content_type_is_named_none() {
+    let error = content_type_error(None, "{}").expect("a missing content type is an error");
+
+    assert!(
+        error.contains("GitHub API answered with none;"),
+        "the error names the missing header, got: {error}"
+    );
+}
+
+#[test]
+fn a_json_content_type_passes() {
+    let raw = fixture_raw();
+
+    assert_eq!(
+        content_type_error(Some("application/json"), &raw),
+        None,
+        "the release list is JSON and must not be reported as intercepted"
+    );
+}
+
+#[test]
+fn an_exhausted_rate_limit_names_the_reset_time() {
+    let error = rate_limit_error(Some("0"), Some("1764028800"))
+        .expect("an exhausted rate limit is an error");
+
+    assert!(
+        error.starts_with("GitHub API rate limit exhausted"),
+        "the error names the rate limit first, got: {error}"
+    );
+    assert!(
+        error.contains("2025-11-25T00:00:00+00:00"),
+        "the error carries the reset time in UTC, got: {error}"
+    );
+}
+
+#[test]
+fn an_exhausted_rate_limit_without_a_readable_reset_says_unreadable() {
+    for reset in [None, Some(""), Some("soon")] {
+        let error = rate_limit_error(Some("0"), reset)
+            .expect("an exhausted rate limit is an error whatever the reset header says");
+
+        assert!(
+            error.contains("unreadable"),
+            "reset {reset:?} must be reported as unreadable, got: {error}"
+        );
+    }
+}
+
+#[test]
+fn an_unexhausted_rate_limit_passes() {
+    assert_eq!(
+        rate_limit_error(Some("57"), None),
+        None,
+        "a budget with requests left must not fail the fetch"
+    );
+    assert_eq!(
+        rate_limit_error(None, None),
+        None,
+        "an absent rate-limit header must not fail the fetch"
+    );
+}
+
+#[test]
+fn an_absent_or_blank_token_sends_no_authorization() {
+    assert_eq!(auth_header(None), None);
+    assert_eq!(
+        auth_header(Some("   ")),
+        None,
+        "a blank token must not send an empty bearer header"
+    );
+}
+
+#[test]
+fn a_token_becomes_a_bearer_header() {
+    assert_eq!(auth_header(Some("ghp_1")).as_deref(), Some("Bearer ghp_1"));
+    assert_eq!(
+        auth_header(Some(" ghp_1 ")).as_deref(),
+        Some("Bearer ghp_1"),
+        "the token is trimmed before it reaches the header"
     );
 }

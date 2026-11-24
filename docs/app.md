@@ -353,6 +353,24 @@ The app updates itself from GitHub releases. The service owns the flow, so an up
 
 The Settings page also carries a Check for updates button and the status line of the last check.
 
+### Authenticated fetch
+
+GitHub budgets anonymous API requests at 60 per hour per IP and authenticated requests at 5000 per hour. The update check spends one request, so the anonymous budget is the one it trips first on a shared address. The service reads a token from `C5T_GITHUB_TOKEN` and sends it as a bearer header on the release-list request; an unset or blank variable keeps the check anonymous.
+
+Create a personal access token and hand it to the launchd session the service starts in:
+
+```sh
+launchctl setenv C5T_GITHUB_TOKEN <token>
+```
+
+`launchctl setenv` reaches processes started afterwards, so restart the service: `launchctl bootout gui/$(id -u)/wtf.kemper.c5t.service` and start the app again. For a development run, export the variable in the shell that starts the service instead:
+
+```sh
+export C5T_GITHUB_TOKEN=<token>
+```
+
+No scope is needed: the release list of a public repository is readable with any valid token, so a fine-grained token with no permissions works.
+
 ### Surfaces and endpoints
 
 - Banner above the navigation and the version badge in the nav: offer, install, dismiss. The badge shows the candidate next to the running version.

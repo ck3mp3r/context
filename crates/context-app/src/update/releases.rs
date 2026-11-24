@@ -7,6 +7,7 @@
 
 use std::str::FromStr;
 
+use chrono::DateTime;
 use semver::Version;
 use serde::Deserialize;
 
@@ -21,6 +22,12 @@ const RELEASES_PER_PAGE: usize = 100;
 
 /// Channel value that accepts stable releases only.
 const STABLE_CHANNEL: &str = "stable";
+
+/// Environment variable carrying the token the release fetch authenticates with.
+const TOKEN_ENV: &str = "C5T_GITHUB_TOKEN";
+
+/// How much of a non-JSON response body the failure quotes.
+const BODY_HEAD_CHARS: usize = 120;
 
 /// A release the updater can install.
 #[derive(Debug, Clone)]
@@ -51,26 +58,67 @@ pub(crate) struct GitHubRelease {
 }
 
 /// Fetch the release list, in the order GitHub reports it.
+///
+/// The fetch authenticates with the token in `C5T_GITHUB_TOKEN` when one is set,
+/// and names the cause of a failure that the JSON decoder cannot report: an
+/// exhausted rate limit, or a body that is not JSON because the network path is
+/// intercepted.
 pub(crate) async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<GitHubRelease>, String> {
     let url =
         format!("https://api.github.com/repos/{GITHUB_REPO}/releases?per_page={RELEASES_PER_PAGE}");
 
-    let response = client
+    let mut request = client
         .get(url)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json");
+
+    if let Some(authorization) = auth_header(std::env::var(TOKEN_ENV).ok().as_deref()) {
+        request = request.header(reqwest::header::AUTHORIZATION, authorization);
+    }
+
+    let response = request
         .send()
         .await
         .map_err(|error| format!("Failed to reach the GitHub API: {error}"))?;
+
+    // Every header is read before the body: reading the body consumes the response.
+    let remaining = response
+        .headers()
+        .get("x-ratelimit-remaining")
+        .and_then(|value| value.to_str().ok());
+    let reset = response
+        .headers()
+        .get("x-ratelimit-reset")
+        .and_then(|value| value.to_str().ok());
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    // GitHub reports an exhausted budget with 403, so this check runs before the
+    // status check and on every status.
+    if let Some(error) = rate_limit_error(remaining, reset) {
+        return Err(error);
+    }
 
     let status = response.status();
     if !status.is_success() {
         return Err(format!("GitHub API returned {status}"));
     }
 
-    response
-        .json::<Vec<GitHubRelease>>()
+    let body = response
+        .text()
         .await
+        .map_err(|error| format!("Failed to read the GitHub release list body: {error}"))?;
+
+    // An intercepting middlebox answers 2xx with its own page, so the body itself
+    // is checked before the decoder reports it as broken JSON.
+    if let Some(error) = content_type_error(content_type.as_deref(), &body) {
+        return Err(error);
+    }
+
+    serde_json::from_str::<Vec<GitHubRelease>>(&body)
         .map_err(|error| format!("Failed to parse the GitHub release list: {error}"))
 }
 
@@ -114,4 +162,61 @@ pub fn manifest_url(tag: &str) -> String {
 /// Parse a tag or version, ignoring a single leading `v`.
 fn parse_version(raw: &str) -> Option<Version> {
     Version::from_str(raw.strip_prefix('v').unwrap_or(raw)).ok()
+}
+
+/// Why `content_type` rules the body out as a release list, or None when the body
+/// is JSON.
+///
+/// A proxy, a captive portal, or an intercepting middlebox answers with its own
+/// page and a content type of its own, so the header names the cause the decoder
+/// cannot.
+pub(crate) fn content_type_error(content_type: Option<&str>, body: &str) -> Option<String> {
+    let content_type = content_type.map(str::trim).unwrap_or_default();
+    if content_type.starts_with("application/json") {
+        return None;
+    }
+
+    let named = if content_type.is_empty() {
+        "none"
+    } else {
+        content_type
+    };
+    let head: String = body.chars().take(BODY_HEAD_CHARS).collect();
+
+    Some(format!(
+        "GitHub API answered with {named}; the network path to api.github.com is \
+         intercepted or blocked; first response bytes: {head}"
+    ))
+}
+
+/// Why the request budget is spent, or None when requests remain.
+///
+/// GitHub answers an exhausted budget with 403 and `x-ratelimit-remaining: 0`, so
+/// the remaining count decides and the reset timestamp is reported as UTC when it
+/// parses.
+pub(crate) fn rate_limit_error(remaining: Option<&str>, reset: Option<&str>) -> Option<String> {
+    if remaining?.trim() != "0" {
+        return None;
+    }
+
+    let resets_at = reset
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .and_then(|seconds| DateTime::from_timestamp(seconds, 0))
+        .map_or_else(|| "unreadable".to_string(), |at| at.to_rfc3339());
+
+    Some(format!(
+        "GitHub API rate limit exhausted; the budget refills at {resets_at}. \
+         Set {TOKEN_ENV} to a personal access token to raise it."
+    ))
+}
+
+/// Authorization header value for `token`, or None when the token is absent or
+/// blank so the request stays anonymous.
+pub(crate) fn auth_header(token: Option<&str>) -> Option<String> {
+    let token = token?.trim();
+    if token.is_empty() {
+        return None;
+    }
+
+    Some(format!("Bearer {token}"))
 }
