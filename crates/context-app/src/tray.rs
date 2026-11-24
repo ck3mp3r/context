@@ -4,12 +4,11 @@
 //! closed window would leave the app reachable only through the tray, so the
 //! tray gives the app a permanent handle: it reveals the main window, or quits.
 //!
-//! Both actions reuse delivered code. Show calls `lifecycle::request_main_window`,
-//! the same path the single-instance callback takes. Settings… calls
-//! `lifecycle::request_window_at` with the SPA settings path, so the window it
-//! reveals lands on the configuration page. Quit is a custom item
-//! carrying `menu::QUIT_ITEM_ID`, so it flows into the existing
-//! `AppHandle::exit(0)` handler and never touches the vetoed `terminate:` path.
+//! Both actions route through `ServiceState::launch_gui`: Show passes no route,
+//! and Settings… passes the SPA settings path, so the window it brings forward
+//! lands on the configuration page. Quit is a custom item carrying
+//! `menu::QUIT_ITEM_ID`, so it flows into the existing `AppHandle::exit(0)`
+//! handler and never touches the vetoed `terminate:` path.
 //!
 //! The MCP item is informational: it is disabled, so it renders grayed and a
 //! click is inert. Its label carries the MCP endpoint of the build profile, the
@@ -37,11 +36,13 @@ use tauri::{AppHandle, Manager, Wry, include_image};
 
 use crate::menu;
 
-/// Id of the Show item, matched by the menu event handler in `main`.
+/// Id of the Show item, matched by the `on_menu_event` handler in
+/// `bin/context-service.rs`.
 pub const SHOW_ITEM_ID: &str = "show";
 /// Label of the Show item.
 const SHOW_TEXT: &str = "Show Context";
-/// Id of the Settings item, matched by the menu event handler in `main`.
+/// Id of the Settings item, matched by the `on_menu_event` handler in
+/// `bin/context-service.rs`.
 pub const SETTINGS_ITEM_ID: &str = "settings";
 /// Label of the Settings item, which deep links to the SPA settings page.
 const SETTINGS_TEXT: &str = "Settings…";

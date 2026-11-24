@@ -90,6 +90,16 @@ fn quit_signals_and_reaps_a_tracked_child() {
     );
 }
 
+#[test]
+fn post_spawn_activation_stays_within_the_activation_window() {
+    let budget = ACTIVATION_POLLS as u32 * ACTIVATION_POLL_INTERVAL;
+
+    assert!(
+        budget <= Duration::from_secs(3),
+        "the post-spawn activation must wait at most 3 seconds, budget is {budget:?}"
+    );
+}
+
 #[cfg(unix)]
 fn process_alive(pid: u32) -> bool {
     // Signal 0 probes for the process without touching it.

@@ -3,7 +3,9 @@
 //! The service owns the tray and never shows a window. Its Show and Settings
 //! items bring the GUI forward: a GUI that already runs is activated through
 //! LaunchServices, and a GUI that does not run is spawned as a sibling with the
-//! route in argv. Quit ends the GUIs this service spawned, then the service.
+//! route in argv and then activated through LaunchServices once it appears. A dev
+//! build has no registered app, so a dev GUI relies on its own startup
+//! activation. Quit ends the GUIs this service spawned, then the service.
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -14,6 +16,10 @@ use std::time::Duration;
 pub const OPEN_ROUTE_FLAG: &str = "--open-route";
 /// How long a tracked GUI gets to exit after SIGTERM before Quit moves on.
 const TERMINATE_GRACE: Duration = Duration::from_millis(500);
+/// Polls that wait for a freshly spawned GUI to appear before activating it.
+const ACTIVATION_POLLS: usize = 10;
+/// Delay between the polls that wait for a freshly spawned GUI.
+const ACTIVATION_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 #[cfg(test)]
 #[path = "../test/launcher.rs"]
@@ -130,6 +136,27 @@ fn spawn_gui(route: Option<&str>) -> Result<Child, String> {
         .map_err(|error| format!("Failed to start {}: {error}", gui.display()))
 }
 
+/// Ask LaunchServices to activate the GUI this service just spawned.
+///
+/// The spawned GUI is a plain child process, not a LaunchServices launch, so it
+/// never comes to the front on its own. The menu click is the user event
+/// LaunchServices wants, so the service relays it: a detached thread waits for
+/// the child to appear and then activates the bundled GUI once.
+fn activate_spawned_gui() {
+    std::thread::spawn(|| {
+        for _ in 0..ACTIVATION_POLLS {
+            if gui_running() {
+                break;
+            }
+            std::thread::sleep(ACTIVATION_POLL_INTERVAL);
+        }
+
+        if !activate_bundled_gui() {
+            eprintln!("context-service: LaunchServices could not activate the spawned GUI");
+        }
+    });
+}
+
 // endregion: --- Launch
 
 // region:    --- ServiceState
@@ -155,14 +182,18 @@ impl ServiceState {
     /// A bundled GUI activates through LaunchServices, which also focuses the
     /// running instance. Without a bundle — a dev build — that path fails, so
     /// the spawn path takes over: the running GUI focuses through its own
-    /// single-instance callback, and a missing GUI starts fresh on `route`.
+    /// single-instance callback, and a missing GUI starts fresh on `route` and
+    /// asks LaunchServices to activate it once it appears.
     pub fn launch_gui(&self, route: Option<&str>) {
         if gui_running() && activate_bundled_gui() {
             return;
         }
 
         match spawn_gui(route) {
-            Ok(child) => self.track(child),
+            Ok(child) => {
+                self.track(child);
+                activate_spawned_gui();
+            }
             Err(error) => eprintln!("context-service: {error}"),
         }
     }
