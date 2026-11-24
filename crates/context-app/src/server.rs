@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use context_core::settings::{self, Settings, StoredSettings};
-use context_core::update::NoUpdateFlow;
+use context_core::update::UpdateFlow;
 use context_core::{Database, get_config_path, get_db_path};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
@@ -226,9 +226,15 @@ pub(crate) fn health_client() -> Result<reqwest::Client, String> {
 
 /// Attach to a running server, or start one and wait until it is healthy.
 ///
-/// Returns an error message for the operator when the server cannot be
-/// reached and cannot be started.
-pub async fn start_server(port: u16, health_url: &str) -> Result<(), String> {
+/// The caller owns the notifier and the update flow, so the same pair drives the
+/// server and the updater. Returns an error message for the operator when the
+/// server cannot be reached and cannot be started.
+pub async fn start_server(
+    port: u16,
+    health_url: &str,
+    notifier: ChangeNotifier,
+    update_flow: impl UpdateFlow + 'static,
+) -> Result<(), String> {
     let client = health_client()?;
 
     if probe_health(&client, health_url).await {
@@ -251,8 +257,7 @@ pub async fn start_server(port: u16, health_url: &str) -> Result<(), String> {
 
     let (failure_tx, mut failure_rx) = tokio::sync::mpsc::unbounded_channel();
     tauri::async_runtime::spawn(async move {
-        let notifier = ChangeNotifier::new();
-        let failure = match api::run(config, db, notifier, NoUpdateFlow).await {
+        let failure = match api::run(config, db, notifier, update_flow).await {
             Ok(()) => "The context server stopped before it became ready.".to_string(),
             Err(error) => {
                 eprintln!("context: API server stopped: {error}");

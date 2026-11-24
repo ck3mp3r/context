@@ -11,7 +11,7 @@ use semver::Version;
 use serde::Deserialize;
 
 /// GitHub repository the updater reads releases from.
-pub const GITHUB_REPO: &str = "ck3mp3r/context";
+pub(crate) const GITHUB_REPO: &str = "ck3mp3r/context";
 
 /// User agent GitHub requires on API requests.
 const USER_AGENT: &str = "context-updater";
@@ -39,19 +39,19 @@ pub struct Candidate {
 
 /// One release of the GitHub release list, reduced to the fields selection reads.
 #[derive(Debug, Clone, Deserialize)]
-pub struct GitHubRelease {
+pub(crate) struct GitHubRelease {
     /// Tag of the release; the version lives here.
-    pub tag_name: String,
+    pub(crate) tag_name: String,
     /// Whether GitHub flags the release as a pre-release.
-    pub prerelease: bool,
+    pub(crate) prerelease: bool,
     /// Whether the release is still a draft.
-    pub draft: bool,
+    pub(crate) draft: bool,
     /// Release body, carried into the candidate as notes.
-    pub body: Option<String>,
+    pub(crate) body: Option<String>,
 }
 
 /// Fetch the release list, in the order GitHub reports it.
-pub async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<GitHubRelease>, String> {
+pub(crate) async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<GitHubRelease>, String> {
     let url =
         format!("https://api.github.com/repos/{GITHUB_REPO}/releases?per_page={RELEASES_PER_PAGE}");
 
@@ -80,7 +80,7 @@ pub async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<GitHubReleas
 /// ignored. The highest version wins; a winner that is not newer than the running
 /// version yields no candidate, so the updater is never offered a downgrade or a
 /// reinstall.
-pub fn select_candidate(
+pub(crate) fn select_candidate(
     releases: &[GitHubRelease],
     channel: &str,
     current_version: &str,

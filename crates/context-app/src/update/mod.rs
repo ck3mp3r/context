@@ -1,11 +1,244 @@
 //! Update machinery shared by the service and the GUI.
 //!
 //! [`releases`] is the pure GitHub release lookup: the updater plugin has no
-//! channel logic, so the winning release is chosen here. The flow that drives
-//! the plugin arrives with its own submodule.
+//! channel logic, so the winning release is chosen here. [`ServiceUpdateFlow`]
+//! is the flow the service attaches to the REST layer: a check runs on the
+//! flow's own task and records every phase in the persisted update state, which
+//! the server serves and the websocket broadcasts.
+
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use chrono::Utc;
+use context_core::update::{
+    UpdateFlow, UpdateState, UpdateStateError, UpdateStateResult, UpdateStatus, load as load_state,
+    update_state_path, write as write_state,
+};
+use context_server::api::notifier::{ChangeNotifier, UpdateMessage};
+
+use self::releases::Candidate;
 
 pub mod releases;
 
 #[cfg(test)]
+#[path = "../../test/update/mod.rs"]
+mod mod_test;
+#[cfg(test)]
 #[path = "../../test/update/releases.rs"]
 mod releases_test;
+
+/// How long the GitHub request may take before the check reports a failure.
+const GITHUB_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The service's update flow.
+///
+/// [`UpdateFlow::check`] records `checking`, returns, and the flow's own task
+/// writes the outcome and broadcasts it. Clones share one busy flag, so a second
+/// check or install is refused while one runs.
+#[derive(Clone)]
+pub struct ServiceUpdateFlow {
+    app: tauri::AppHandle,
+    notifier: ChangeNotifier,
+    busy: Arc<Mutex<bool>>,
+}
+
+impl ServiceUpdateFlow {
+    /// Flow that drives `app`'s updater plugin and broadcasts on `notifier`.
+    pub fn new(app: tauri::AppHandle, notifier: ChangeNotifier) -> Self {
+        Self {
+            app,
+            notifier,
+            busy: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    /// Handle of the app the flow drives the updater plugin through.
+    pub fn app(&self) -> &tauri::AppHandle {
+        &self.app
+    }
+
+    /// Reset a finished install to idle.
+    ///
+    /// The service calls this before it starts serving: when the state still says
+    /// the previous process was installing the version this process runs, that
+    /// install is done and the state starts clean.
+    pub fn reconcile_startup(&self) {
+        let state = match load_state(&update_state_path()) {
+            Ok(state) => state,
+            Err(error) => {
+                eprintln!("context: failed to read the update state: {error}");
+                return;
+            }
+        };
+
+        if !settled_after_install(&state) {
+            return;
+        }
+
+        if let Err(error) = transition(&self.notifier, state_with(UpdateStatus::Idle)) {
+            eprintln!("context: failed to reset the update state: {error}");
+        }
+    }
+
+    /// Run one check and record its outcome.
+    async fn run_check(&self, channel: String) {
+        let state = match check_candidate(&channel).await {
+            Ok(Some(candidate)) => state_available(candidate),
+            Ok(None) => state_with(UpdateStatus::Idle),
+            Err(message) => UpdateState {
+                message: Some(message),
+                ..state_with(UpdateStatus::Failed)
+            },
+        };
+
+        if let Err(error) = transition(&self.notifier, state) {
+            eprintln!("context: failed to record the update state: {error}");
+        }
+    }
+}
+
+impl UpdateFlow for ServiceUpdateFlow {
+    fn check(&self, manual: bool) -> UpdateStateResult<()> {
+        claim(&self.busy)?;
+
+        let settings = crate::server::effective_settings();
+        if !should_check(manual, settings.auto_update) {
+            release(&self.busy);
+            return Ok(());
+        }
+
+        if let Err(error) = transition(&self.notifier, state_with(UpdateStatus::Checking)) {
+            release(&self.busy);
+            return Err(error);
+        }
+
+        let channel = settings.update_channel;
+        let flow = self.clone();
+        tauri::async_runtime::spawn(async move {
+            flow.run_check(channel).await;
+            release(&flow.busy);
+        });
+
+        Ok(())
+    }
+
+    fn install(&self) -> UpdateStateResult<()> {
+        if *self.busy.lock().unwrap() {
+            return Err(UpdateStateError::Busy);
+        }
+
+        // The download, swap and restart sequence lands with its own task.
+        Err(UpdateStateError::Invalid {
+            message: "install not wired yet".to_string(),
+        })
+    }
+}
+
+/// Write `state` and tell the subscribers what changed.
+///
+/// Every state change goes through here, so the file and the broadcast never
+/// disagree.
+fn transition(notifier: &ChangeNotifier, state: UpdateState) -> UpdateStateResult<()> {
+    write_state(&update_state_path(), &state)?;
+
+    notifier.notify(UpdateMessage::UpdateStateChanged {
+        status: status_name(state.status).to_string(),
+        version: state.candidate_version.clone(),
+    });
+
+    Ok(())
+}
+
+/// Whether a check runs: a manual one always does, an automatic one follows the
+/// stored preference.
+fn should_check(manual: bool, auto_update: bool) -> bool {
+    manual || auto_update
+}
+
+/// Claim the flow, or report that a run is already in flight.
+fn claim(busy: &Mutex<bool>) -> UpdateStateResult<()> {
+    let mut busy = busy.lock().unwrap();
+
+    if *busy {
+        return Err(UpdateStateError::Busy);
+    }
+
+    *busy = true;
+    Ok(())
+}
+
+/// Release the flow when its run finished.
+fn release(busy: &Mutex<bool>) {
+    *busy.lock().unwrap() = false;
+}
+
+/// Whether a freshly started service replaced the binary it just installed.
+fn settled_after_install(state: &UpdateState) -> bool {
+    state.status == UpdateStatus::Installing
+        && state.candidate_version.as_deref() == Some(state.current_version.as_str())
+}
+
+/// Ask GitHub for the release `channel` should install.
+async fn check_candidate(channel: &str) -> Result<Option<Candidate>, String> {
+    let client = github_client()?;
+    let list = releases::fetch_releases(&client).await?;
+
+    Ok(releases::select_candidate(
+        &list,
+        channel,
+        &current_version(),
+    ))
+}
+
+/// Client for the GitHub API.
+fn github_client() -> Result<reqwest::Client, String> {
+    // Install ring as the default crypto provider for rustls, as the health
+    // probe does: workspace builds enable rustls without a provider.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    reqwest::Client::builder()
+        .timeout(GITHUB_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("Failed to create the GitHub client: {error}"))
+}
+
+/// Version this build runs.
+fn current_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// State that records `status` with every candidate field cleared.
+fn state_with(status: UpdateStatus) -> UpdateState {
+    UpdateState {
+        status,
+        current_version: current_version(),
+        updated_at: Some(Utc::now().to_rfc3339()),
+        ..UpdateState::default()
+    }
+}
+
+/// State that offers `candidate` for consent.
+fn state_available(candidate: Candidate) -> UpdateState {
+    UpdateState {
+        status: UpdateStatus::Available,
+        current_version: current_version(),
+        candidate_version: Some(candidate.version.to_string()),
+        candidate_tag: Some(candidate.tag),
+        candidate_notes: candidate.notes,
+        candidate_is_prerelease: Some(candidate.is_prerelease),
+        message: None,
+        updated_at: Some(Utc::now().to_rfc3339()),
+    }
+}
+
+/// Status name the broadcast carries, matching the stored spelling.
+fn status_name(status: UpdateStatus) -> &'static str {
+    match status {
+        UpdateStatus::Idle => "idle",
+        UpdateStatus::Checking => "checking",
+        UpdateStatus::Available => "available",
+        UpdateStatus::Downloading => "downloading",
+        UpdateStatus::Installing => "installing",
+        UpdateStatus::Failed => "failed",
+    }
+}

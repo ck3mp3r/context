@@ -25,3 +25,4 @@ pub use server::{
     api_port, effective_settings, ensure_service, health_url, spa_origin, start_server,
 };
 pub use tray::{SETTINGS_ITEM_ID, SHOW_ITEM_ID, TrayState};
+pub use update::ServiceUpdateFlow;

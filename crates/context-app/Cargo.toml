@@ -25,12 +25,14 @@ context-core = { path = "../context-core" }
 context-db = { path = "../context-db" }
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 serde.workspace = true
+serde_json.workspace = true
 semver = "1"
+chrono.workspace = true
+tauri-plugin-updater = "2"
 libc = "0.2"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio = { version = "1.53.2", features = ["full"] }
 
 [dev-dependencies]
-serde_json.workspace = true
 serial_test = "4.0.1"
 tempfile = "3.27.0"

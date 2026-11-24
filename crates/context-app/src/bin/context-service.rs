@@ -12,13 +12,17 @@
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-use context_app::{SETTINGS_PATH, ServiceState, autostart, effective_settings, menu, server, tray};
+use context_app::{
+    SETTINGS_PATH, ServiceState, ServiceUpdateFlow, autostart, effective_settings, menu, server,
+    tray,
+};
 
 fn main() -> tauri::Result<()> {
     let app = tauri::Builder::default()
         // A second service exits through the plugin; there is no window to raise.
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_menu_event(|app, event| {
             if event.id() == tray::SHOW_ITEM_ID {
                 app.state::<ServiceState>().launch_gui(None);
@@ -37,9 +41,16 @@ fn main() -> tauri::Result<()> {
             let port = server::api_port();
             let health_url = server::health_url(port);
 
-            if let Err(message) =
-                tauri::async_runtime::block_on(server::start_server(port, &health_url))
-            {
+            let notifier = context_server::api::notifier::ChangeNotifier::new();
+            let flow = ServiceUpdateFlow::new(app.handle().clone(), notifier.clone());
+            flow.reconcile_startup();
+
+            if let Err(message) = tauri::async_runtime::block_on(server::start_server(
+                port,
+                &health_url,
+                notifier,
+                flow,
+            )) {
                 eprintln!("context-service: {message}");
                 app.dialog()
                     .message(message)
