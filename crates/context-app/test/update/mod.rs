@@ -146,7 +146,7 @@ async fn a_transition_writes_the_state_and_broadcasts_the_status() {
     assert_eq!(
         broadcast.expect("the transition broadcasts the new status"),
         UpdateMessage::UpdateStateChanged {
-            status: "available".to_string(),
+            status: UpdateStatus::Available,
             version: Some("0.9.0".to_string()),
         }
     );

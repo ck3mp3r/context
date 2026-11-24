@@ -1,5 +1,6 @@
 //! Change notification system for broadcasting database updates to WebSocket clients.
 
+use context_core::update::UpdateStatus;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
@@ -75,7 +76,7 @@ pub enum UpdateMessage {
 
     // Updater
     UpdateStateChanged {
-        status: String,
+        status: UpdateStatus,
         version: Option<String>,
     },
 }

@@ -258,7 +258,7 @@ fn transition(
     write_state(state_path, &state)?;
 
     notifier.notify(UpdateMessage::UpdateStateChanged {
-        status: status_name(state.status).to_string(),
+        status: state.status,
         version: state.candidate_version.clone(),
     });
 
@@ -382,18 +382,5 @@ fn state_available(candidate: Candidate) -> UpdateState {
         candidate_is_prerelease: Some(candidate.is_prerelease),
         message: None,
         updated_at: Some(Utc::now().to_rfc3339()),
-    }
-}
-
-/// Status name the broadcast carries, matching the stored spelling.
-fn status_name(status: UpdateStatus) -> &'static str {
-    match status {
-        UpdateStatus::Idle => "idle",
-        UpdateStatus::Checking => "checking",
-        UpdateStatus::Available => "available",
-        UpdateStatus::Downloading => "downloading",
-        UpdateStatus::Installing => "installing",
-        UpdateStatus::Ready => "ready",
-        UpdateStatus::Failed => "failed",
     }
 }

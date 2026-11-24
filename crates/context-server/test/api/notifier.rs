@@ -1,6 +1,7 @@
 //! Tests for ChangeNotifier pub/sub system.
 
 use super::notifier::{ChangeNotifier, UpdateMessage};
+use context_core::update::UpdateStatus;
 
 #[tokio::test]
 async fn test_multiple_subscribers_receive_same_message() {
@@ -106,14 +107,17 @@ async fn test_messages_are_serializable() {
 #[test]
 fn test_update_state_changed_carries_status_and_optional_version() {
     let msg = UpdateMessage::UpdateStateChanged {
-        status: "available".to_string(),
+        status: UpdateStatus::Available,
         version: Some("0.9.0".to_string()),
     };
 
     let json = serde_json::to_string(&msg).unwrap();
 
-    assert!(json.contains("UpdateStateChanged"), "got: {json}");
-    assert!(json.contains("\"status\":\"available\""), "got: {json}");
+    // The typed status must keep the wire text the SPA already parses.
+    assert!(
+        json.contains("\"type\":\"UpdateStateChanged\",\"data\":{\"status\":\"available\""),
+        "got: {json}"
+    );
     assert!(json.contains("\"version\":\"0.9.0\""), "got: {json}");
 
     let deserialized: UpdateMessage = serde_json::from_str(&json).unwrap();
