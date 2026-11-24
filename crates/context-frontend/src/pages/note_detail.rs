@@ -2,33 +2,18 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 
-use crate::api::{ApiClientError, QueryBuilder, notes, projects};
-use crate::components::{
-    Breadcrumb, BreadcrumbItem, CopyableId, MarkdownContent, NoteStackSidebar,
-};
-use crate::models::{Note, Project, UpdateMessage};
+use crate::api::{ApiClientError, QueryBuilder, notes};
+use crate::components::{CopyableId, MarkdownContent, NoteStackSidebar};
+use crate::models::{Note, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn NoteDetail() -> impl IntoView {
     let params = use_params_map();
     let note_id = move || params.read().get("id").unwrap_or_default();
-    let project_id = move || params.read().get("project_id");
 
     let (note_data, set_note_data) = signal(None::<Result<Note, ApiClientError>>);
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
-
-    // Fetch project if we have a project_id (coming from project context)
-    let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
-
-    Effect::new(move || {
-        if let Some(proj_id) = project_id() {
-            spawn_local(async move {
-                let result = projects::get(&proj_id).await;
-                set_project_data.set(Some(result));
-            });
-        }
-    });
 
     // Fetch subnotes to determine if we should show sidebar
     let (subnotes_data, set_subnotes_data) = signal(None::<Result<Vec<Note>, ApiClientError>>);
@@ -236,83 +221,6 @@ pub fn NoteDetail() -> impl IntoView {
 
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            // Breadcrumb navigation - different based on context
-            {move || {
-                // Check if we have project context
-                if let Some(_proj_id) = project_id() {
-                    // Coming from project - show Projects → Project → Note
-                    match (project_data.get(), note_data.get()) {
-                        (Some(Ok(project)), Some(Ok(note))) => {
-                            let has_subs = subnotes_data.get()
-                                .and_then(|r| r.ok())
-                                .map(|items| !items.is_empty())
-                                .unwrap_or(false);
-
-                            let (title, id) = if has_subs {
-                                // Use selected note for breadcrumb
-                                selected_note_data.get()
-                                    .and_then(|r| r.ok())
-                                    .map(|n| (n.title.clone(), n.id.clone()))
-                                    .unwrap_or_else(|| (note.title.clone(), note.id.clone()))
-                            } else {
-                                (note.title.clone(), note.id.clone())
-                            };
-
-                            let items = vec![
-                                BreadcrumbItem::new("Projects")
-                                    .with_href("/")
-                                    .with_name("projects"),
-                                BreadcrumbItem::new(project.title.clone())
-                                    .with_id(project.id.clone())
-                                    .with_href(format!("/projects/{}/notes", project.id))
-                                    .with_name(project.id.clone()),
-                                BreadcrumbItem::new(title)
-                                    .with_id(id),
-                            ];
-                            Some(view! {
-                                <div class="screen-only">
-                                    <Breadcrumb items=items/>
-                                </div>
-                            })
-                        }
-                        _ => None
-                    }
-                } else {
-                    // Coming from Notes page - show Notes → Note
-                    let has_subs = subnotes_data.get()
-                        .and_then(|r| r.ok())
-                        .map(|items| !items.is_empty())
-                        .unwrap_or(false);
-
-                    let breadcrumb_data = if has_subs {
-                        // Has subnotes - use selected note for breadcrumb
-                        selected_note_data.get().and_then(|result| {
-                            result.ok().map(|note| (note.title.clone(), note.id.clone()))
-                        })
-                    } else {
-                        // No subnotes - use parent note for breadcrumb
-                        note_data.get().and_then(|result| {
-                            result.ok().map(|note| (note.title.clone(), note.id.clone()))
-                        })
-                    };
-
-                    breadcrumb_data.map(|(title, id)| {
-                        let items = vec![
-                            BreadcrumbItem::new("Notes")
-                                .with_href("/notes")
-                                .with_name("notes"),
-                            BreadcrumbItem::new(title)
-                                .with_id(id),
-                        ];
-                        view! {
-                            <div class="screen-only">
-                                <Breadcrumb items=items/>
-                            </div>
-                        }
-                    })
-                }
-            }}
-
             <div class="container mx-auto p-6 flex-1">
                 {move || {
                     match note_data.get() {

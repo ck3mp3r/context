@@ -5,8 +5,8 @@ use thaw::*;
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
-    Breadcrumb, BreadcrumbItem, ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput,
-    SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
+    ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput, SkillCard, SkillDetailModal,
+    SortControls, TaskListCard, TaskListDetailModal,
 };
 use crate::hooks::{build_url_with_params, use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
@@ -341,22 +341,6 @@ pub fn ProjectDetail() -> impl IntoView {
 
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            // Breadcrumb navigation
-            {move || {
-                project_data.get().and_then(|result| {
-                    result.ok().map(|project| {
-                        let items = vec![
-                            BreadcrumbItem::new("Projects")
-                                .with_href("/")
-                                .with_name("projects"),
-                            BreadcrumbItem::new(project.title.clone())
-                                .with_id(project.id.clone()),
-                        ];
-                        view! { <Breadcrumb items=items/> }
-                    })
-                })
-            }}
-
             <div class="container mx-auto p-6 flex-1">
             {move || match project_data.get() {
                 None => {
@@ -537,13 +521,10 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                                  .into_iter()
                                                                                  .map(|task_list| {
                                                                                      let proj_id = project_id();
-                                                                                     let query_str = location.search.get();
                                                                                      view! {
                                                                                          <TaskListCard
                                                                                              task_list=task_list
                                                                                              project_id=proj_id.clone()
-                                                                                             current_query=query_str
-                                                                                             breadcrumb_name=proj_id
                                                                                          />
                                                                                      }
                                                                                  })
@@ -626,13 +607,10 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .iter()
                                                                 .map(|note| {
                                                                     let proj_id = project_id();
-                                                                    let query_str = location.search.get();
                                                                     view! {
                                                                          <NoteCard
                                                                             note=note.clone()
                                                                             project_id=proj_id.clone()
-                                                                            current_query=query_str
-                                                                            breadcrumb_name=proj_id
                                                                         />
                                                                     }
                                                                 })
@@ -721,13 +699,10 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                                 .iter()
                                                                                 .map(|repo| {
                                                                                     let proj_id = project_id();
-                                                                                    let query_str = location.search.get();
                                                                                     view! {
                                                                                         <RepoCard
                                                                                             repo=repo.clone()
                                                                                             project_id=proj_id.clone()
-                                                                                            current_query=query_str
-                                                                                            breadcrumb_name=proj_id
                                                                                         />
                                                                                     }
                                                                                 })

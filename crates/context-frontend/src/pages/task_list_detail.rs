@@ -2,16 +2,15 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 
-use crate::api::{ApiClientError, projects, task_lists};
-use crate::components::{Breadcrumb, BreadcrumbItem, TaskListContent};
-use crate::models::{Project, TaskList, UpdateMessage};
+use crate::api::{ApiClientError, task_lists};
+use crate::components::TaskListContent;
+use crate::models::{TaskList, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn TaskListDetail() -> impl IntoView {
     let params = use_params_map();
 
-    let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
     let (task_list_data, set_task_list_data) = signal(None::<Result<TaskList, ApiClientError>>);
 
     // WebSocket updates - refetch trigger
@@ -31,27 +30,12 @@ pub fn TaskListDetail() -> impl IntoView {
         }
     });
 
-    // Fetch project and task list when params change or refetch trigger fires
+    // Fetch task list when params change or refetch trigger fires
     Effect::new(move || {
         let params = params.get();
         let _ = refetch_trigger.get(); // Track refetch trigger
 
-        if let (Some(project_id), Some(task_list_id)) =
-            (params.get("project_id"), params.get("task_list_id"))
-        {
-            let project_id = project_id.to_string();
-            let task_list_id = task_list_id.to_string();
-
-            // Fetch project
-            spawn_local({
-                let project_id = project_id.clone();
-                async move {
-                    let result = projects::get(&project_id).await;
-                    set_project_data.set(Some(result));
-                }
-            });
-
-            // Fetch task list
+        if let Some(task_list_id) = params.get("task_list_id") {
             spawn_local(async move {
                 let result = task_lists::get(&task_list_id).await;
                 set_task_list_data.set(Some(result));
@@ -61,27 +45,6 @@ pub fn TaskListDetail() -> impl IntoView {
 
     view! {
         <div class="flex flex-col h-[calc(100vh-8rem)]">
-            // Breadcrumb navigation
-            {move || {
-                match (project_data.get(), task_list_data.get()) {
-                    (Some(Ok(project)), Some(Ok(task_list))) => {
-                        let items = vec![
-                            BreadcrumbItem::new("Projects")
-                                .with_href("/")
-                                .with_name("projects"),
-                            BreadcrumbItem::new(project.title.clone())
-                                .with_id(project.id.clone())
-                                .with_href(format!("/projects/{}", project.id))
-                                .with_name(project.id.clone()),
-                            BreadcrumbItem::new(task_list.title.clone())
-                                .with_id(task_list.id.clone()),
-                        ];
-                        Some(view! { <Breadcrumb items=items/> })
-                    }
-                    _ => None,
-                }
-            }}
-
             <div class="container mx-auto px-6 py-6 flex-1 h-full overflow-hidden">
                 <Suspense fallback=move || {
                     view! { <p class="text-ctp-subtext0">"Loading task list..."</p> }

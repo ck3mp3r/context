@@ -3,9 +3,9 @@ use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 use wasm_bindgen::prelude::*;
 
-use crate::api::{ApiClientError, projects, repos};
-use crate::components::{Breadcrumb, BreadcrumbItem, CopyableId};
-use crate::models::{Project, Repo, UpdateMessage};
+use crate::api::{ApiClientError, repos};
+use crate::components::CopyableId;
+use crate::models::{Repo, UpdateMessage};
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
 
@@ -23,21 +23,10 @@ pub fn RepoDetail() -> impl IntoView {
     let project_id = move || params.read().get("project_id");
 
     let (repo_data, set_repo_data) = signal(None::<Result<Repo, ApiClientError>>);
-    let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
 
     // WebSocket updates - refetch trigger
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
     let ws_updates = use_websocket_updates();
-
-    // Fetch project if we have a project_id (coming from project context)
-    Effect::new(move || {
-        if let Some(proj_id) = project_id() {
-            spawn_local(async move {
-                let result = projects::get(&proj_id).await;
-                set_project_data.set(Some(result));
-            });
-        }
-    });
 
     // Watch for WebSocket repo updates
     Effect::new(move || {
@@ -81,42 +70,6 @@ pub fn RepoDetail() -> impl IntoView {
 
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            // Breadcrumb navigation
-            {move || {
-                match repo_data.get() {
-                    Some(Ok(ref repo)) => {
-                        let display_name = extract_repo_name(&repo.remote);
-
-                        let items = if let Some(Ok(ref project)) = project_data.get() {
-                            vec![
-                                BreadcrumbItem::new("Projects")
-                                    .with_href("/")
-                                    .with_name("projects"),
-                                BreadcrumbItem::new(project.title.clone())
-                                    .with_id(project.id.clone())
-                                    .with_href(format!("/projects/{}/repos", project.id))
-                                    .with_name(project.id.clone()),
-                                BreadcrumbItem::new(display_name)
-                                    .with_id(repo.id.clone()),
-                            ]
-                        } else if project_id().is_some() {
-                            return None;
-                        } else {
-                            vec![
-                                BreadcrumbItem::new("Repos")
-                                    .with_href("/repos")
-                                    .with_name("repos"),
-                                BreadcrumbItem::new(display_name)
-                                    .with_id(repo.id.clone()),
-                            ]
-                        };
-
-                        Some(view! { <Breadcrumb items=items/> })
-                    }
-                    _ => None,
-                }
-            }}
-
             <div class="container mx-auto px-6 py-6 flex-1">
                 {move || {
                     match repo_data.get() {

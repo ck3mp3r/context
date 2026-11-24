@@ -1035,8 +1035,6 @@ pub fn TaskListCard(
     task_list: TaskList,
     #[prop(optional)] on_click: Option<Callback<String>>,
     #[prop(optional)] project_id: Option<String>,
-    #[prop(optional)] current_query: Option<String>,
-    #[prop(optional)] breadcrumb_name: Option<String>,
 ) -> impl IntoView {
     let list_id = task_list.id.clone();
     let list_id_for_stats = task_list.id.clone();
@@ -1047,8 +1045,6 @@ pub fn TaskListCard(
     } else {
         format!("/task-lists/{}", task_list.id)
     };
-
-    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>();
 
     // Fetch stats for this task list
     let (stats, set_stats) = signal(None::<Result<TaskStats, ApiClientError>>);
@@ -1066,13 +1062,6 @@ pub fn TaskListCard(
             <a
                 href=href
                 on:click=move |ev| {
-                    // Store query state before navigation
-                    if let (Some(state), Some(query), Some(name)) =
-                        (page_state.as_ref(), &current_query, &breadcrumb_name) {
-                        state.set_query(name, query);
-                    }
-
-                    // Existing on_click logic
                     if let Some(callback) = on_click {
                         ev.prevent_default();
                         callback.run(list_id.clone());

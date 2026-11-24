@@ -1,11 +1,8 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_location;
 
 use crate::api::{ApiClientError, QueryBuilder};
-use crate::components::{
-    Breadcrumb, BreadcrumbItem, Pagination, RepoCard, SearchInput, SortControls,
-};
+use crate::components::{Pagination, RepoCard, SearchInput, SortControls};
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Paginated, Repo, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -20,8 +17,6 @@ pub fn Repos() -> impl IntoView {
 #[component]
 fn ReposList() -> impl IntoView {
     const PAGE_SIZE: usize = 12;
-
-    let location = use_location();
 
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
@@ -77,8 +72,6 @@ fn ReposList() -> impl IntoView {
 
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            <Breadcrumb items=vec![BreadcrumbItem::new("Repositories")]/>
-
             <div class="container mx-auto p-6 flex-1">
                 // Search bar and sort controls
                 <div class="mb-6 flex gap-4 items-center">
@@ -132,14 +125,8 @@ fn ReposList() -> impl IntoView {
                                                     .items
                                                     .iter()
                                                     .map(|repo| {
-                                                        let query_str = location.search.get();
-
                                                         view! {
-                                                            <RepoCard
-                                                                repo=repo.clone()
-                                                                current_query=query_str
-                                                                breadcrumb_name="repos".to_string()
-                                                            />
+                                                            <RepoCard repo=repo.clone()/>
                                                         }
                                                     })
                                                     .collect::<Vec<_>>()}

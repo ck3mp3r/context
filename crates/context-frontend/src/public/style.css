@@ -897,9 +897,6 @@
   .pr-4 {
     padding-right: calc(var(--spacing) * 4);
   }
-  .pr-6 {
-    padding-right: calc(var(--spacing) * 6);
-  }
   .pb-3 {
     padding-bottom: calc(var(--spacing) * 3);
   }
@@ -908,9 +905,6 @@
   }
   .pl-2 {
     padding-left: calc(var(--spacing) * 2);
-  }
-  .pl-\[1\.15rem\] {
-    padding-left: 1.15rem;
   }
   .text-center {
     text-align: center;
@@ -1181,9 +1175,6 @@
     }
     .hover\:text-ctp-lavender:hover {
       color: var(--ctp-lavender);
-    }
-    .hover\:text-ctp-sapphire:hover {
-      color: var(--ctp-sapphire);
     }
     .hover\:text-ctp-text:hover {
       color: var(--ctp-text);

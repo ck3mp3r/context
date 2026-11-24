@@ -17,8 +17,6 @@ extern "C" {
 pub fn RepoCard(
     repo: Repo,
     #[prop(optional)] project_id: Option<String>,
-    #[prop(optional)] current_query: Option<String>,
-    #[prop(optional)] breadcrumb_name: Option<String>,
 ) -> impl IntoView {
     let display_name = extract_repo_name(&repo.remote);
     let remote_url = repo.remote.clone();
@@ -28,19 +26,10 @@ pub fn RepoCard(
         format!("/repos/{}", repo.id)
     };
 
-    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>();
-
     view! {
         <A
             href=detail_href
             attr:class="block bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors cursor-pointer"
-            on:click=move |_| {
-                if let (Some(state), Some(query), Some(name)) =
-                    (page_state.as_ref(), &current_query, &breadcrumb_name)
-                {
-                    state.set_query(name, query);
-                }
-            }
         >
             <div class="flex items-start gap-3">
                 <CopyableId id=repo.id.clone()/>

@@ -11,8 +11,6 @@ pub fn NoteCard(
     note: Note,
     #[prop(optional)] on_click: Option<Callback<String>>,
     #[prop(optional)] project_id: Option<String>,
-    #[prop(optional)] current_query: Option<String>,
-    #[prop(optional)] breadcrumb_name: Option<String>,
 ) -> impl IntoView {
     // Create a preview of the content (first 300 chars for markdown, UTF-8 safe)
     let preview_content = if note.content.chars().count() > 300 {
@@ -33,8 +31,6 @@ pub fn NoteCard(
 
     // Check if note has subnotes for stacked effect
     let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
-
-    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>();
 
     let note_id = note.id.clone();
     let href = if on_click.is_some() {
@@ -64,13 +60,6 @@ pub fn NoteCard(
             <a
                 href=href
                 on:click=move |ev| {
-                    // Store query state before navigation
-                    if let (Some(state), Some(query), Some(name)) =
-                        (page_state.as_ref(), &current_query, &breadcrumb_name) {
-                        state.set_query(name, query);
-                    }
-
-                    // Existing on_click logic
                     if let Some(callback) = on_click {
                         ev.prevent_default();
                         callback.run(note_id.clone());

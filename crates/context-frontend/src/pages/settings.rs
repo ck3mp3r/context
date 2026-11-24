@@ -3,7 +3,6 @@ use leptos::task::spawn_local;
 use thaw::{Spinner, SpinnerSize};
 
 use crate::api::{self, ApiClientError};
-use crate::components::{Breadcrumb, BreadcrumbItem};
 use crate::models::{
     SettingsDefaults, SettingsPayload, SettingsRunning, SettingsValues, UpdateStatusPayload,
 };
@@ -13,8 +12,6 @@ use crate::models::{
 pub fn Settings() -> impl IntoView {
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            <Breadcrumb items=vec![BreadcrumbItem::new("Settings")]/>
-
             <div class="container mx-auto p-6 flex-1">
                 <SettingsEditor/>
             </div>

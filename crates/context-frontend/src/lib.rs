@@ -4,7 +4,6 @@ use wasm_bindgen::prelude::*;
 
 mod api;
 mod app;
-mod breadcrumb_state;
 mod components;
 mod hooks;
 mod mermaid;
