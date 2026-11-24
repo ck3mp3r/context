@@ -7,6 +7,7 @@
 //! talks to, so no Tauri type ever reaches `context-server`.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,9 @@ use crate::paths::get_config_dir;
 
 /// Name of the update state file inside the configuration directory.
 const UPDATE_STATE_FILE_NAME: &str = "update.json";
+
+/// Counter that keeps a write's temporary file name unique inside this process.
+static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // region:    --- Types
 
@@ -164,7 +168,10 @@ pub fn load(path: &Path) -> UpdateStateResult<UpdateState> {
 
 /// Write `state` to the update state file at `path`.
 ///
-/// Creates the parent directory when it does not exist.
+/// Creates the parent directory when it does not exist. The file is replaced
+/// atomically: the state is written to a temporary sibling and renamed onto the
+/// path, so a concurrent reader sees either the old or the new file, never a
+/// partial one.
 pub fn write(path: &Path, state: &UpdateState) -> UpdateStateResult<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -181,12 +188,48 @@ pub fn write(path: &Path, state: &UpdateState) -> UpdateStateResult<()> {
         message: format!("Failed to serialize update state: {error}"),
     })?;
 
-    std::fs::write(path, source).map_err(|error| UpdateStateError::Io {
-        message: format!(
-            "Failed to write update state file '{}': {error}",
-            path.display()
-        ),
-    })
+    let temporary = temporary_path(path);
+
+    if let Err(error) = std::fs::write(&temporary, source) {
+        remove_best_effort(&temporary);
+        return Err(UpdateStateError::Io {
+            message: format!(
+                "Failed to write update state file '{}': {error}",
+                path.display()
+            ),
+        });
+    }
+
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        remove_best_effort(&temporary);
+        return Err(UpdateStateError::Io {
+            message: format!(
+                "Failed to replace update state file '{}': {error}",
+                path.display()
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+/// Temporary sibling of `path`: same directory, unique per process and per call.
+///
+/// The temp file sits next to the target so the rename stays on one filesystem,
+/// which is what makes it atomic.
+fn temporary_path(path: &Path) -> PathBuf {
+    let counter = TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| UPDATE_STATE_FILE_NAME.to_string());
+
+    path.with_file_name(format!("{name}.tmp-{}-{counter}", std::process::id()))
+}
+
+/// Remove a temporary file the failed write left behind, ignoring the outcome.
+fn remove_best_effort(path: &Path) {
+    let _ = std::fs::remove_file(path);
 }
 
 /// Get the update state file path (config_dir/update.json).

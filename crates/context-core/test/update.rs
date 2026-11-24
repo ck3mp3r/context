@@ -108,6 +108,124 @@ fn write_creates_the_parent_directory() {
 }
 
 #[test]
+fn no_temp_files_remain_after_a_write() {
+    let dir = TempDir::new().expect("test temp dir");
+    let path = dir.path().join("update.json");
+
+    write(&path, &full_state()).expect("write the update state");
+
+    let mut names: Vec<String> = std::fs::read_dir(dir.path())
+        .expect("the directory lists")
+        .map(|entry| {
+            entry
+                .expect("the entry reads")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+
+    assert_eq!(
+        names,
+        vec!["update.json".to_string()],
+        "a successful write must leave only the state file"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_write_keeps_the_old_file_intact() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("test temp dir");
+    let path = dir.path().join("update.json");
+    let old = full_state();
+    write(&path, &old).expect("the first write succeeds");
+
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555))
+        .expect("the directory turns read-only");
+
+    let blocked = write(&path, &UpdateState::default());
+
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755))
+        .expect("the directory turns writable again");
+
+    assert!(
+        matches!(blocked, Err(UpdateStateError::Io { .. })),
+        "a read-only parent must fail the write, got: {blocked:?}"
+    );
+    assert_eq!(
+        load(&path).expect("the old file still parses"),
+        old,
+        "a failed write must not touch the stored state"
+    );
+}
+
+#[test]
+fn a_concurrent_reader_never_sees_a_torn_file() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let dir = TempDir::new().expect("test temp dir");
+    let path = Arc::new(dir.path().join("update.json"));
+    let first = full_state();
+    let second = UpdateState {
+        status: UpdateStatus::Failed,
+        message: Some("x".repeat(4096)),
+        ..UpdateState::default()
+    };
+
+    write(&path, &first).expect("the initial write succeeds");
+
+    let finished = Arc::new(AtomicBool::new(false));
+
+    let writer = {
+        let path = Arc::clone(&path);
+        let finished = Arc::clone(&finished);
+
+        std::thread::spawn(move || {
+            for round in 0..200 {
+                let state = if round % 2 == 0 { &first } else { &second };
+                write(&path, state).expect("every write succeeds");
+            }
+
+            finished.store(true, Ordering::SeqCst);
+        })
+    };
+
+    let readers: Vec<_> = (0..2)
+        .map(|_| {
+            let path = Arc::clone(&path);
+            let finished = Arc::clone(&finished);
+
+            std::thread::spawn(move || {
+                let mut reads = 0_usize;
+
+                loop {
+                    load(&path).expect("a reader must never see a torn file");
+                    reads += 1;
+
+                    if finished.load(Ordering::SeqCst) {
+                        break;
+                    }
+                }
+
+                reads
+            })
+        })
+        .collect();
+
+    writer.join().expect("the writer ends");
+    for reader in readers {
+        assert!(
+            reader.join().expect("the reader ends") > 0,
+            "each reader must have read at least once"
+        );
+    }
+}
+
+#[test]
 fn write_reports_io_errors_with_the_path() {
     let dir = TempDir::new().expect("test temp dir");
     let blocker = dir.path().join("blocker");
