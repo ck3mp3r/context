@@ -15,6 +15,11 @@ use rust_embed::Embed;
 /// Folder points to Trunk's output directory.
 /// In debug: reads from dist/ at runtime (Trunk dev server preferred)
 /// In release: embedded at compile time with compression
+///
+/// The root globs cover every asset Trunk emits, including the hashed names
+/// (`main-<hash>.js`). Trunk also copies the vendored sources into `dist/`; the
+/// vendor glob keeps them embedded should a build preserve their `vendor/`
+/// directory instead of flattening it to the root.
 #[derive(Embed)]
 #[folder = "dist/"]
 #[include = "*.html"]
@@ -24,7 +29,8 @@ use rust_embed::Embed;
 #[include = "*.svg"]
 #[include = "*.ico"]
 #[include = "snippets/**/*"]
-struct FrontendAssets;
+#[include = "vendor/**/*"]
+pub(crate) struct FrontendAssets;
 
 /// Serve embedded frontend assets with SPA fallback routing.
 ///
