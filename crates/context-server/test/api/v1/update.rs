@@ -11,18 +11,16 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use serial_test::serial;
 use tempfile::TempDir;
 use tower::ServiceExt;
 use utoipa::OpenApi;
 
 use crate::api::notifier::ChangeNotifier;
 use crate::api::{AppState, routes};
+use context_core::Database;
 use context_core::update::{
-    UpdateFlow, UpdateState, UpdateStateError, UpdateStateResult, UpdateStatus, update_state_path,
-    write,
+    UpdateFlow, UpdateState, UpdateStateError, UpdateStateResult, UpdateStatus,
 };
-use context_core::{Database, clear_base_path, set_base_path};
 use context_db::SqliteDatabase;
 use context_sync::{MockGitOps, SyncManager};
 
@@ -45,11 +43,13 @@ impl Answer {
     }
 }
 
-/// Flow that records every call and answers with a fixed outcome.
+/// Flow that records every call, answers with a fixed outcome, and reports
+/// whatever state it was handed.
 #[derive(Debug, Clone, Default)]
 struct FakeFlow {
     answer: Answer,
     calls: Arc<Mutex<Vec<String>>>,
+    state: UpdateState,
 }
 
 impl FakeFlow {
@@ -57,6 +57,16 @@ impl FakeFlow {
         Self {
             answer,
             calls: Arc::default(),
+            state: UpdateState::default(),
+        }
+    }
+
+    /// Flow that reports `state` from `GET /update/status`.
+    fn with_state(state: UpdateState) -> Self {
+        Self {
+            answer: Answer::Ok,
+            calls: Arc::default(),
+            state,
         }
     }
 
@@ -80,6 +90,10 @@ impl UpdateFlow for FakeFlow {
             .expect("calls lock")
             .push("install".to_string());
         self.answer.outcome()
+    }
+
+    fn state(&self) -> UpdateState {
+        self.state.clone()
     }
 }
 
@@ -139,21 +153,11 @@ async fn call(
     (status, value)
 }
 
-/// Base path this test alone owns; the state file lands under it.
-fn base_path() -> TempDir {
-    let base = TempDir::new().expect("Failed to create base temp dir");
-    set_base_path(base.path().to_path_buf());
-    base
-}
-
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn get_update_status_reports_the_default_state() {
-    let _base = base_path();
     let app = test_app(FakeFlow::default()).await;
 
     let (status, body) = call(&app, "GET", "/api/v1/update/status", None).await;
-    clear_base_path();
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["current_version"], env!("CARGO_PKG_VERSION"));
@@ -165,9 +169,7 @@ async fn get_update_status_reports_the_default_state() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
-async fn get_update_status_reports_the_written_state() {
-    let _base = base_path();
+async fn get_update_status_reports_the_state_the_flow_serves() {
     let state = UpdateState {
         status: UpdateStatus::Available,
         current_version: "0.8.0".to_string(),
@@ -178,11 +180,9 @@ async fn get_update_status_reports_the_written_state() {
         message: None,
         updated_at: Some("2026-01-01T00:00:00Z".to_string()),
     };
-    write(&update_state_path(), &state).expect("state file writes");
-    let app = test_app(FakeFlow::default()).await;
+    let app = test_app(FakeFlow::with_state(state)).await;
 
     let (status, body) = call(&app, "GET", "/api/v1/update/status", None).await;
-    clear_base_path();
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "available");
@@ -199,23 +199,27 @@ async fn get_update_status_reports_the_written_state() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
-async fn get_update_status_reports_the_default_state_for_an_unreadable_file() {
-    let _base = base_path();
-    std::fs::create_dir_all(
-        update_state_path()
-            .parent()
-            .expect("state path has a parent"),
-    )
-    .expect("config dir creates");
-    std::fs::write(update_state_path(), "{ not json").expect("corrupt state file writes");
-    let app = test_app(FakeFlow::default()).await;
+async fn get_update_status_reports_a_failure_state() {
+    let state = UpdateState {
+        status: UpdateStatus::Failed,
+        current_version: "0.8.0".to_string(),
+        message: Some("The release offers no update for this platform".to_string()),
+        ..UpdateState::default()
+    };
+    let app = test_app(FakeFlow::with_state(state)).await;
 
     let (status, body) = call(&app, "GET", "/api/v1/update/status", None).await;
-    clear_base_path();
 
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["status"], "idle");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a failed status is still a served state"
+    );
+    assert_eq!(body["status"], "failed");
+    assert_eq!(
+        body["message"],
+        "The release offers no update for this platform"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

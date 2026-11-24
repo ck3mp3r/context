@@ -6,6 +6,7 @@
 //! flow's own task and records every phase in the persisted update state, which
 //! the server serves and the websocket broadcasts.
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ use chrono::Utc;
 use context_core::settings::Settings;
 use context_core::update::{
     UpdateFlow, UpdateState, UpdateStateError, UpdateStateResult, UpdateStatus, load as load_state,
-    update_state_path, write as write_state,
+    write as write_state,
 };
 use context_server::api::notifier::{ChangeNotifier, UpdateMessage};
 
@@ -49,6 +50,7 @@ pub struct ServiceUpdateFlow {
     notifier: ChangeNotifier,
     busy: Arc<Mutex<bool>>,
     gate: CheckGate<fn() -> Settings>,
+    state_path: PathBuf,
 }
 
 /// What a check trigger does next.
@@ -100,12 +102,14 @@ impl ServiceUpdateFlow {
         app: tauri::AppHandle,
         notifier: ChangeNotifier,
         settings: fn() -> Settings,
+        state_path: PathBuf,
     ) -> Self {
         Self {
             app,
             notifier,
             busy: Arc::new(Mutex::new(false)),
             gate: CheckGate::new(settings),
+            state_path,
         }
     }
 
@@ -120,7 +124,7 @@ impl ServiceUpdateFlow {
     /// the previous process was installing the version this process runs, that
     /// install is done and the state starts clean.
     pub fn reconcile_startup(&self) {
-        let state = match load_state(&update_state_path()) {
+        let state = match load_state(&self.state_path) {
             Ok(state) => state,
             Err(error) => {
                 eprintln!("context: failed to read the update state: {error}");
@@ -132,7 +136,11 @@ impl ServiceUpdateFlow {
             return;
         }
 
-        if let Err(error) = transition(&self.notifier, state_with(UpdateStatus::Idle)) {
+        if let Err(error) = transition(
+            &self.state_path,
+            &self.notifier,
+            state_with(UpdateStatus::Idle),
+        ) {
             eprintln!("context: failed to reset the update state: {error}");
         }
     }
@@ -148,7 +156,7 @@ impl ServiceUpdateFlow {
             },
         };
 
-        if let Err(error) = transition(&self.notifier, state) {
+        if let Err(error) = transition(&self.state_path, &self.notifier, state) {
             eprintln!("context: failed to record the update state: {error}");
         }
     }
@@ -164,7 +172,11 @@ impl UpdateFlow for ServiceUpdateFlow {
 
         claim(&self.busy)?;
 
-        if let Err(error) = transition(&self.notifier, state_with(UpdateStatus::Checking)) {
+        if let Err(error) = transition(
+            &self.state_path,
+            &self.notifier,
+            state_with(UpdateStatus::Checking),
+        ) {
             release(&self.busy);
             return Err(error);
         }
@@ -185,7 +197,7 @@ impl UpdateFlow for ServiceUpdateFlow {
 
         claim(&self.busy)?;
 
-        let state_path = update_state_path();
+        let state_path = self.state_path.clone();
         let target = match load_state(&state_path) {
             Ok(state) => install::install_target(&state),
             Err(error) => Err(install::InstallError::Failed(error.to_string())),
@@ -196,6 +208,7 @@ impl UpdateFlow for ServiceUpdateFlow {
         }
 
         let notifier = self.notifier.clone();
+        let publish_path = state_path.clone();
         let executor = install::TauriExecutor::new(self.app.clone());
         let app = self.app.clone();
         let busy = Arc::clone(&self.busy);
@@ -208,7 +221,9 @@ impl UpdateFlow for ServiceUpdateFlow {
             let outcome = install::install(
                 &executor,
                 &state_path,
-                move |state| transition(&notifier, state).map_err(|error| error.to_string()),
+                move |state| {
+                    transition(&publish_path, &notifier, state).map_err(|error| error.to_string())
+                },
                 |service| {
                     install::restart_command(service)
                         .spawn()
@@ -225,14 +240,22 @@ impl UpdateFlow for ServiceUpdateFlow {
 
         Ok(())
     }
+
+    fn state(&self) -> UpdateState {
+        read_state(&self.state_path)
+    }
 }
 
 /// Write `state` and tell the subscribers what changed.
 ///
 /// Every state change goes through here, so the file and the broadcast never
 /// disagree.
-fn transition(notifier: &ChangeNotifier, state: UpdateState) -> UpdateStateResult<()> {
-    write_state(&update_state_path(), &state)?;
+fn transition(
+    state_path: &Path,
+    notifier: &ChangeNotifier,
+    state: UpdateState,
+) -> UpdateStateResult<()> {
+    write_state(state_path, &state)?;
 
     notifier.notify(UpdateMessage::UpdateStateChanged {
         status: status_name(state.status).to_string(),
@@ -289,6 +312,17 @@ fn install_rejection(error: install::InstallError) -> UpdateStateError {
             message: "no update candidate to install".to_string(),
         },
         install::InstallError::Failed(message) => UpdateStateError::Invalid { message },
+    }
+}
+
+/// Read the state file, reporting the default state when it cannot be read.
+fn read_state(state_path: &Path) -> UpdateState {
+    match load_state(state_path) {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("context: failed to read the update state: {error}");
+            UpdateState::default()
+        }
     }
 }
 

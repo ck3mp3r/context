@@ -116,6 +116,12 @@ pub trait UpdateFlow: Send + Sync {
 
     /// Start installing the candidate that waits for consent.
     fn install(&self) -> UpdateStateResult<()>;
+
+    /// Read the persisted update state.
+    ///
+    /// Never fails: an implementation that cannot read or parse its state logs
+    /// the failure and reports the default state.
+    fn state(&self) -> UpdateState;
 }
 
 /// Flow attached when the process has no updater, such as a CLI-only build.
@@ -215,5 +221,9 @@ impl UpdateFlow for NoUpdateFlow {
 
     fn install(&self) -> UpdateStateResult<()> {
         Err(UpdateStateError::Unavailable)
+    }
+
+    fn state(&self) -> UpdateState {
+        UpdateState::default()
     }
 }

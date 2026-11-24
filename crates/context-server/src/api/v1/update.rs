@@ -9,10 +9,10 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use context_core::Database;
-use context_core::update::{self, UpdateFlow, UpdateState, UpdateStateError, UpdateStatus};
+use context_core::update::{UpdateFlow, UpdateState, UpdateStateError, UpdateStatus};
 use context_sync::GitOps;
 use serde::{Deserialize, Serialize};
-use tracing::{instrument, warn};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::api::AppState;
@@ -95,19 +95,11 @@ impl From<UpdateState> for UpdateStatusResponse {
         (status = 200, description = "Persisted update state; an absent file reports the default state", body = UpdateStatusResponse)
     )
 )]
-#[instrument(skip(_state))]
+#[instrument(skip(state))]
 pub async fn get_update_status<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
-    State(_state): State<AppState<D, G, U>>,
+    State(state): State<AppState<D, G, U>>,
 ) -> Json<UpdateStatusResponse> {
-    let persisted = match update::load(&update::update_state_path()) {
-        Ok(state) => state,
-        Err(error) => {
-            warn!("Reporting the default update state: {error}");
-            UpdateState::default()
-        }
-    };
-
-    Json(UpdateStatusResponse::from(persisted))
+    Json(UpdateStatusResponse::from(state.update().state()))
 }
 
 /// Start an update check.

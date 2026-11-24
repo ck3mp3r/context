@@ -5,18 +5,14 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use super::{
-    CheckDecision, CheckGate, claim, dev_build_refusal, release, settled_after_install,
+    CheckDecision, CheckGate, claim, dev_build_refusal, read_state, release, settled_after_install,
     should_check, state_available, state_with, transition,
 };
 use crate::update::releases::{Candidate, manifest_url};
 use context_core::settings::Settings;
-use context_core::update::{
-    UpdateState, UpdateStateError, UpdateStatus, load as load_state, update_state_path,
-};
-use context_core::{clear_base_path, set_base_path};
+use context_core::update::{UpdateState, UpdateStateError, UpdateStatus, load as load_state};
 use context_server::api::notifier::{ChangeNotifier, UpdateMessage};
 use semver::Version;
-use serial_test::serial;
 use tempfile::TempDir;
 
 /// Settings the gate reads in these tests.
@@ -129,21 +125,18 @@ fn an_idle_state_clears_the_candidate() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[serial]
 async fn a_transition_writes_the_state_and_broadcasts_the_status() {
-    let base = TempDir::new().expect("Failed to create base temp dir");
-    set_base_path(base.path().to_path_buf());
+    let dir = TempDir::new().expect("Failed to create base temp dir");
+    let path = dir.path().join("update.json");
 
     let notifier = ChangeNotifier::new();
     let mut receiver = notifier.subscribe();
     let mut state = state_with(UpdateStatus::Available);
     state.candidate_version = Some("0.9.0".to_string());
 
-    let written = transition(&notifier, state);
+    let written = transition(&path, &notifier, state);
     let broadcast = receiver.recv().await;
-    let stored = load_state(&update_state_path());
-
-    clear_base_path();
+    let stored = load_state(&path);
 
     assert!(written.is_ok(), "the transition writes the state file");
     let stored = stored.expect("the state file loads after the transition");
@@ -157,6 +150,43 @@ async fn a_transition_writes_the_state_and_broadcasts_the_status() {
             version: Some("0.9.0".to_string()),
         }
     );
+}
+
+#[test]
+fn a_missing_state_file_reads_as_the_default_state() {
+    let dir = TempDir::new().expect("Failed to create base temp dir");
+
+    assert_eq!(
+        read_state(&dir.path().join("update.json")),
+        UpdateState::default()
+    );
+}
+
+#[test]
+fn an_unparsable_state_file_reads_as_the_default_state() {
+    let dir = TempDir::new().expect("Failed to create base temp dir");
+    let path = dir.path().join("update.json");
+    std::fs::write(&path, "{ not json").expect("the corrupt file writes");
+
+    assert_eq!(
+        read_state(&path),
+        UpdateState::default(),
+        "a read failure must not surface to the caller"
+    );
+}
+
+#[test]
+fn a_written_state_file_reads_back() {
+    let dir = TempDir::new().expect("Failed to create base temp dir");
+    let path = dir.path().join("update.json");
+    let state = UpdateState {
+        status: UpdateStatus::Available,
+        candidate_version: Some("0.9.0".to_string()),
+        ..UpdateState::default()
+    };
+    context_core::update::write(&path, &state).expect("the state file writes");
+
+    assert_eq!(read_state(&path), state);
 }
 
 #[test]
