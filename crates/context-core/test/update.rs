@@ -32,9 +32,9 @@ fn default_state_is_idle_at_the_workspace_version() {
     let state = UpdateState::default();
 
     assert_eq!(state.status, UpdateStatus::Idle);
+    // Pinned on purpose: a version bump must update this literal.
     assert_eq!(
-        state.current_version,
-        env!("CARGO_PKG_VERSION"),
+        state.current_version, "0.8.0",
         "the default state should name the workspace version"
     );
     assert_eq!(state, UpdateState::default());

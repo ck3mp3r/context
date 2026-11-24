@@ -11,8 +11,6 @@ workspace = true
 [dependencies]
 context-core = { path = "../context-core" }
 base64 = "0.23.1"
-ignore = "0.4.33"
-sanitize-filename = "0.6"
 serde.workspace = true
 noyalib = { version = "0.0.58", features = ["compat-serde-yaml"] }
 sha2 = "0.11.1"
