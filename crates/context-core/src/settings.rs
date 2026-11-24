@@ -3,7 +3,7 @@
 //! `StoredSettings` is the file shape: every field is optional, so an absent key
 //! means "use the built-in default" and a per-field reset is a key removal.
 //! `Settings` is the resolved struct callers work with, and [`resolve`] fills
-//! every gap. [`load`] and [`write`] are plain serde + toml file I/O: no platform
+//! every gap. [`load`] and [`write()`] are plain serde + toml file I/O: no platform
 //! APIs, no locking, no async, and no opinion on which process owns the file.
 
 use std::net::IpAddr;
