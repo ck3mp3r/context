@@ -11,15 +11,20 @@ use tracing::{debug, error, info};
 
 use super::state::AppState;
 use context_core::Database;
+use context_core::update::UpdateFlow;
 use context_sync::GitOps;
 
 /// WebSocket upgrade handler.
 ///
 /// Accepts WebSocket upgrade requests and establishes a connection.
 /// Once upgraded, streams UpdateMessages from ChangeNotifier to the client.
-pub async fn ws_handler<D: Database + 'static, G: GitOps + Send + Sync + 'static>(
+pub async fn ws_handler<
+    D: Database + 'static,
+    G: GitOps + Send + Sync + 'static,
+    U: UpdateFlow + 'static,
+>(
     ws: WebSocketUpgrade,
-    State(state): State<AppState<D, G>>,
+    State(state): State<AppState<D, G, U>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
@@ -28,9 +33,9 @@ pub async fn ws_handler<D: Database + 'static, G: GitOps + Send + Sync + 'static
 ///
 /// Subscribes to the ChangeNotifier and streams updates to the client.
 /// Listens for client messages (mainly for connection management).
-async fn handle_socket<D: Database, G: GitOps + Send + Sync>(
+async fn handle_socket<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
     mut socket: WebSocket,
-    state: AppState<D, G>,
+    state: AppState<D, G, U>,
 ) {
     info!("WebSocket client connected");
 

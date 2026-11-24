@@ -29,6 +29,10 @@ mod tasks;
 #[cfg(test)]
 #[path = "../../../test/api/v1/tasks.rs"]
 mod tasks_test;
+mod update;
+#[cfg(test)]
+#[path = "../../../test/api/v1/update.rs"]
+mod update_test;
 
 pub use notes::*;
 pub use projects::*;
@@ -38,3 +42,4 @@ pub use skills::*;
 pub use sync::*;
 pub use task_lists::*;
 pub use tasks::*;
+pub use update::*;

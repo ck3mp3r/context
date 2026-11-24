@@ -11,6 +11,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
+use context_core::update::UpdateFlow;
 use context_core::{Database, DbError, PageSort, Skill, SkillQuery, SkillRepository, SortOrder};
 
 use super::ErrorResponse;
@@ -171,8 +172,8 @@ pub struct UpdateSkillRequest {
     )
 )]
 /// Replace (fully update) an existing skill by ID (PUT)
-pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn replace_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(skill_id): Path<String>,
     Json(req): Json<ReplaceSkillRequest>,
 ) -> Result<Json<SkillResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -238,8 +239,8 @@ pub async fn replace_skill<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 /// List skills (with optional filtering/query)
-pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn list_skills<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Query(api_query): Query<ListSkillsQuery>,
 ) -> Result<Json<PaginatedSkills>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
@@ -319,8 +320,8 @@ pub async fn list_skills<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 /// Get a skill by ID
-pub async fn get_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(skill_id): Path<String>,
 ) -> Result<Json<SkillResponse>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
@@ -356,8 +357,8 @@ pub async fn get_skill<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 /// Create a new skill
-pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn create_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<CreateSkillRequest>,
 ) -> Result<(StatusCode, Json<SkillResponse>), (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
@@ -414,8 +415,8 @@ pub async fn create_skill<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 /// Update an existing skill
-pub async fn patch_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn patch_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(skill_id): Path<String>,
     Json(req): Json<UpdateSkillRequest>,
 ) -> Result<Json<SkillResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -492,8 +493,8 @@ pub async fn patch_skill<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 /// Delete a skill
-pub async fn delete_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn delete_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(skill_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
@@ -536,8 +537,8 @@ pub async fn delete_skill<D: Database, G: GitOps + Send + Sync>(
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
-pub async fn restore_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn restore_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(skill_id): Path<String>,
 ) -> Result<Json<SkillResponse>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
@@ -611,8 +612,8 @@ pub struct ImportSkillRequest {
         (status = 500, description = "Import failed", body = ErrorResponse)
     )
 )]
-pub async fn import_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn import_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<ImportSkillRequest>,
 ) -> Result<(StatusCode, Json<SkillResponse>), (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
@@ -704,8 +705,8 @@ pub struct DisableSkillResponse {
         (status = 500, description = "Enable failed", body = ErrorResponse)
     )
 )]
-pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn enable_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id_or_name): Path<String>,
 ) -> Result<Json<EnableSkillResponse>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
@@ -822,8 +823,8 @@ pub async fn enable_skill<D: Database, G: GitOps + Send + Sync>(
         (status = 500, description = "Disable failed", body = ErrorResponse)
     )
 )]
-pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn disable_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id_or_name): Path<String>,
 ) -> Result<Json<DisableSkillResponse>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
@@ -933,8 +934,8 @@ pub async fn disable_skill<D: Database, G: GitOps + Send + Sync>(
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
-pub async fn refresh_skill<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn refresh_skill<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(skill_id): Path<String>,
 ) -> Result<Json<SkillResponse>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();

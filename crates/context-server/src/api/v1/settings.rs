@@ -19,6 +19,7 @@ use axum::http::StatusCode;
 use context_core::Database;
 use context_core::get_config_path;
 use context_core::settings::{self, Settings, SettingsError, StoredSettings};
+use context_core::update::UpdateFlow;
 use context_sync::GitOps;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -226,8 +227,8 @@ impl SettingsValues {
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_settings<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_settings<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
 ) -> Result<Json<SettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let stored = settings::load(&get_config_path()).map_err(internal_error)?;
 
@@ -251,8 +252,8 @@ pub async fn get_settings<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn put_settings<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn put_settings<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(values): Json<SettingsValues>,
 ) -> Result<Json<SettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let stored = values.into_stored().map_err(bad_request)?;

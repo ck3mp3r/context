@@ -12,6 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
+use context_core::update::UpdateFlow;
 use context_core::{Database, DbError, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
 
 use super::ErrorResponse;
@@ -225,8 +226,8 @@ pub struct PaginatedNotes {
     )
 )]
 #[instrument(skip(state))]
-pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn list_notes<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Query(query): Query<ListNotesQuery>,
 ) -> Result<Json<PaginatedNotes>, (StatusCode, Json<ErrorResponse>)> {
     let internal_error = |e: context_core::DbError| {
@@ -320,8 +321,8 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_note<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<NoteResponse>, (StatusCode, Json<ErrorResponse>)> {
     let note = state.db().notes().get(&id).await.map_err(|e| match e {
@@ -353,8 +354,8 @@ pub async fn get_note<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn create_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<CreateNoteRequest>,
 ) -> Result<(StatusCode, Json<NoteResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Create note with placeholder values - repository will generate ID and timestamps
@@ -403,8 +404,8 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn update_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateNoteRequest>,
 ) -> Result<Json<NoteResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -463,8 +464,8 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn patch_note<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn patch_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<PatchNoteRequest>,
 ) -> Result<Json<NoteResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -530,8 +531,8 @@ pub async fn patch_note<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete_note<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn delete_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state.db().notes().delete(&id).await.map_err(|e| match e {
@@ -573,8 +574,8 @@ pub async fn delete_note<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn restore_note<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn restore_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<NoteResponse>, (StatusCode, Json<ErrorResponse>)> {
     state.db().notes().restore(&id).await.map_err(|e| match e {

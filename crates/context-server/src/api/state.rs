@@ -7,6 +7,7 @@ use std::sync::Arc;
 use super::Config;
 use super::notifier::ChangeNotifier;
 use context_core::Database;
+use context_core::update::{NoUpdateFlow, UpdateFlow};
 use context_sync::{GitOps, SyncManager};
 
 /// Settings the server process actually started with.
@@ -49,25 +50,27 @@ impl Default for RunningSettings {
 
 /// Shared application state.
 ///
-/// Contains the database connection, sync manager, change notifier, and the
-/// settings this process started with.
+/// Contains the database connection, sync manager, change notifier, the update
+/// flow, and the settings this process started with.
 ///
 /// # SOLID Principles
 ///
 /// Follows Dependency Inversion Principle (DIP):
 /// - Generic over `D: Database` - Can use any database implementation
 /// - Generic over `G: GitOps` - Can use RealGit (production) or MockGitOps (tests)
+/// - Generic over `U: UpdateFlow` - Can use the real flow or a recording fake
 ///
 /// Dependencies are injected via constructor, not created internally.
-pub struct AppState<D: Database, G: GitOps + Send + Sync> {
+pub struct AppState<D: Database, G: GitOps + Send + Sync, U: UpdateFlow = NoUpdateFlow> {
     db: Arc<D>,
     sync_manager: SyncManager<G>,
     notifier: ChangeNotifier,
     skills_dir: PathBuf,
     running: RunningSettings,
+    update: Arc<U>,
 }
 
-impl<D: Database, G: GitOps + Send + Sync> Clone for AppState<D, G> {
+impl<D: Database, G: GitOps + Send + Sync, U: UpdateFlow> Clone for AppState<D, G, U> {
     fn clone(&self) -> Self {
         Self {
             db: Arc::clone(&self.db),
@@ -75,11 +78,12 @@ impl<D: Database, G: GitOps + Send + Sync> Clone for AppState<D, G> {
             notifier: self.notifier.clone(),
             skills_dir: self.skills_dir.clone(),
             running: self.running,
+            update: Arc::clone(&self.update),
         }
     }
 }
 
-impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
+impl<D: Database, G: GitOps + Send + Sync> AppState<D, G, NoUpdateFlow> {
     pub fn new(
         db: D,
         sync_manager: SyncManager<G>,
@@ -92,9 +96,26 @@ impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
             notifier,
             skills_dir,
             running: RunningSettings::default(),
+            update: Arc::new(NoUpdateFlow),
         }
     }
 
+    /// Attach the flow the update endpoints trigger.
+    ///
+    /// A state built without it answers update triggers with `Unavailable`.
+    pub fn with_update<U: UpdateFlow>(self, update: U) -> AppState<D, G, U> {
+        AppState {
+            db: self.db,
+            sync_manager: self.sync_manager,
+            notifier: self.notifier,
+            skills_dir: self.skills_dir,
+            running: self.running,
+            update: Arc::new(update),
+        }
+    }
+}
+
+impl<D: Database, G: GitOps + Send + Sync, U: UpdateFlow> AppState<D, G, U> {
     /// Carry the settings this process started with.
     ///
     /// `api::run` calls this with the [`Config`] it was handed; a state built
@@ -126,5 +147,9 @@ impl<D: Database, G: GitOps + Send + Sync> AppState<D, G> {
 
     pub fn running(&self) -> &RunningSettings {
         &self.running
+    }
+
+    pub fn update(&self) -> &U {
+        &self.update
     }
 }

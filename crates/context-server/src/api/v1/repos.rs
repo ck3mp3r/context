@@ -12,6 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
+use context_core::update::UpdateFlow;
 use context_core::{Database, DbError, PageSort, Repo, RepoQuery, RepoRepository, SortOrder};
 
 use super::ErrorResponse;
@@ -179,8 +180,8 @@ pub struct PaginatedRepos {
     )
 )]
 #[instrument(skip(state))]
-pub async fn list_repos<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn list_repos<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Query(query): Query<ListReposQuery>,
 ) -> Result<Json<PaginatedRepos>, (StatusCode, Json<ErrorResponse>)> {
     // Parse tags from comma-separated string
@@ -247,8 +248,8 @@ pub async fn list_repos<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_repo<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_repo<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<RepoResponse>, (StatusCode, Json<ErrorResponse>)> {
     let repo = state.db().repos().get(&id).await.map_err(|e| match e {
@@ -283,8 +284,8 @@ pub async fn get_repo<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn create_repo<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<CreateRepoRequest>,
 ) -> Result<(StatusCode, Json<RepoResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Create repo with placeholder values - repository will generate ID and timestamps
@@ -334,8 +335,8 @@ pub async fn create_repo<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn update_repo<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn update_repo<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateRepoRequest>,
 ) -> Result<Json<RepoResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -396,8 +397,8 @@ pub async fn update_repo<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn patch_repo<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn patch_repo<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<PatchRepoRequest>,
 ) -> Result<Json<RepoResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -455,8 +456,8 @@ pub async fn patch_repo<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete_repo<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn delete_repo<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state.db().repos().delete(&id).await.map_err(|e| match e {
@@ -500,8 +501,8 @@ pub async fn delete_repo<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn restore_repo<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn restore_repo<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<RepoResponse>, (StatusCode, Json<ErrorResponse>)> {
     state.db().repos().restore(&id).await.map_err(|e| match e {

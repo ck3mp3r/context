@@ -8,6 +8,7 @@ use utoipa::ToSchema;
 
 use crate::api::state::AppState;
 use context_core::Database;
+use context_core::update::UpdateFlow;
 use context_sync::GitOps;
 
 use super::ErrorResponse;
@@ -66,8 +67,8 @@ pub struct SyncResponse {
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
-pub async fn init_sync<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn init_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<InitSyncRequest>,
 ) -> Result<(StatusCode, Json<SyncResponse>), (StatusCode, Json<ErrorResponse>)> {
     let result = state
@@ -114,8 +115,8 @@ pub async fn init_sync<D: Database, G: GitOps + Send + Sync>(
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
-pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn export_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<ExportSyncRequest>,
 ) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
     let summary = state
@@ -161,8 +162,8 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync>(
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
-pub async fn import_sync<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn import_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<ImportSyncRequest>,
 ) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
     let summary = state
@@ -206,8 +207,8 @@ pub async fn import_sync<D: Database, G: GitOps + Send + Sync>(
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
-pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
 ) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
     let status = state.sync_manager().status(state.db()).await.map_err(|e| {
         (

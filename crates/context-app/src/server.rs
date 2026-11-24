@@ -10,8 +10,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use context_core::settings::{self, Settings, StoredSettings};
+use context_core::update::NoUpdateFlow;
 use context_core::{Database, get_config_path, get_db_path};
 use context_db::SqliteDatabase;
+use context_server::api::notifier::ChangeNotifier;
 use context_server::api::{self, Config};
 
 #[cfg(test)]
@@ -249,7 +251,8 @@ pub async fn start_server(port: u16, health_url: &str) -> Result<(), String> {
 
     let (failure_tx, mut failure_rx) = tokio::sync::mpsc::unbounded_channel();
     tauri::async_runtime::spawn(async move {
-        let failure = match api::run(config, db).await {
+        let notifier = ChangeNotifier::new();
+        let failure = match api::run(config, db, notifier, NoUpdateFlow).await {
             Ok(()) => "The context server stopped before it became ready.".to_string(),
             Err(error) => {
                 eprintln!("context: API server stopped: {error}");

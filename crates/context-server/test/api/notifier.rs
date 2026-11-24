@@ -103,6 +103,23 @@ async fn test_messages_are_serializable() {
     assert_eq!(deserialized, msg);
 }
 
+#[test]
+fn test_update_state_changed_carries_status_and_optional_version() {
+    let msg = UpdateMessage::UpdateStateChanged {
+        status: "available".to_string(),
+        version: Some("0.9.0".to_string()),
+    };
+
+    let json = serde_json::to_string(&msg).unwrap();
+
+    assert!(json.contains("UpdateStateChanged"), "got: {json}");
+    assert!(json.contains("\"status\":\"available\""), "got: {json}");
+    assert!(json.contains("\"version\":\"0.9.0\""), "got: {json}");
+
+    let deserialized: UpdateMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, msg);
+}
+
 #[tokio::test]
 async fn test_subscriber_receives_multiple_messages_in_order() {
     let notifier = ChangeNotifier::new();

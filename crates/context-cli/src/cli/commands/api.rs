@@ -7,8 +7,10 @@ use miette::{IntoDiagnostic, Result};
 
 use context_core::Database;
 use context_core::settings::{self, Settings};
+use context_core::update::NoUpdateFlow;
 use context_core::{get_config_path, get_db_path, set_base_path};
 use context_db::SqliteDatabase;
+use context_server::api::notifier::ChangeNotifier;
 use context_server::api::{self, Config};
 
 /// Flags the operator passed to `c5t api`.
@@ -77,7 +79,9 @@ pub async fn run(
     println!();
 
     // Pass the abstract Database to the API layer
-    api::run(config, db).await.into_diagnostic()?;
+    api::run(config, db, ChangeNotifier::new(), NoUpdateFlow)
+        .await
+        .into_diagnostic()?;
 
     Ok(())
 }

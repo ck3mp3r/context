@@ -13,6 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
 use context_core::current_timestamp;
+use context_core::update::UpdateFlow;
 use context_core::{
     Database, DbError, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
     TaskListStatus, TaskRepository, TaskStats,
@@ -241,8 +242,8 @@ pub struct PaginatedTaskLists {
     )
 )]
 #[instrument(skip(state))]
-pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Query(query): Query<ListTaskListsQuery>,
 ) -> Result<Json<PaginatedTaskLists>, (StatusCode, Json<ErrorResponse>)> {
     // Build database query with tag filtering at DB level
@@ -325,8 +326,8 @@ pub async fn list_task_lists<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_task_list<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_task_list<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
     let list = state
@@ -363,8 +364,8 @@ pub async fn get_task_list<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn create_task_list<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<CreateTaskListRequest>,
 ) -> Result<(StatusCode, Json<TaskListResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Create task list with placeholder values - repository will generate ID and timestamps
@@ -417,8 +418,8 @@ pub async fn create_task_list<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn update_task_list<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateTaskListRequest>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -494,8 +495,8 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn patch_task_list<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn patch_task_list<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<PatchTaskListRequest>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -563,8 +564,8 @@ pub async fn patch_task_list<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state
@@ -612,8 +613,8 @@ pub async fn delete_task_list<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn restore_task_list<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn restore_task_list<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskListResponse>, (StatusCode, Json<ErrorResponse>)> {
     state
@@ -670,8 +671,8 @@ pub async fn restore_task_list<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_task_list_stats<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_task_list_stats<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskStatsResponse>, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db();
