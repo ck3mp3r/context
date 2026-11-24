@@ -123,6 +123,70 @@
     echo "  xcrun stapler validate $dmg"
     echo "  spctl --assess --type open --verbose --context context:primary-signature $dmg"
   '';
+  # The updater reads a manifest asset from each release: one JSON file naming
+  # the signed artifact of that version. Assemble it from what `release` built.
+  release-manifest = pkgs.writeShellScriptBin "release-manifest" ''
+    set -euo pipefail
+
+    # the updater artifacts are macOS bundles: fail before reading anything
+    if [ "$(uname -s)" != "Darwin" ]; then
+      echo "release-manifest: macOS only — the updater artifacts are macOS bundles" >&2
+      exit 1
+    fi
+
+    # resolve the artifact before writing anything: the bundler emits one bundle
+    shopt -s nullglob
+    matches=(target/release/bundle/macos/*.app.tar.gz)
+    if [ "''${#matches[@]}" -ne 1 ]; then
+      echo "release-manifest: expected exactly one artifact matching target/release/bundle/macos/*.app.tar.gz, found ''${#matches[@]}:" >&2
+      if [ "''${#matches[@]}" -gt 0 ]; then
+        printf '  %s\n' "''${matches[@]}" >&2
+      fi
+      echo "release-manifest: run 'release' first; it needs the updater signing key" >&2
+      exit 1
+    fi
+    artifact="''${matches[0]}"
+    signature_file="$artifact.sig"
+    if [ ! -f "$signature_file" ]; then
+      echo "release-manifest: missing $signature_file — the build did not sign the artifact" >&2
+      exit 1
+    fi
+
+    version="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "context") | .version')"
+    if [ -z "$version" ] || [ "$version" = "null" ]; then
+      echo "release-manifest: cannot read the version of the 'context' package" >&2
+      exit 1
+    fi
+
+    # the manifest names the release asset, so the tag is part of the URL
+    tag="v$version"
+    name="$(basename "$artifact")"
+    url="https://github.com/ck3mp3r/context/releases/download/$tag/$name"
+    signature="$(cat "$signature_file")"
+    pub_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    manifest="target/release/bundle/macos/latest.json"
+
+    jq -n \
+      --arg version "$version" \
+      --arg pub_date "$pub_date" \
+      --arg url "$url" \
+      --arg signature "$signature" \
+      '{
+        version: $version,
+        pub_date: $pub_date,
+        platforms: {
+          "darwin-aarch64-app": { url: $url, signature: $signature },
+          "darwin-aarch64": { url: $url, signature: $signature }
+        }
+      }' > "$manifest"
+
+    echo ""
+    echo "manifest: $manifest"
+    echo "Upload to the $tag release:"
+    echo "  $name"
+    echo "  $name.sig"
+    echo "  latest.json"
+  '';
   # The window loads the SPA from the trunk dev server, so a missing 8080 is a
   # dead window: refuse before cargo builds anything. Both 3738 states are
   # valid, so that probe reports the mode instead of refusing.
@@ -246,6 +310,7 @@ in
       (pkgs.callPackage ./wasm-bindgen-cli-bin.nix {})
       pkgs.tailwindcss_4
       pkgs.act
+      pkgs.jq
 
       # Development scripts
       check
@@ -255,6 +320,7 @@ in
       build
       coverage
       release
+      release-manifest
       dev
       dev-service
       serve
@@ -277,6 +343,7 @@ in
       echo "  build    - Build release binary (trunk build --release, then cargo build --release)"
       echo "  coverage - Run workspace coverage (HTML report in coverage/)"
       echo "  release  - Build, notarize and staple the dmg (needs APPLE_API_* credentials)"
+      echo "  release-manifest - Generate latest.json from the built updater artifacts (run after release)"
       echo "  dev      - Start the GUI as c5t-dev.kemper.wtf (needs 'dev-service' on 3738)"
       echo "  dev-service - Start the service: tray + API on 3738, c5t-dev.service.kemper.wtf"
       echo "  serve    - Start the Trunk dev server on 8080"

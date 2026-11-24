@@ -326,6 +326,70 @@ Two traps, both confirmed:
 
 On macOS `lsof` lives in `/usr/sbin` and `uname` in `/usr/bin`, so `PATH=/usr/bin` passes the Darwin check and fails the `lsof` check closed.
 
+## Updates
+
+The app updates itself from GitHub releases. The service owns the flow, so an update keeps running while the window is closed: the service checks when the GUI opens and when the user asks, and installs only after a click in the SPA banner.
+
+### How an update runs
+
+1. The service resolves the release that its channel allows — with the pre-release channel on, every release is a candidate; with it off, only stable releases — and takes the newest version. Versions follow semver, so a build-suffix pre-release such as `0.8.1-b118f3a` sorts below `0.8.1` and is never offered over it.
+2. The SPA banner offers the candidate. Nothing downloads until Install is pressed.
+3. On consent the service downloads the signed `Context.app.tar.gz`, verifies it against the pinned public key, swaps the bundle atomically, starts the new service binary and exits. The window survives and reconnects on `/ws` when the new server answers; the tray disappears and returns with the new process.
+4. Progress lives in `update.json` in the profile configuration directory:
+
+   | Build | State file |
+   |-------|------------|
+   | Debug | `~/Library/Application Support/c5t-dev/update.json` |
+   | Release | `~/Library/Application Support/c5t/update.json` |
+
+### Settings
+
+`config.toml` carries two keys, both editable on the Settings page. A change applies on the next check; no restart is needed.
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `auto_update` | `true`, `false` — check when the GUI opens | `true` |
+| `update_channel` | `"stable"`, `"pre-release"` | `"stable"` |
+
+The Settings page also carries a Check for updates button and the status line of the last check.
+
+### Surfaces and endpoints
+
+- Banner above the navigation and the version badge in the nav: offer, install, dismiss. The badge shows the candidate next to the running version.
+- Tray row `Update: …` in the service menu, refreshed by the same 60-second poll as the sync row. It is informational: installing happens in the banner.
+- REST: `GET /api/v1/update/status`, `POST /api/v1/update/check` with the body `{"manual": true}` or `{"manual": false}`, and `POST /api/v1/update/install`. Every state change is broadcast on `/ws` as `UpdateStateChanged { status, version }`.
+
+### Signing key (one time)
+
+The updater refuses unsigned artifacts, so `cargo tauri build` signs the updater artifact with a minisign key and stops when the key is missing. Generate the key once:
+
+```sh
+cargo tauri signer generate -w ~/.tauri/context.key
+```
+
+Paste the contents of `~/.tauri/context.key.pub` into `plugins.updater.pubkey` in both `crates/context-app/tauri.conf.json` and `crates/context-app/service/tauri.conf.json`. The two values must be byte-identical: the GUI bundle embeds the key, and the service verifies downloads against its own baked copy. Both files ship the key empty; while it is empty, or while the private key is not exported, `cargo tauri build` stops with a message naming the missing `TAURI_SIGNING_PRIVATE_KEY`. That failure is expected until the key is generated.
+
+### Per release
+
+Export the key before the build, then run the two helpers. `.env` files do not work: the CLI reads the process environment only.
+
+```sh
+export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/context.key"
+# only when the key carries a password:
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="..."
+
+release            # builds, notarizes and staples the dmg
+release-manifest   # writes target/release/bundle/macos/latest.json
+```
+
+`release-manifest` requires exactly one `target/release/bundle/macos/*.app.tar.gz` with its `.sig`, reads the version from `cargo metadata`, and writes the manifest the plugin fetches:
+
+- `version`: the workspace version of the `context` package.
+- `pub_date`: the current UTC time in RFC 3339.
+- `platforms`: `darwin-aarch64-app` and `darwin-aarch64`, each with the release-asset URL of the artifact and the contents of its `.sig` file.
+
+Upload `Context.app.tar.gz`, `Context.app.tar.gz.sig`, `latest.json` and the dmg to the GitHub release tagged `v<version>`. The manifest URLs embed that tag, so the tag must exist before a client checks.
+
 ## Troubleshooting
 
 ### The service reports "Failed to start the context server"

@@ -8,9 +8,15 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": ""
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
+    "createUpdaterArtifacts": true,
     "externalBin": ["../../target/release/c5t"],
     "category": "public.app-category.developer-tools",
     "copyright": "GPL-2.0 — Copyright (c) Christian Kemper",
