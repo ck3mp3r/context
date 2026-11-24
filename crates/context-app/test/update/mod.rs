@@ -1,13 +1,15 @@
 //! Tests for the update flow: the gating decision, the busy guard, and the
 //! startup reconciliation after an install.
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use super::{
-    claim, dev_build_refusal, release, settled_after_install, should_check, state_available,
-    state_with, transition,
+    CheckDecision, CheckGate, claim, dev_build_refusal, release, settled_after_install,
+    should_check, state_available, state_with, transition,
 };
 use crate::update::releases::{Candidate, manifest_url};
+use context_core::settings::Settings;
 use context_core::update::{
     UpdateState, UpdateStateError, UpdateStatus, load as load_state, update_state_path,
 };
@@ -16,6 +18,30 @@ use context_server::api::notifier::{ChangeNotifier, UpdateMessage};
 use semver::Version;
 use serial_test::serial;
 use tempfile::TempDir;
+
+/// Settings the gate reads in these tests.
+///
+/// Every field is spelled out so the tests never reach the configuration path or
+/// the base-path global.
+fn gate_settings(auto_update: bool) -> Settings {
+    Settings {
+        host: "127.0.0.1".parse().expect("test host parses"),
+        port: 3737,
+        verbosity: 0,
+        enable_docs: false,
+        skills_dir: PathBuf::from("/tmp/update-gate-skills"),
+        start_at_login: true,
+        auto_update,
+        update_channel: "pre-release".to_string(),
+    }
+}
+
+/// Gate over a fixed set of settings, driven without an app handle.
+fn gate(auto_update: bool) -> CheckGate<impl Fn() -> Settings> {
+    let settings = gate_settings(auto_update);
+
+    CheckGate::new(move || settings.clone())
+}
 
 #[cfg(debug_assertions)]
 #[test]
@@ -207,4 +233,34 @@ fn every_other_status_is_not_settled() {
             "{status:?} must not reset to idle"
         );
     }
+}
+
+#[test]
+fn the_gate_runs_an_automatic_check_while_auto_update_is_on() {
+    assert_eq!(
+        gate(true).decide(false),
+        CheckDecision::Run {
+            channel: "pre-release".to_string()
+        },
+        "the gate hands the resolved channel to the check"
+    );
+}
+
+#[test]
+fn the_gate_runs_a_manual_check_while_auto_update_is_off() {
+    assert_eq!(
+        gate(false).decide(true),
+        CheckDecision::Run {
+            channel: "pre-release".to_string()
+        }
+    );
+}
+
+#[test]
+fn the_gate_declines_an_automatic_check_while_auto_update_is_off() {
+    assert_eq!(
+        gate(false).decide(false),
+        CheckDecision::Decline,
+        "auto-update off must not claim the flow"
+    );
 }

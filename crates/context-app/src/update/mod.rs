@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::Utc;
+use context_core::settings::Settings;
 use context_core::update::{
     UpdateFlow, UpdateState, UpdateStateError, UpdateStateResult, UpdateStatus, load as load_state,
     update_state_path, write as write_state,
@@ -39,20 +40,72 @@ const GITHUB_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// [`UpdateFlow::check`] records `checking`, returns, and the flow's own task
 /// writes the outcome and broadcasts it. Clones share one busy flag, so a second
 /// check or install is refused while one runs.
+///
+/// The check gate reads the settings source the constructor was handed, so the
+/// decision is injected rather than read from the process-global configuration.
 #[derive(Clone)]
 pub struct ServiceUpdateFlow {
     app: tauri::AppHandle,
     notifier: ChangeNotifier,
     busy: Arc<Mutex<bool>>,
+    gate: CheckGate<fn() -> Settings>,
+}
+
+/// What a check trigger does next.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CheckDecision {
+    /// Claim the flow, record `checking`, and run the check on this channel.
+    Run { channel: String },
+    /// Decline without claiming: a decline is not contention.
+    Decline,
+}
+
+/// The check gate: decides from its settings source whether a check runs.
+///
+/// The gate holds no state and touches no global, so a test drives it directly.
+#[derive(Clone)]
+pub(crate) struct CheckGate<P> {
+    settings: P,
+}
+
+impl<P> CheckGate<P>
+where
+    P: Fn() -> Settings,
+{
+    /// Gate that reads its settings from `settings`.
+    pub(crate) fn new(settings: P) -> Self {
+        Self { settings }
+    }
+
+    /// What the trigger for `manual` does next.
+    pub(crate) fn decide(&self, manual: bool) -> CheckDecision {
+        let settings = (self.settings)();
+
+        if should_check(manual, settings.auto_update) {
+            CheckDecision::Run {
+                channel: settings.update_channel,
+            }
+        } else {
+            CheckDecision::Decline
+        }
+    }
 }
 
 impl ServiceUpdateFlow {
     /// Flow that drives `app`'s updater plugin and broadcasts on `notifier`.
-    pub fn new(app: tauri::AppHandle, notifier: ChangeNotifier) -> Self {
+    ///
+    /// `settings` is the check gate's source: the service passes its resolved
+    /// settings reader, so the gate never reaches for the configuration itself.
+    pub fn new(
+        app: tauri::AppHandle,
+        notifier: ChangeNotifier,
+        settings: fn() -> Settings,
+    ) -> Self {
         Self {
             app,
             notifier,
             busy: Arc::new(Mutex::new(false)),
+            gate: CheckGate::new(settings),
         }
     }
 
@@ -103,12 +156,11 @@ impl ServiceUpdateFlow {
 
 impl UpdateFlow for ServiceUpdateFlow {
     fn check(&self, manual: bool) -> UpdateStateResult<()> {
-        // A decline is not contention: it runs before the busy claim, so a
-        // skipped automatic check never reports Busy.
-        let settings = crate::server::effective_settings();
-        if !should_check(manual, settings.auto_update) {
-            return Ok(());
-        }
+        // The gate declines before the claim: a decline is not contention.
+        let channel = match self.gate.decide(manual) {
+            CheckDecision::Decline => return Ok(()),
+            CheckDecision::Run { channel } => channel,
+        };
 
         claim(&self.busy)?;
 
@@ -117,7 +169,6 @@ impl UpdateFlow for ServiceUpdateFlow {
             return Err(error);
         }
 
-        let channel = settings.update_channel;
         let flow = self.clone();
         tauri::async_runtime::spawn(async move {
             let _release = BusyRelease(Arc::clone(&flow.busy));

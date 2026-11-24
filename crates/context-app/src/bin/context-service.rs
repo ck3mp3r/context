@@ -42,7 +42,8 @@ fn main() -> tauri::Result<()> {
             let health_url = server::health_url(port);
 
             let notifier = context_server::api::notifier::ChangeNotifier::new();
-            let flow = ServiceUpdateFlow::new(app.handle().clone(), notifier.clone());
+            let flow =
+                ServiceUpdateFlow::new(app.handle().clone(), notifier.clone(), effective_settings);
             flow.reconcile_startup();
 
             if let Err(message) = tauri::async_runtime::block_on(server::start_server(
