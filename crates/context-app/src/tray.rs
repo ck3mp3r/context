@@ -1,32 +1,32 @@
 //! macOS menu bar status item.
 //!
-//! The app is a macOS accessory agent: no Dock icon and no Cmd+Tab entry. A
-//! closed window would leave the app reachable only through the tray, so the
-//! tray gives the app a permanent handle: it reveals the main window, or quits.
+//! The service binary is the macOS accessory agent: no Dock icon and no Cmd+Tab
+//! entry. It owns the tray, so the menu outlives a closed view; the GUI runs a
+//! regular activation policy and is a disposable window over that service.
 //!
-//! Both actions route through `ServiceState::launch_gui`: Show passes no route,
-//! and Settings… passes the SPA settings path, so the window it brings forward
-//! lands on the configuration page. Quit is a custom item carrying
-//! `menu::QUIT_ITEM_ID`, so it flows into the existing `AppHandle::exit(0)`
-//! handler and never touches the vetoed `terminate:` path.
+//! Show, Settings… and Quit route through [`handle_menu_event`]. Show brings the
+//! GUI forward, launching it when it is not running; Settings… does the same and
+//! lands it on the SPA settings page. Both pass their route through
+//! `ServiceState::launch_gui`. Quit ends the GUIs this service spawned before the
+//! service exits. It is a custom item carrying `menu::QUIT_ITEM_ID`, so it flows
+//! into the service's exit path and never touches the vetoed `terminate:` path.
 //!
-//! The MCP item is informational: it is disabled, so it renders grayed and a
-//! click is inert. Its label carries the MCP endpoint of the build profile, the
-//! URL a client needs while it is configured.
+//! Three rows are informational: each is disabled, so it renders grayed and a
+//! click is inert.
+//!
+//! - The MCP row names the MCP endpoint of the build profile, the URL a client
+//!   needs while it is configured.
+//! - The sync row reports whether the sync repository is initialized and whether
+//!   its working tree is clean. There is nothing to report before sync is
+//!   initialized, so the row exists only after initialization: two menus are
+//!   built once — one with the row, one without — and the background poll swaps
+//!   them when presence changes and rewrites the text in place when only the
+//!   status changes.
+//! - The update row names the update phase the service reports. Consent and
+//!   install belong to the SPA banner, so the row only reports.
 //!
 //! The glyph is an alpha-only template image. macOS composites a template image
 //! for the light and the dark menu bar, so one asset serves both appearances.
-//!
-//! The sync row is informational too: it reports whether the sync repository is
-//! initialized and whether its working tree is clean. There is nothing to report
-//! before sync is initialized, so the row exists only after initialization. Two
-//! menus are built once — one with the row, one without — and the background poll
-//! swaps them when presence changes and rewrites the row text in place when only
-//! the status changes.
-//!
-//! The update row is informational and always present: it names the update phase
-//! the service reports. Consent and install belong to the SPA banner, so a click
-//! on this row does nothing.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -41,13 +41,11 @@ use tauri::{AppHandle, Manager, Wry, include_image};
 use crate::launcher::ServiceState;
 use crate::menu;
 
-/// Id of the Show item, matched by the `on_menu_event` handler in
-/// `bin/context-service.rs`.
+/// Id of the Show item, routed by [`handle_menu_event`].
 pub const SHOW_ITEM_ID: &str = "show";
 /// Label of the Show item.
 const SHOW_TEXT: &str = "Show Context";
-/// Id of the Settings item, matched by the `on_menu_event` handler in
-/// `bin/context-service.rs`.
+/// Id of the Settings item, routed by [`handle_menu_event`].
 pub const SETTINGS_ITEM_ID: &str = "settings";
 /// Label of the Settings item, which deep links to the SPA settings page.
 const SETTINGS_TEXT: &str = "Settings…";
@@ -69,7 +67,7 @@ const SYNC_CLEAN_TEXT: &str = "clean · ";
 const SYNC_NEVER_SYNCED_TEXT: &str = "Sync: never synced";
 /// Label shown when the sync working tree has uncommitted changes.
 const SYNC_PENDING_TEXT: &str = "Sync: pending changes";
-/// Delay between sync status polls.
+/// Delay between status polls of the informational rows.
 const SYNC_POLL_INTERVAL: Duration = Duration::from_secs(60);
 /// Id of the informational update item. It never fires a menu event.
 pub const UPDATE_ITEM_ID: &str = "update";
@@ -239,10 +237,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
     })
 }
 
-/// Start the background task that mirrors the sync status onto the tray.
+/// Start the background task that mirrors the sync and update status onto the
+/// tray.
 ///
-/// The task fetches once at startup and then every `SYNC_POLL_INTERVAL`. A failed
-/// fetch is skipped, so the row keeps its last known state.
+/// The task fetches once at startup and then every `SYNC_POLL_INTERVAL`. Each row
+/// reads its own endpoint, so a failed fetch is skipped and that row keeps its
+/// last known state.
 pub fn spawn_status_poll(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let client = match crate::server::health_client() {
