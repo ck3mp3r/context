@@ -11,6 +11,8 @@ mod mermaid;
 mod models;
 mod pages;
 mod theme;
+/// Update wording: the phrases the banner renders, kept free of the view layer.
+pub mod update_status;
 mod utils;
 mod websocket;
 
