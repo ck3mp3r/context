@@ -32,11 +32,13 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 const APP_MENU_TITLE: &str = "Context";
 /// Label of the About item. Without one, macOS names it after the process.
 const ABOUT_TEXT: &str = "About Context";
-/// Label of the Quit item of the tray menu.
+/// Label of the Quit item. The GUI application menu and the service tray both
+/// use it.
 pub const QUIT_TEXT: &str = "Quit";
-/// Id of the Quit item of the tray menu, matched by the menu event handler in
-/// `main`. Only the tray carries this id: the application menu closes the
-/// window instead of quitting.
+/// Id of the Quit item. Both the GUI application menu and the service tray build
+/// an item carrying it, and each process handles its own: the GUI's quit ends
+/// that process and leaves the service serving, while the tray's quit ends the
+/// GUIs the service spawned before the service exits.
 pub const QUIT_ITEM_ID: &str = "quit";
 /// Label of the application-menu item that closes the window.
 const CLOSE_VIEW_TEXT: &str = "Close Window";
