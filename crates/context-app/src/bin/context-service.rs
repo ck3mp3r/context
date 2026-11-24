@@ -12,10 +12,7 @@
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
-use context_app::{
-    SETTINGS_PATH, ServiceState, ServiceUpdateFlow, autostart, effective_settings, menu, server,
-    tray,
-};
+use context_app::{ServiceState, ServiceUpdateFlow, autostart, effective_settings, server, tray};
 
 fn main() -> tauri::Result<()> {
     let app = tauri::Builder::default()
@@ -23,16 +20,7 @@ fn main() -> tauri::Result<()> {
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .on_menu_event(|app, event| {
-            if event.id() == tray::SHOW_ITEM_ID {
-                app.state::<ServiceState>().launch_gui(None);
-            } else if event.id() == tray::SETTINGS_ITEM_ID {
-                app.state::<ServiceState>().launch_gui(Some(SETTINGS_PATH));
-            } else if event.id() == menu::QUIT_ITEM_ID {
-                app.state::<ServiceState>().terminate_children();
-                app.exit(0);
-            }
-        })
+        .on_menu_event(|app, event| tray::handle_menu_event(app, event.id().as_ref()))
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.handle()

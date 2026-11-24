@@ -38,6 +38,7 @@ use tauri::menu::{Menu, MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Wry, include_image};
 
+use crate::launcher::ServiceState;
 use crate::menu;
 
 /// Id of the Show item, matched by the `on_menu_event` handler in
@@ -117,6 +118,45 @@ fn tray_tooltip() -> &'static str {
         "Context (dev)"
     } else {
         TRAY_TOOLTIP
+    }
+}
+
+/// Route one tray menu event to its action.
+///
+/// The service binary hands every menu event here, so a new firing tray item is
+/// a match arm in this module instead of a second edit in the binary.
+pub fn handle_menu_event(app: &AppHandle, id: &str) {
+    match action_for(id) {
+        TrayAction::LaunchGui(route) => app.state::<ServiceState>().launch_gui(route),
+        TrayAction::Quit => {
+            app.state::<ServiceState>().terminate_children();
+            app.exit(0);
+        }
+        TrayAction::Ignore => {}
+    }
+}
+
+/// What one tray menu event asks the service to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TrayAction {
+    /// Bring the GUI forward, on `route` when the item deep links.
+    LaunchGui(Option<&'static str>),
+    /// End the GUIs this service started, then the service itself.
+    Quit,
+    /// An informational row, or an item this module does not own.
+    Ignore,
+}
+
+/// Action the tray item `id` asks for.
+///
+/// The informational rows (MCP, sync, update) are disabled, so they never fire a
+/// menu event and route nowhere.
+pub(crate) fn action_for(id: &str) -> TrayAction {
+    match id {
+        SHOW_ITEM_ID => TrayAction::LaunchGui(None),
+        SETTINGS_ITEM_ID => TrayAction::LaunchGui(Some(crate::SETTINGS_PATH)),
+        menu::QUIT_ITEM_ID => TrayAction::Quit,
+        _ => TrayAction::Ignore,
     }
 }
 

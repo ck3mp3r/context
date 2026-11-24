@@ -36,6 +36,36 @@ fn release_profile_tray_tooltip_keeps_the_production_name() {
 }
 
 #[test]
+fn the_show_item_launches_the_gui_without_a_route() {
+    assert_eq!(action_for(SHOW_ITEM_ID), TrayAction::LaunchGui(None));
+}
+
+#[test]
+fn the_settings_item_deep_links_to_the_settings_page() {
+    assert_eq!(
+        action_for(SETTINGS_ITEM_ID),
+        TrayAction::LaunchGui(Some("/settings")),
+        "the settings item must open the SPA settings page"
+    );
+}
+
+#[test]
+fn the_quit_item_ends_the_service() {
+    assert_eq!(action_for(menu::QUIT_ITEM_ID), TrayAction::Quit);
+}
+
+#[test]
+fn the_informational_rows_route_nowhere() {
+    for id in [MCP_ITEM_ID, SYNC_ITEM_ID, UPDATE_ITEM_ID] {
+        assert_eq!(
+            action_for(id),
+            TrayAction::Ignore,
+            "{id} is disabled and must not route anywhere"
+        );
+    }
+}
+
+#[test]
 fn show_item_names_the_app() {
     assert_eq!(SHOW_TEXT, "Show Context");
 }
