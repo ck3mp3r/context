@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use thaw::{Spinner, SpinnerSize};
 
 use crate::api::{self, ApiClientError};
 use crate::components::{Breadcrumb, BreadcrumbItem};
@@ -43,9 +44,10 @@ fn SettingsEditor() -> impl IntoView {
     let auto_update = RwSignal::new(true);
     let pre_release = RwSignal::new(false);
 
-    // Manual check: the request is in flight, and the line under the buttons.
+    // Manual check: the request is in flight. The button shows that, and the banner reports every
+    // state: the page renders no status text at all.
     let check_pending = RwSignal::new(false);
-    let (check_result, set_check_result) = signal(None::<CheckResult>);
+    let update_status = expect_context::<RwSignal<Option<UpdateStatusPayload>>>();
 
     // One payload update refreshes the draft and the restart markers.
     let apply_payload = move |payload: SettingsPayload| {
@@ -235,47 +237,51 @@ fn SettingsEditor() -> impl IntoView {
         });
     });
 
-    // Manual check: trigger it, give the service a moment, then read the state.
-    // A slow check still reports "checking" after the first read, so one bounded
-    // second read follows and the line cannot freeze on the interim state. At
-    // most two reads per click, and no timer.
+    // Manual check: trigger it, then read the state into the shared banner signal.
+    //
+    // The banner is the one status surface, so this flow writes the signal the banner reads: the
+    // first read may still say "checking" and shows that at once, and one bounded second read
+    // settles the state, so the banner cannot freeze on the interim one. At most two reads per
+    // click, and no timer. A transport failure console-reports and only re-enables the button.
     let on_check = Callback::new(move |()| {
         if check_pending.get_untracked() {
             return;
         }
 
         check_pending.set(true);
-        set_check_result.set(None);
 
-        // Report one result and re-enable the button.
-        let report = move |result: CheckResult| {
-            set_check_result.set(Some(result));
-            check_pending.set(false);
-        };
+        // The button returns to its idle label.
+        let settle = move || check_pending.set(false);
 
         // Read the status once: show it, or follow a still-running check once.
         let read_status = move || {
             spawn_local(async move {
                 match api::update::status().await {
                     Ok(payload) if payload.status == "checking" => {
-                        set_check_result.set(Some(CheckResult::Status(payload)));
+                        update_status.set(Some(payload));
 
                         set_timeout(
                             move || {
                                 spawn_local(async move {
-                                    let result = match api::update::status().await {
-                                        Ok(payload) => CheckResult::Status(payload),
-                                        Err(error) => CheckResult::Failed(error_message(&error)),
-                                    };
+                                    match api::update::status().await {
+                                        Ok(payload) => update_status.set(Some(payload)),
+                                        Err(error) => report_check_failure(&error),
+                                    }
 
-                                    report(result);
+                                    settle();
                                 });
                             },
                             CHECK_SETTLE_DELAY,
                         );
                     }
-                    Ok(payload) => report(CheckResult::Status(payload)),
-                    Err(error) => report(CheckResult::Failed(error_message(&error))),
+                    Ok(payload) => {
+                        update_status.set(Some(payload));
+                        settle();
+                    }
+                    Err(error) => {
+                        report_check_failure(&error);
+                        settle();
+                    }
                 }
             });
         };
@@ -283,7 +289,10 @@ fn SettingsEditor() -> impl IntoView {
         spawn_local(async move {
             match api::update::check(true).await {
                 Ok(()) => set_timeout(read_status, CHECK_SETTLE_DELAY),
-                Err(error) => report(CheckResult::Failed(error_message(&error))),
+                Err(error) => {
+                    report_check_failure(&error);
+                    settle();
+                }
             }
         });
     });
@@ -502,24 +511,15 @@ fn SettingsEditor() -> impl IntoView {
                                 on:click=move |_| on_check.run(())
                                 class="rounded-lg border border-ctp-surface1 px-4 py-2 font-medium text-ctp-text transition-colors hover:border-ctp-blue disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {move || if check_pending.get() { "Checking..." } else { "Check for updates" }}
+                                {move || {
+                                    if check_pending.get() {
+                                        view! { <Spinner size=SpinnerSize::Small/> }.into_any()
+                                    } else {
+                                        view! { "Check for updates" }.into_any()
+                                    }
+                                }}
                             </button>
                         </div>
-
-                        {move || {
-                            check_result
-                                .get()
-                                .map(|report| {
-                                    let (line, failed) = report.line();
-                                    let class = if failed {
-                                        "mt-2 text-sm text-ctp-red"
-                                    } else {
-                                        "mt-2 text-sm text-ctp-subtext0"
-                                    };
-
-                                    view! { <p class=class>{line}</p> }
-                                })
-                        }}
 
                         {move || {
                             save_error
@@ -601,36 +601,12 @@ const STABLE_CHANNEL: &str = "stable";
 /// How long the service gets to advance the check before each status read.
 const CHECK_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Outcome of the manual check shown under the buttons.
-#[derive(Debug, Clone)]
-enum CheckResult {
-    /// The update state the service reports.
-    Status(UpdateStatusPayload),
-    /// The check request or the follow-up read failed.
-    Failed(String),
-}
-
-impl CheckResult {
-    /// Line under the buttons, and whether it reports a failure.
-    fn line(&self) -> (String, bool) {
-        match self {
-            Self::Status(payload) => match (
-                payload.status.as_str(),
-                payload.candidate_version.as_deref(),
-            ) {
-                ("failed", _) => (
-                    format!(
-                        "failed: {}",
-                        payload.message.as_deref().unwrap_or("no detail")
-                    ),
-                    true,
-                ),
-                (status, Some(version)) => (format!("{status}: {version}"), false),
-                (status, None) => (status.to_string(), false),
-            },
-            Self::Failed(message) => (message.clone(), true),
-        }
-    }
+/// Report a transport failure of the manual check.
+///
+/// The page renders no status: the banner owns that. A failure the client cannot turn into a
+/// payload goes to the console, exactly as the banner reports its own transport errors.
+fn report_check_failure(error: &ApiClientError) {
+    web_sys::console::error_1(&format!("Failed to read the update state: {error}").into());
 }
 
 /// Stored channel the checkbox drafts.

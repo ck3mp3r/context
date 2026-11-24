@@ -84,8 +84,9 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     let ws_state = use_websocket_connection();
     let location = use_location();
 
-    // Update state shared by the shell banner and the nav badge.
+    // Update state shared by the shell banner, the nav badge, and the settings check.
     let update_status = RwSignal::new(None::<UpdateStatusPayload>);
+    provide_context(update_status);
 
     // Determine active tab based on current path
     let is_active = move |path: &str| {

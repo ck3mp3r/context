@@ -9,6 +9,7 @@ use leptos::task::spawn_local;
 
 use crate::api;
 use crate::models::{UpdateMessage, UpdateStatusPayload};
+use crate::update_status::{update_failure, update_phrase};
 use crate::websocket::use_websocket_updates;
 
 /// How long the install request gets to record its first phase.
@@ -73,12 +74,8 @@ pub fn UpdateBanner(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoV
 
             match payload.status.as_str() {
                 "available" => {
-                    let version = payload.candidate_version.clone().unwrap_or_default();
-                    let title = if version.is_empty() {
-                        "Update available".to_string()
-                    } else {
-                        format!("Update {version} available")
-                    };
+                    let title = update_phrase("available", payload.candidate_version.as_deref())
+                        .unwrap_or_default();
                     let notes = payload.candidate_notes.clone();
 
                     view! {
@@ -116,11 +113,7 @@ pub fn UpdateBanner(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoV
                         .into_any()
                 }
                 "checking" | "downloading" | "installing" => {
-                    let phase = match payload.status.as_str() {
-                        "checking" => "Checking for updates…",
-                        "downloading" => "Downloading the update…",
-                        _ => "Installing the update…",
-                    };
+                    let phase = update_phrase(payload.status.as_str(), None).unwrap_or_default();
 
                     view! {
                         <div class="border-b border-ctp-blue/40 bg-ctp-blue/10 px-6 py-2 text-sm text-ctp-text">
@@ -130,18 +123,17 @@ pub fn UpdateBanner(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoV
                         .into_any()
                 }
                 "ready" => {
+                    let phrase = update_phrase("ready", None).unwrap_or_default();
+
                     view! {
                         <div class="border-b border-ctp-mauve/40 bg-ctp-mauve/10 px-6 py-2 text-sm text-ctp-text">
-                            "Update installed — restarting…"
+                            {phrase}
                         </div>
                     }
                         .into_any()
                 }
                 "failed" => {
-                    let message = payload
-                        .message
-                        .clone()
-                        .unwrap_or_else(|| "The update failed.".to_string());
+                    let message = update_failure(payload.message.as_deref());
 
                     view! {
                         <div class="px-6 py-2">
