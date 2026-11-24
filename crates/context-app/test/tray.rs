@@ -109,3 +109,102 @@ fn sync_row_reports_pending_changes_for_a_dirty_tree() {
         Some("Sync: pending changes")
     );
 }
+
+fn parse_update(json: &str) -> UpdateStatusResponse {
+    serde_json::from_str(json).expect("Update status response should deserialize")
+}
+
+#[test]
+fn update_item_carries_its_id() {
+    assert_eq!(UPDATE_ITEM_ID, "update");
+}
+
+#[test]
+fn update_status_url_targets_the_port_the_app_serves() {
+    assert_eq!(
+        update_status_url(),
+        format!(
+            "http://127.0.0.1:{}/api/v1/update/status",
+            crate::api_port()
+        )
+    );
+}
+
+#[test]
+fn the_idle_row_reports_up_to_date() {
+    let status = parse_update(r#"{"current_version":"0.8.0","status":"idle"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: up to date");
+}
+
+#[test]
+fn a_missing_snapshot_maps_to_the_idle_text() {
+    assert_eq!(update_label(None), "Update: up to date");
+}
+
+#[test]
+fn the_checking_row_reports_the_check() {
+    let status = parse_update(r#"{"current_version":"0.8.0","status":"checking"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: checking…");
+}
+
+#[test]
+fn the_available_row_names_the_candidate() {
+    let status = parse_update(
+        r#"{"current_version":"0.8.0","status":"available","candidate_version":"0.9.0","candidate_is_prerelease":false}"#,
+    );
+
+    assert_eq!(update_label(Some(&status)), "Update: 0.9.0 available");
+}
+
+#[test]
+fn the_available_row_marks_a_pre_release_candidate() {
+    let status = parse_update(
+        r#"{"current_version":"0.8.0","status":"available","candidate_version":"0.9.0-b118f3a","candidate_is_prerelease":true}"#,
+    );
+
+    assert_eq!(
+        update_label(Some(&status)),
+        "Update: 0.9.0-b118f3a available (pre-release)"
+    );
+}
+
+#[test]
+fn the_downloading_row_names_the_candidate() {
+    let status = parse_update(
+        r#"{"current_version":"0.8.0","status":"downloading","candidate_version":"0.9.0"}"#,
+    );
+
+    assert_eq!(update_label(Some(&status)), "Update: downloading 0.9.0");
+}
+
+#[test]
+fn the_installing_row_reports_the_install() {
+    let status = parse_update(r#"{"current_version":"0.8.0","status":"installing"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: installing");
+}
+
+#[test]
+fn the_ready_row_reports_the_restart() {
+    let status = parse_update(r#"{"current_version":"0.9.0","status":"ready"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: ready — restarting");
+}
+
+#[test]
+fn the_failed_row_reports_the_failure() {
+    let status = parse_update(
+        r#"{"current_version":"0.8.0","status":"failed","message":"The release offers no update for this platform"}"#,
+    );
+
+    assert_eq!(update_label(Some(&status)), "Update: failed");
+}
+
+#[test]
+fn an_unknown_status_reads_as_up_to_date() {
+    let status = parse_update(r#"{"current_version":"0.8.0","status":"mystery"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: up to date");
+}

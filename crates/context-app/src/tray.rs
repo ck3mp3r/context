@@ -23,6 +23,10 @@
 //! menus are built once — one with the row, one without — and the background poll
 //! swaps them when presence changes and rewrites the row text in place when only
 //! the status changes.
+//!
+//! The update row is informational and always present: it names the update phase
+//! the service reports. Consent and install belong to the SPA banner, so a click
+//! on this row does nothing.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -66,6 +70,22 @@ const SYNC_NEVER_SYNCED_TEXT: &str = "Sync: never synced";
 const SYNC_PENDING_TEXT: &str = "Sync: pending changes";
 /// Delay between sync status polls.
 const SYNC_POLL_INTERVAL: Duration = Duration::from_secs(60);
+/// Id of the informational update item. It never fires a menu event.
+pub const UPDATE_ITEM_ID: &str = "update";
+/// Prefix of the update item label, followed by the status sentence.
+const UPDATE_TEXT_PREFIX: &str = "Update: ";
+/// Label shown when no candidate waits.
+const UPDATE_IDLE_TEXT: &str = "Update: up to date";
+/// Label shown while a check runs.
+const UPDATE_CHECKING_TEXT: &str = "Update: checking…";
+/// Label shown once the candidate installed and the service restarts.
+const UPDATE_READY_TEXT: &str = "Update: ready — restarting";
+/// Label shown while the candidate installs.
+const UPDATE_INSTALLING_TEXT: &str = "Update: installing";
+/// Label shown when the last attempt failed.
+const UPDATE_FAILED_TEXT: &str = "Update: failed";
+/// Suffix of a candidate that came from a pre-release.
+const UPDATE_PRERELEASE_SUFFIX: &str = " (pre-release)";
 
 /// Monochrome template glyph, derived from the favicon "C" mark.
 ///
@@ -116,6 +136,10 @@ pub struct TrayState {
     sync_shown: AtomicBool,
     /// Text currently set on the sync row.
     sync_text: Mutex<Option<String>>,
+    /// The update row whose text carries the update status.
+    update_item: MenuItem<Wry>,
+    /// Text currently set on the update row.
+    update_text: Mutex<Option<String>>,
 }
 
 /// Build the menu bar status item and install it without the sync row.
@@ -130,6 +154,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
     let sync = MenuItemBuilder::with_id(SYNC_ITEM_ID, SYNC_NEVER_SYNCED_TEXT)
         .enabled(false)
         .build(app)?;
+    let update = MenuItemBuilder::with_id(UPDATE_ITEM_ID, UPDATE_IDLE_TEXT)
+        .enabled(false)
+        .build(app)?;
     let quit = MenuItemBuilder::with_id(menu::QUIT_ITEM_ID, menu::QUIT_TEXT).build(app)?;
 
     let without_sync = MenuBuilder::new(app)
@@ -137,6 +164,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
         .item(&settings)
         .separator()
         .item(&mcp)
+        .item(&update)
         .separator()
         .item(&quit)
         .build()?;
@@ -146,6 +174,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
         .item(&settings)
         .separator()
         .item(&mcp)
+        .item(&update)
         .item(&sync)
         .separator()
         .item(&quit)
@@ -165,6 +194,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<TrayState> {
         sync_item: sync,
         sync_shown: AtomicBool::new(false),
         sync_text: Mutex::new(None),
+        update_item: update,
+        update_text: Mutex::new(None),
     })
 }
 
@@ -214,6 +245,19 @@ struct SyncGit {
     clean: bool,
 }
 
+/// Response subset of `GET /api/v1/update/status` the update row depends on.
+///
+/// The row never shows the free-text `message` the endpoint also carries.
+#[derive(Debug, Deserialize)]
+struct UpdateStatusResponse {
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    candidate_version: Option<String>,
+    #[serde(default)]
+    candidate_is_prerelease: Option<bool>,
+}
+
 /// Text of the sync row, or `None` when the row must be absent.
 fn sync_label(data: Option<&SyncData>) -> Option<String> {
     let data = data?;
@@ -231,10 +275,54 @@ fn sync_label(data: Option<&SyncData>) -> Option<String> {
     })
 }
 
+/// Text of the update row for one status snapshot.
+///
+/// A `None` snapshot is a failed fetch, which the caller skips; the idempotent
+/// label it maps to is never applied.
+fn update_label(status: Option<&UpdateStatusResponse>) -> String {
+    let Some(status) = status else {
+        return UPDATE_IDLE_TEXT.to_string();
+    };
+
+    match status.status.as_str() {
+        "checking" => UPDATE_CHECKING_TEXT.to_string(),
+        "available" => {
+            let version = status.candidate_version.as_deref().unwrap_or_default();
+            let mut label = if version.is_empty() {
+                format!("{UPDATE_TEXT_PREFIX}available")
+            } else {
+                format!("{UPDATE_TEXT_PREFIX}{version} available")
+            };
+
+            if status.candidate_is_prerelease == Some(true) {
+                label.push_str(UPDATE_PRERELEASE_SUFFIX);
+            }
+
+            label
+        }
+        "downloading" => match status.candidate_version.as_deref() {
+            Some(version) => format!("{UPDATE_TEXT_PREFIX}downloading {version}"),
+            None => format!("{UPDATE_TEXT_PREFIX}downloading"),
+        },
+        "installing" => UPDATE_INSTALLING_TEXT.to_string(),
+        "ready" => UPDATE_READY_TEXT.to_string(),
+        "failed" => UPDATE_FAILED_TEXT.to_string(),
+        _ => UPDATE_IDLE_TEXT.to_string(),
+    }
+}
+
 /// Loopback status endpoint of the server on the build profile's port.
 fn status_url() -> String {
     format!(
         "http://127.0.0.1:{}/api/v1/sync/status",
+        crate::server::api_port()
+    )
+}
+
+/// Loopback update status endpoint of the server on the build profile's port.
+fn update_status_url() -> String {
+    format!(
+        "http://127.0.0.1:{}/api/v1/update/status",
         crate::server::api_port()
     )
 }
@@ -249,14 +337,28 @@ async fn fetch_status(client: &reqwest::Client) -> Option<SyncStatusResponse> {
     response.json::<SyncStatusResponse>().await.ok()
 }
 
-/// Apply one status snapshot to the tray; a fetch failure leaves it untouched.
-async fn refresh_status(app: &AppHandle, client: &reqwest::Client) {
-    let Some(status) = fetch_status(client).await else {
-        return;
-    };
+/// Fetch one update snapshot, or `None` when the server cannot answer.
+async fn fetch_update_status(client: &reqwest::Client) -> Option<UpdateStatusResponse> {
+    let response = client.get(update_status_url()).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
 
-    if let Err(error) = apply_status(app, &status) {
+    response.json::<UpdateStatusResponse>().await.ok()
+}
+
+/// Apply one poll to both rows; a fetch failure leaves its row untouched.
+async fn refresh_status(app: &AppHandle, client: &reqwest::Client) {
+    if let Some(status) = fetch_status(client).await
+        && let Err(error) = apply_status(app, &status)
+    {
         eprintln!("context: failed to update the sync status row: {error}");
+    }
+
+    if let Some(status) = fetch_update_status(client).await
+        && let Err(error) = apply_update_status(app, &status)
+    {
+        eprintln!("context: failed to update the update row: {error}");
     }
 }
 
@@ -287,6 +389,27 @@ fn apply_status(app: &AppHandle, status: &SyncStatusResponse) -> tauri::Result<(
         };
         tray.set_menu(Some(menu))?;
         state.sync_shown.store(show, Ordering::SeqCst);
+    }
+
+    Ok(())
+}
+
+/// Rewrite the update row text when the status changed.
+///
+/// The row is informational and always present, so only its text moves; a
+/// repeated status writes nothing.
+fn apply_update_status(app: &AppHandle, status: &UpdateStatusResponse) -> tauri::Result<()> {
+    let state = app.state::<TrayState>();
+    let label = update_label(Some(status));
+
+    let mut current = state
+        .update_text
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if current.as_deref() != Some(label.as_str()) {
+        state.update_item.set_text(&label)?;
+        *current = Some(label);
     }
 
     Ok(())
