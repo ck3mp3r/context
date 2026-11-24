@@ -236,6 +236,9 @@ fn SettingsEditor() -> impl IntoView {
     });
 
     // Manual check: trigger it, give the service a moment, then read the state.
+    // A slow check still reports "checking" after the first read, so one bounded
+    // second read follows and the line cannot freeze on the interim state. At
+    // most two reads per click, and no timer.
     let on_check = Callback::new(move |()| {
         if check_pending.get_untracked() {
             return;
@@ -250,21 +253,36 @@ fn SettingsEditor() -> impl IntoView {
             check_pending.set(false);
         };
 
+        // Read the status once: show it, or follow a still-running check once.
+        let read_status = move || {
+            spawn_local(async move {
+                match api::update::status().await {
+                    Ok(payload) if payload.status == "checking" => {
+                        set_check_result.set(Some(CheckResult::Status(payload)));
+
+                        set_timeout(
+                            move || {
+                                spawn_local(async move {
+                                    let result = match api::update::status().await {
+                                        Ok(payload) => CheckResult::Status(payload),
+                                        Err(error) => CheckResult::Failed(error_message(&error)),
+                                    };
+
+                                    report(result);
+                                });
+                            },
+                            CHECK_SETTLE_DELAY,
+                        );
+                    }
+                    Ok(payload) => report(CheckResult::Status(payload)),
+                    Err(error) => report(CheckResult::Failed(error_message(&error))),
+                }
+            });
+        };
+
         spawn_local(async move {
             match api::update::check(true).await {
-                Ok(()) => set_timeout(
-                    move || {
-                        spawn_local(async move {
-                            let result = match api::update::status().await {
-                                Ok(payload) => CheckResult::Status(payload),
-                                Err(error) => CheckResult::Failed(error_message(&error)),
-                            };
-
-                            report(result);
-                        });
-                    },
-                    CHECK_SETTLE_DELAY,
-                ),
+                Ok(()) => set_timeout(read_status, CHECK_SETTLE_DELAY),
                 Err(error) => report(CheckResult::Failed(error_message(&error))),
             }
         });
@@ -580,7 +598,7 @@ fn SettingsField(
 const PRE_RELEASE_CHANNEL: &str = "pre-release";
 /// Channel name the unchecked checkbox stands for.
 const STABLE_CHANNEL: &str = "stable";
-/// How long the service gets to record the check before the state is read.
+/// How long the service gets to advance the check before each status read.
 const CHECK_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Outcome of the manual check shown under the buttons.
