@@ -25,6 +25,7 @@ context-core = { path = "../context-core" }
 context-db = { path = "../context-db" }
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 serde.workspace = true
+semver = "1"
 libc = "0.2"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 tokio = { version = "1.53.2", features = ["full"] }
