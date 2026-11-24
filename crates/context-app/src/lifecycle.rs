@@ -11,9 +11,10 @@
 
 use std::process::Command;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use tauri::webview::{NewWindowFeatures, NewWindowResponse};
+use tauri::webview::{NewWindowFeatures, NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 #[cfg(test)]
@@ -39,9 +40,27 @@ const ROOT_PATH: &str = "/";
 pub const SETTINGS_PATH: &str = "/settings";
 /// Window in which a second report of the same external URL is the same click.
 const OPEN_DEDUP_WINDOW: Duration = Duration::from_millis(200);
+/// Delay between SPA origin probes of the recovery watch.
+const RECOVERY_POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// How long the first navigation may stay uncommitted before the watchdog acts.
+const RECOVERY_LOAD_BOUND: Duration = Duration::from_secs(15);
+/// How many reloads the first-load watchdog may schedule for one window.
+const RECOVERY_RELOAD_LIMIT: usize = 3;
 
 /// Last external URL handed to the OS, with the moment it happened.
 static LAST_OPENED: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+
+/// Whether the main window ever reported a committed navigation.
+///
+/// Latched: once a page commits, the first-load watchdog stays quiet for the
+/// rest of the process.
+static COMMIT_SEEN: AtomicBool = AtomicBool::new(false);
+
+/// Whether a reload is scheduled and has not run yet.
+///
+/// One incident reloads once: the flag absorbs every detector that fires while
+/// a reload is pending, and clears when the scheduled reload runs.
+static RELOAD_PENDING: AtomicBool = AtomicBool::new(false);
 
 /// How a navigation request is handled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +104,11 @@ fn create_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
         .on_new_window(|url, _features: NewWindowFeatures| {
             open_in_os_browser(&url);
             NewWindowResponse::Deny
+        })
+        .on_page_load(|_window, payload| {
+            if payload.event() == PageLoadEvent::Started {
+                COMMIT_SEEN.store(true, Ordering::SeqCst);
+            }
         })
         .build()?;
 
@@ -224,6 +248,131 @@ pub fn request_window_at(app: &AppHandle, path: &str) {
     }) {
         eprintln!("context: failed to schedule the main window: {error}");
     }
+}
+
+/// Whether an origin probe pair is the recovery that needs one reload.
+///
+/// Only the DOWN→UP transition reloads: a reachable origin stays quiet, and a
+/// lost origin waits for its recovery.
+pub(crate) fn reload_on_recovery(previous_up: bool, now_up: bool) -> bool {
+    !previous_up && now_up
+}
+
+/// Start the loop that restores the main window after a failed first load or an
+/// origin outage.
+///
+/// One loop carries two detectors. The origin watcher reloads on the DOWN→UP
+/// transition of the origin this build loads. The first-load watchdog reloads a
+/// window whose navigation never committed while the origin answers, so a
+/// silently dropped first navigation does not leave a blank view; it acts at
+/// most [`RECOVERY_RELOAD_LIMIT`] times and stays quiet once a page commits.
+/// Both detectors share [`schedule_reload`], so one incident reloads once.
+pub fn spawn_recovery_watch(app: &AppHandle) {
+    let app = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        let origin = crate::server::spa_origin();
+        let created = Instant::now();
+        let mut previous_up = crate::server::origin_ready(&origin).await;
+        let mut watchdog_reloads = 0_usize;
+
+        loop {
+            tokio::time::sleep(RECOVERY_POLL_INTERVAL).await;
+
+            let now_up = crate::server::origin_ready(&origin).await;
+            if reload_on_recovery(previous_up, now_up) {
+                schedule_reload(
+                    &app,
+                    "context: reloaded the main window after the spa origin recovered".to_string(),
+                );
+            }
+            previous_up = now_up;
+
+            let watchdog_due = now_up
+                && watchdog_reloads < RECOVERY_RELOAD_LIMIT
+                && !COMMIT_SEEN.load(Ordering::SeqCst)
+                && created.elapsed() >= RECOVERY_LOAD_BOUND;
+            if watchdog_due {
+                let url = main_window_url(&app);
+
+                // A URL that already names the origin means the navigation was
+                // attempted: the watchdog reports the miss but does not reload.
+                if !matches!(&url, Ok(url) if is_spa_origin(url)) {
+                    watchdog_reloads += 1;
+                    let reported = match &url {
+                        Ok(url) => url.to_string(),
+                        Err(error) => format!("<{error}>"),
+                    };
+                    schedule_reload(
+                        &app,
+                        format!(
+                            "context: reloaded the main window after the first load did not commit (url={reported:?})"
+                        ),
+                    );
+                }
+            }
+        }
+    });
+}
+
+/// Reload the main window after its web content process terminated.
+///
+/// The hook hands over the webview that died, so the reload is scheduled onto
+/// the main thread. A terminated process leaves a blank window, so this path
+/// reloads on its own instead of sharing the watchdog's pending flag.
+pub fn reload_after_web_content_terminate(webview: &tauri::Webview) {
+    let scheduler = webview.clone();
+    let webview = webview.clone();
+    let scheduled = scheduler.run_on_main_thread(move || match webview.reload() {
+        Ok(()) => {
+            eprintln!("context: reloaded the main window after the web content process terminated")
+        }
+        Err(error) => eprintln!("context: failed to reload the main window: {error}"),
+    });
+
+    if let Err(error) = scheduled {
+        eprintln!("context: failed to schedule the main window reload: {error}");
+    }
+}
+
+/// Schedule one reload of the main window on the main thread.
+///
+/// `line` is the stderr diagnostic the reload reports on success. The pending
+/// flag absorbs every later request until the scheduled reload runs, so the
+/// origin watcher and the watchdog share one reload per incident.
+fn schedule_reload(app: &AppHandle, line: String) {
+    if RELOAD_PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let scheduler = app.clone();
+    let app = app.clone();
+    let scheduled = scheduler.run_on_main_thread(move || {
+        RELOAD_PENDING.store(false, Ordering::SeqCst);
+
+        let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+            return;
+        };
+
+        match window.reload() {
+            Ok(()) => eprintln!("{line}"),
+            Err(error) => eprintln!("context: failed to reload the main window: {error}"),
+        }
+    });
+
+    if let Err(error) = scheduled {
+        RELOAD_PENDING.store(false, Ordering::SeqCst);
+        eprintln!("context: failed to schedule the main window reload: {error}");
+    }
+}
+
+/// Current URL of the main window, as the first-load watchdog reports it.
+fn main_window_url(app: &AppHandle) -> Result<tauri::Url, String> {
+    let window = app
+        .get_webview_window(MAIN_WINDOW_LABEL)
+        .ok_or_else(|| "the main window is gone".to_string())?;
+
+    window.url().map_err(|error| error.to_string())
 }
 
 /// Handle the application events that affect the window lifecycle.

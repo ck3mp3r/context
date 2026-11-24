@@ -27,6 +27,9 @@ fn main() -> tauri::Result<()> {
                 close_view(app);
             }
         })
+        .on_web_content_process_terminate(|webview| {
+            lifecycle::reload_after_web_content_terminate(webview);
+        })
         .setup(move |app| {
             // Regular policy: the GUI owns a Dock icon and a Cmd+Tab entry.
             app.handle()
@@ -45,6 +48,7 @@ fn main() -> tauri::Result<()> {
             }
 
             lifecycle::create_main_window(app.handle(), route.as_deref())?;
+            lifecycle::spawn_recovery_watch(app.handle());
             menu::build(app.handle())?;
 
             Ok(())

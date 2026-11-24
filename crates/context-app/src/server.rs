@@ -303,9 +303,21 @@ async fn await_health(
 }
 
 /// Report whether `url` answers HTTP 200.
-async fn probe_health(client: &reqwest::Client, url: &str) -> bool {
+pub(crate) async fn probe_health(client: &reqwest::Client, url: &str) -> bool {
     matches!(
         client.get(url).send().await,
         Ok(response) if response.status() == reqwest::StatusCode::OK
     )
+}
+
+/// Report whether the SPA origin at `url` answers HTTP 200.
+///
+/// The URL is a parameter so the recovery watch can probe the origin this build
+/// loads, and a test can point it at its own listener instead.
+pub(crate) async fn origin_ready(url: &str) -> bool {
+    let Ok(client) = health_client() else {
+        return false;
+    };
+
+    probe_health(&client, url).await
 }
