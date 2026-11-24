@@ -295,8 +295,8 @@ pub fn spawn_recovery_watch(app: &AppHandle) {
             if watchdog_due {
                 let url = main_window_url(&app);
 
-                // A URL that already names the origin means the navigation was
-                // attempted: the watchdog reports the miss but does not reload.
+                // A URL that already names the origin is left alone: the
+                // watchdog neither reloads nor reports that miss.
                 if !matches!(&url, Ok(url) if is_spa_origin(url)) {
                     watchdog_reloads += 1;
                     let reported = match &url {
@@ -351,6 +351,7 @@ fn schedule_reload(app: &AppHandle, line: String) {
         RELOAD_PENDING.store(false, Ordering::SeqCst);
 
         let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+            eprintln!("context: skipped the main window reload: the window is gone");
             return;
         };
 
