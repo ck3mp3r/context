@@ -58,6 +58,12 @@ pub struct SettingsValues {
     /// Start the app at login.
     #[schema(example = true)]
     pub start_at_login: Option<bool>,
+    /// Check for updates when the app starts.
+    #[schema(example = true)]
+    pub auto_update: Option<bool>,
+    /// Update channel: "stable" or "pre-release".
+    #[schema(example = "stable")]
+    pub update_channel: Option<String>,
 }
 
 /// Built-in defaults: every field carries a concrete value.
@@ -80,6 +86,12 @@ pub struct SettingsSnapshot {
     /// Whether the app starts at login by default.
     #[schema(example = true)]
     pub start_at_login: bool,
+    /// Whether the app checks for updates on launch by default.
+    #[schema(example = true)]
+    pub auto_update: bool,
+    /// Update channel of the default config.
+    #[schema(example = "stable")]
+    pub update_channel: String,
 }
 
 /// Settings the running server process started with.
@@ -134,6 +146,8 @@ impl From<&StoredSettings> for SettingsValues {
                 .as_ref()
                 .map(|path| path.display().to_string()),
             start_at_login: stored.start_at_login,
+            auto_update: stored.auto_update,
+            update_channel: stored.update_channel.clone(),
         }
     }
 }
@@ -147,6 +161,8 @@ impl From<&Settings> for SettingsSnapshot {
             enable_docs: settings.enable_docs,
             skills_dir: settings.skills_dir.display().to_string(),
             start_at_login: settings.start_at_login,
+            auto_update: settings.auto_update,
+            update_channel: settings.update_channel.clone(),
         }
     }
 }
@@ -189,6 +205,8 @@ impl SettingsValues {
             enable_docs: self.enable_docs,
             skills_dir: self.skills_dir.map(PathBuf::from),
             start_at_login: self.start_at_login,
+            auto_update: self.auto_update,
+            update_channel: self.update_channel,
         })
     }
 }

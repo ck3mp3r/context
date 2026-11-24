@@ -41,6 +41,8 @@ fn stored_settings_fixture() -> Settings {
         enable_docs: true,
         skills_dir: PathBuf::from("/tmp/stored-skills"),
         start_at_login: true,
+        auto_update: true,
+        update_channel: "stable".to_string(),
     }
 }
 

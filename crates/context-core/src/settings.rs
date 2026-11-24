@@ -24,6 +24,9 @@ const DEFAULT_API_PORT: u16 = 3737;
 /// Highest accepted logging verbosity (0=warn, 1=info, 2=debug, 3=trace).
 const MAX_VERBOSITY: u8 = 3;
 
+/// Update channels a stored value may name.
+const ACCEPTED_UPDATE_CHANNELS: [&str; 2] = ["stable", "pre-release"];
+
 // region:    --- Types
 
 /// Settings as stored in `config.toml`.
@@ -50,6 +53,12 @@ pub struct StoredSettings {
     /// Start the app at login.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_at_login: Option<bool>,
+    /// Check for updates when the app starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_update: Option<bool>,
+    /// Update channel: "stable" or "pre-release".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_channel: Option<String>,
 }
 
 /// Fully resolved settings: every field carries a concrete value.
@@ -67,6 +76,10 @@ pub struct Settings {
     pub skills_dir: PathBuf,
     /// Start the app at login.
     pub start_at_login: bool,
+    /// Check for updates when the app starts.
+    pub auto_update: bool,
+    /// Update channel: "stable" or "pre-release".
+    pub update_channel: String,
 }
 
 /// Settings storage errors.
@@ -171,6 +184,16 @@ pub fn validate_stored(stored: &StoredSettings) -> SettingsResult<()> {
         });
     }
 
+    if let Some(channel) = stored.update_channel.as_deref()
+        && !ACCEPTED_UPDATE_CHANNELS.contains(&channel)
+    {
+        return Err(SettingsError::Validation {
+            message: format!(
+                "update_channel must be \"stable\" or \"pre-release\", got '{channel}'"
+            ),
+        });
+    }
+
     Ok(())
 }
 
@@ -185,6 +208,11 @@ pub fn resolve(stored: &StoredSettings) -> Settings {
         enable_docs: stored.enable_docs.unwrap_or(defaults.enable_docs),
         skills_dir: stored.skills_dir.clone().unwrap_or(defaults.skills_dir),
         start_at_login: stored.start_at_login.unwrap_or(defaults.start_at_login),
+        auto_update: stored.auto_update.unwrap_or(defaults.auto_update),
+        update_channel: stored
+            .update_channel
+            .clone()
+            .unwrap_or(defaults.update_channel),
     }
 }
 
@@ -199,6 +227,8 @@ impl Default for Settings {
             enable_docs: false,
             skills_dir: get_data_dir().join("skills"),
             start_at_login: true,
+            auto_update: true,
+            update_channel: "stable".to_string(),
         }
     }
 }

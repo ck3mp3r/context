@@ -23,6 +23,8 @@ fn full_stored() -> StoredSettings {
         enable_docs: Some(true),
         skills_dir: Some(PathBuf::from("/tmp/settings-skills")),
         start_at_login: Some(false),
+        auto_update: Some(false),
+        update_channel: Some("pre-release".to_string()),
     }
 }
 
@@ -107,6 +109,8 @@ fn settings_default_mirrors_the_api_config_defaults() {
     assert!(!settings.enable_docs);
     assert_eq!(settings.skills_dir, get_data_dir().join("skills"));
     assert!(settings.start_at_login);
+    assert!(settings.auto_update);
+    assert_eq!(settings.update_channel, "stable");
 }
 
 #[test]
@@ -156,6 +160,37 @@ fn validate_stored_accepts_the_field_limits() {
 
     assert!(validate_stored(&upper).is_ok(), "65535 and 3 are valid");
     assert!(validate_stored(&lower).is_ok(), "1 and 0 are valid");
+}
+
+#[test]
+fn validate_stored_accepts_both_update_channels() {
+    for channel in ["stable", "pre-release"] {
+        let stored = StoredSettings {
+            update_channel: Some(channel.to_string()),
+            ..StoredSettings::default()
+        };
+
+        assert!(
+            validate_stored(&stored).is_ok(),
+            "{channel:?} is an accepted update channel"
+        );
+    }
+}
+
+#[test]
+fn validate_stored_rejects_an_unknown_update_channel() {
+    let stored = StoredSettings {
+        update_channel: Some("beta".to_string()),
+        ..StoredSettings::default()
+    };
+
+    match validate_stored(&stored) {
+        Err(SettingsError::Validation { message }) => assert!(
+            message.contains("update_channel"),
+            "validation message {message:?} should name the update channel field"
+        ),
+        other => panic!("expected a validation error for channel beta, got {other:?}"),
+    }
 }
 
 #[test]
@@ -241,6 +276,8 @@ fn write_skips_none_fields() {
         "enable_docs",
         "skills_dir",
         "start_at_login",
+        "auto_update",
+        "update_channel",
     ] {
         assert!(
             !text.contains(absent),
@@ -269,6 +306,14 @@ fn resolve_fills_defaults_for_missing_fields() {
 }
 
 #[test]
+fn resolve_defaults_the_update_preferences_when_absent() {
+    let resolved = resolve(&StoredSettings::default());
+
+    assert!(resolved.auto_update, "auto-update defaults to on");
+    assert_eq!(resolved.update_channel, "stable");
+}
+
+#[test]
 fn resolve_keeps_every_stored_field() {
     let resolved = resolve(&full_stored());
     let expected = Settings {
@@ -278,6 +323,8 @@ fn resolve_keeps_every_stored_field() {
         enable_docs: true,
         skills_dir: PathBuf::from("/tmp/settings-skills"),
         start_at_login: false,
+        auto_update: false,
+        update_channel: "pre-release".to_string(),
     };
 
     assert_eq!(resolved, expected);
