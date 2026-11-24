@@ -97,6 +97,19 @@ pub type UpdateStateResult<T> = Result<T, UpdateStateError>;
 ///
 /// Both methods start work on the flow's own task and return immediately; the
 /// flow reports progress through the persisted [`UpdateState`].
+///
+/// # Trigger contract
+///
+/// A decline is not contention, so every decline runs before the flow claims its
+/// busy flag:
+///
+/// - A non-manual check declines with `Ok(())` while auto-update is off. It
+///   writes no state and broadcasts nothing.
+/// - A debug build declines every install with [`UpdateStateError::Invalid`]
+///   before the claim, so an install in a debug build never answers `Busy`.
+///
+/// A trigger that would start work while another run is in flight answers
+/// [`UpdateStateError::Busy`] unless a decline above applies.
 pub trait UpdateFlow: Send + Sync {
     /// Start a check; `manual` marks a check the user asked for.
     fn check(&self, manual: bool) -> UpdateStateResult<()>;
@@ -106,6 +119,9 @@ pub trait UpdateFlow: Send + Sync {
 }
 
 /// Flow attached when the process has no updater, such as a CLI-only build.
+///
+/// It never starts work: both [`UpdateFlow::check`] and [`UpdateFlow::install`]
+/// answer [`UpdateStateError::Unavailable`], which the REST layer reports as 503.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoUpdateFlow;
 

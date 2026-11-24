@@ -103,13 +103,14 @@ impl ServiceUpdateFlow {
 
 impl UpdateFlow for ServiceUpdateFlow {
     fn check(&self, manual: bool) -> UpdateStateResult<()> {
-        claim(&self.busy)?;
-
+        // A decline is not contention: it runs before the busy claim, so a
+        // skipped automatic check never reports Busy.
         let settings = crate::server::effective_settings();
         if !should_check(manual, settings.auto_update) {
-            release(&self.busy);
             return Ok(());
         }
+
+        claim(&self.busy)?;
 
         if let Err(error) = transition(&self.notifier, state_with(UpdateStatus::Checking)) {
             release(&self.busy);
