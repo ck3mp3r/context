@@ -45,7 +45,7 @@ A stored `port` in `config.toml` replaces the profile port; see [Settings and co
    # /Applications/Xcode.app/Contents/Developer
    ```
 
-5. Add the signing certificate before you build a release. See [Signing and notarization](#signing-and-notarization).
+5. Add the signing certificate before you build a release, and generate the updater signing key before CI can publish updates. See [Signing and notarization](#signing-and-notarization) and [Updates](#updates).
 
 ## Dev workflow
 
@@ -367,16 +367,25 @@ The updater refuses unsigned artifacts, so `cargo tauri build` signs the updater
 cargo tauri signer generate -w ~/.tauri/context.key
 ```
 
-Paste the contents of `~/.tauri/context.key.pub` into `plugins.updater.pubkey` in both `crates/context-app/tauri.conf.json` and `crates/context-app/service/tauri.conf.json`. The two values must be byte-identical: the GUI bundle embeds the key, and the service verifies downloads against its own baked copy. Both files ship the key empty; while it is empty, or while the private key is not exported, `cargo tauri build` stops with a message naming the missing `TAURI_SIGNING_PRIVATE_KEY`. That failure is expected until the key is generated.
+Paste the contents of `~/.tauri/context.key.pub` into `plugins.updater.pubkey` in both `crates/context-app/tauri.conf.json` and `crates/context-app/service/tauri.conf.json`. The two values must be byte-identical: the GUI bundle embeds the key, and the service verifies downloads against its own baked copy. Both files carry the release public key, which is the public half the keygen produced and is public material. A build signs the updater artifact only while the private key is exported: without `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` for a protected key, `cargo tauri build` stops with a message naming the missing variable. After regenerating the key pair, paste the new public key into both files; an empty key stops the build again until you do.
+
+Store the key as repository secrets for the release workflow. The private key secret carries the key file's contents, and the password secret carries the key's password:
+
+```sh
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/context.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+```
+
+A passwordless key works without the password secret; a protected key needs both. The release workflow exports both and runs `release-manifest`, so CI publishes the updater assets from the first release that carries the key. A release dispatched with an empty `pubkey` in the confs fails the macOS job while signing the updater artifact.
 
 ### Per release
 
-Export the key before the build, then run the two helpers. `.env` files do not work: the CLI reads the process environment only.
+Export the key's contents before the build, then run the two helpers. The CLI reads the variable as key content, not as a path, and `.env` files do not work: the CLI reads the process environment only.
 
 ```sh
-export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/context.key"
-# only when the key carries a password:
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="..."
+export TAURI_SIGNING_PRIVATE_KEY="$(cat "$HOME/.tauri/context.key")"
+# the generated key carries a password, so export it too:
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="<the key's password>"
 
 release            # builds, notarizes and staples the dmg
 release-manifest   # writes target/release/bundle/macos/latest.json
@@ -388,7 +397,7 @@ release-manifest   # writes target/release/bundle/macos/latest.json
 - `pub_date`: the current UTC time in RFC 3339.
 - `platforms`: `darwin-aarch64-app` and `darwin-aarch64`, each with the release-asset URL of the artifact and the contents of its `.sig` file.
 
-Upload `Context.app.tar.gz`, `Context.app.tar.gz.sig`, `latest.json` and the dmg to the GitHub release tagged `v<version>`. The manifest URLs embed that tag, so the tag must exist before a client checks.
+Upload `Context.app.tar.gz`, `Context.app.tar.gz.sig`, `latest.json` and the dmg to the GitHub release tagged `v<version>`. The release workflow publishes all four from its artifact run; upload them by hand only for a manual, non-CI release. The manifest URLs embed that tag, so the tag must exist before a client checks.
 
 ## Troubleshooting
 
