@@ -66,9 +66,13 @@ pub fn create_main_window(app: &AppHandle, route: Option<&str>) -> WindowResult<
 /// origin and sends anything else to the OS browser, and a new-window request is
 /// denied after the same handover, so a `target="_blank"` link never opens a
 /// second window.
+///
+/// The new window is focused before returning: creating a window only orders it
+/// within this app, so an inactive app would leave the recreated window behind
+/// the frontmost one.
 fn create_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
     let target = spa_url(path)?;
-    WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::External(target))
+    let window = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::External(target))
         .title(MAIN_WINDOW_TITLE)
         .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
         .on_navigation(|url| match navigation_decision(url) {
@@ -83,6 +87,8 @@ fn create_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
             NewWindowResponse::Deny
         })
         .build()?;
+
+    window.set_focus()?;
     Ok(())
 }
 
@@ -151,7 +157,9 @@ fn claim_open(url: &str) -> bool {
 ///
 /// A `path` other than the root navigates the SPA there, so a deep link lands on
 /// its page whether the window already existed or was just created. The root
-/// keeps the route the webview already had.
+/// keeps the route the webview already had. Both branches end with the window
+/// focused: a recreated window is activated by `create_window_at`, so the restore
+/// paths bring it to the foreground either way.
 fn show_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         return create_window_at(app, path);
