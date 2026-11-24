@@ -124,13 +124,7 @@ impl ServiceUpdateFlow {
     /// the previous process was installing the version this process runs, that
     /// install is done and the state starts clean.
     pub fn reconcile_startup(&self) {
-        let state = match load_state(&self.state_path) {
-            Ok(state) => state,
-            Err(error) => {
-                eprintln!("context: failed to read the update state: {error}");
-                return;
-            }
-        };
+        let state = read_state(&self.state_path);
 
         if !settled_after_install(&state) {
             return;
