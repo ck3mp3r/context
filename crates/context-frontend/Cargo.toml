@@ -1,6 +1,6 @@
 [package]
 name = "context-frontend"
-version = "0.8.0"
+version = "0.8.0-83f33f6"
 edition = "2024"
 license = "GPL-2.0"
 authors = ["Christian Kemper"]
