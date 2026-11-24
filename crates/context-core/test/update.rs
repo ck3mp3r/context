@@ -76,6 +76,28 @@ fn write_then_load_roundtrips_every_field() {
 }
 
 #[test]
+fn a_ready_state_roundtrips_as_ready() {
+    let dir = TempDir::new().expect("test temp dir");
+    let path = dir.path().join("update.json");
+    let state = UpdateState {
+        status: UpdateStatus::Ready,
+        candidate_version: Some("0.9.0".to_string()),
+        ..UpdateState::default()
+    };
+
+    write(&path, &state).expect("write the ready state");
+    let text = std::fs::read_to_string(&path).expect("read back the state file");
+    let loaded = load(&path).expect("load returns the written state");
+
+    assert!(
+        text.contains("\"status\":\"ready\""),
+        "serialized state {text:?} should spell the status lowercase"
+    );
+    assert_eq!(loaded.status, UpdateStatus::Ready);
+    assert_eq!(loaded, state);
+}
+
+#[test]
 fn write_creates_the_parent_directory() {
     let dir = TempDir::new().expect("test temp dir");
     let path = dir.path().join("nested/profile/update.json");

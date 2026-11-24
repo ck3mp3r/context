@@ -34,6 +34,8 @@ pub enum UpdateStatus {
     Downloading,
     /// The candidate installs.
     Installing,
+    /// The candidate is installed; the process restarts on the new binary.
+    Ready,
     /// The last attempt failed; `message` says why.
     Failed,
 }

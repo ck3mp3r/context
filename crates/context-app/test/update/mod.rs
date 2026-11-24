@@ -4,7 +4,8 @@
 use std::sync::Mutex;
 
 use super::{
-    claim, release, settled_after_install, should_check, state_available, state_with, transition,
+    claim, dev_build_refusal, release, settled_after_install, should_check, state_available,
+    state_with, transition,
 };
 use crate::update::releases::{Candidate, manifest_url};
 use context_core::update::{
@@ -15,6 +16,17 @@ use context_server::api::notifier::{ChangeNotifier, UpdateMessage};
 use semver::Version;
 use serial_test::serial;
 use tempfile::TempDir;
+
+#[cfg(debug_assertions)]
+#[test]
+fn a_debug_build_refuses_to_install() {
+    let refusal = dev_build_refusal().expect("a debug build must refuse an install");
+
+    assert!(
+        matches!(refusal, UpdateStateError::Invalid { ref message } if message.contains("development builds")),
+        "the refusal names the development build, got: {refusal:?}"
+    );
+}
 
 #[test]
 fn a_manual_check_always_runs() {
@@ -118,6 +130,21 @@ async fn a_transition_writes_the_state_and_broadcasts_the_status() {
             status: "available".to_string(),
             version: Some("0.9.0".to_string()),
         }
+    );
+}
+
+#[test]
+fn a_ready_state_whose_candidate_is_the_running_version_is_settled() {
+    let state = UpdateState {
+        status: UpdateStatus::Ready,
+        current_version: "0.9.0".to_string(),
+        candidate_version: Some("0.9.0".to_string()),
+        ..UpdateState::default()
+    };
+
+    assert!(
+        settled_after_install(&state),
+        "the restarted service runs the version the state waited for"
     );
 }
 

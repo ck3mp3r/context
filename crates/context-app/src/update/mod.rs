@@ -18,8 +18,12 @@ use context_server::api::notifier::{ChangeNotifier, UpdateMessage};
 
 use self::releases::Candidate;
 
+pub(crate) mod install;
 pub mod releases;
 
+#[cfg(test)]
+#[path = "../../test/update/install.rs"]
+mod install_test;
 #[cfg(test)]
 #[path = "../../test/update/mod.rs"]
 mod mod_test;
@@ -115,22 +119,59 @@ impl UpdateFlow for ServiceUpdateFlow {
         let channel = settings.update_channel;
         let flow = self.clone();
         tauri::async_runtime::spawn(async move {
+            let _release = BusyRelease(Arc::clone(&flow.busy));
             flow.run_check(channel).await;
-            release(&flow.busy);
         });
 
         Ok(())
     }
 
     fn install(&self) -> UpdateStateResult<()> {
-        if *self.busy.lock().unwrap() {
-            return Err(UpdateStateError::Busy);
+        if let Some(refusal) = dev_build_refusal() {
+            return Err(refusal);
         }
 
-        // The download, swap and restart sequence lands with its own task.
-        Err(UpdateStateError::Invalid {
-            message: "install not wired yet".to_string(),
-        })
+        claim(&self.busy)?;
+
+        let state_path = update_state_path();
+        let target = match load_state(&state_path) {
+            Ok(state) => install::install_target(&state),
+            Err(error) => Err(install::InstallError::Failed(error.to_string())),
+        };
+        if let Err(error) = target {
+            release(&self.busy);
+            return Err(install_rejection(error));
+        }
+
+        let notifier = self.notifier.clone();
+        let executor = install::TauriExecutor::new(self.app.clone());
+        let app = self.app.clone();
+        let busy = Arc::clone(&self.busy);
+
+        // The plugin API is async, and a blocking wait inside an axum worker
+        // would stall the runtime: the sequence runs on a blocking task.
+        tauri::async_runtime::spawn_blocking(move || {
+            let _release = BusyRelease(busy);
+
+            let outcome = install::install(
+                &executor,
+                &state_path,
+                move |state| transition(&notifier, state).map_err(|error| error.to_string()),
+                |service| {
+                    install::restart_command(service)
+                        .spawn()
+                        .map(|_child| ())
+                        .map_err(|error| format!("Failed to start the new service: {error}"))
+                },
+                move || app.exit(0),
+            );
+
+            if let Err(error) = outcome {
+                eprintln!("context: update install stopped: {error:?}");
+            }
+        });
+
+        Ok(())
     }
 }
 
@@ -172,9 +213,36 @@ fn release(busy: &Mutex<bool>) {
     *busy.lock().unwrap() = false;
 }
 
+/// Refuse an install in a debug build: there is no bundle to swap.
+fn dev_build_refusal() -> Option<UpdateStateError> {
+    cfg!(debug_assertions).then(|| UpdateStateError::Invalid {
+        message: "update install is disabled in development builds".to_string(),
+    })
+}
+
+/// Clears the flow's busy flag when a spawned run ends, a panic included.
+struct BusyRelease(Arc<Mutex<bool>>);
+
+impl Drop for BusyRelease {
+    fn drop(&mut self) {
+        release(&self.0);
+    }
+}
+
+/// Error the REST layer reports for an install the state does not allow.
+fn install_rejection(error: install::InstallError) -> UpdateStateError {
+    match error {
+        install::InstallError::Busy => UpdateStateError::Busy,
+        install::InstallError::NotAvailable => UpdateStateError::Invalid {
+            message: "no update candidate to install".to_string(),
+        },
+        install::InstallError::Failed(message) => UpdateStateError::Invalid { message },
+    }
+}
+
 /// Whether a freshly started service replaced the binary it just installed.
 fn settled_after_install(state: &UpdateState) -> bool {
-    state.status == UpdateStatus::Installing
+    matches!(state.status, UpdateStatus::Installing | UpdateStatus::Ready)
         && state.candidate_version.as_deref() == Some(state.current_version.as_str())
 }
 
@@ -239,6 +307,7 @@ fn status_name(status: UpdateStatus) -> &'static str {
         UpdateStatus::Available => "available",
         UpdateStatus::Downloading => "downloading",
         UpdateStatus::Installing => "installing",
+        UpdateStatus::Ready => "ready",
         UpdateStatus::Failed => "failed",
     }
 }
