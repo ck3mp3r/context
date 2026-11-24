@@ -9,7 +9,7 @@ use std::marker::PhantomData;
 
 use crate::models::{
     ApiError, Note, Paginated, Project, Repo, SettingsPayload, SettingsValues, Skill, Task,
-    TaskList, TaskStats,
+    TaskList, TaskStats, UpdateStatusPayload,
 };
 
 // Development: Trunk proxy strips /dev prefix, forwards /api/v1/* to backend
@@ -384,6 +384,64 @@ pub mod settings {
             .await
             .map_err(|e| ApiClientError::Network(e.to_string()))?;
         parse_response(response).await
+    }
+}
+
+/// Update API
+pub mod update {
+    use super::*;
+
+    /// Body of the manual check request.
+    #[derive(Debug, Clone, Serialize)]
+    struct CheckRequest {
+        manual: bool,
+    }
+
+    /// Read the persisted update state.
+    pub async fn status() -> Result<UpdateStatusPayload> {
+        let url = format!("{}/update/status", API_BASE);
+        handle_response(Request::get(&url)).await
+    }
+
+    /// Start an update check; `manual` marks a check the user asked for.
+    pub async fn check(manual: bool) -> Result<()> {
+        let url = format!("{}/update/check", API_BASE);
+        let request = Request::post(&url)
+            .json(&CheckRequest { manual })
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Start installing the candidate that waits for consent.
+    pub async fn install() -> Result<()> {
+        let url = format!("{}/update/install", API_BASE);
+        let request = Request::post(&url)
+            .json(&())
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Report success for an empty response, or the server error envelope.
+    async fn expect_success(response: gloo_net::http::Response) -> Result<()> {
+        if (200..300).contains(&response.status()) {
+            return Ok(());
+        }
+
+        let error = response
+            .json::<ApiError>()
+            .await
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        Err(ApiClientError::Server(error))
     }
 }
 

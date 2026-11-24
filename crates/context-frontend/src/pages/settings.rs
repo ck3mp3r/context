@@ -3,7 +3,9 @@ use leptos::task::spawn_local;
 
 use crate::api::{self, ApiClientError};
 use crate::components::{Breadcrumb, BreadcrumbItem};
-use crate::models::{SettingsDefaults, SettingsPayload, SettingsRunning, SettingsValues};
+use crate::models::{
+    SettingsDefaults, SettingsPayload, SettingsRunning, SettingsValues, UpdateStatusPayload,
+};
 
 /// `/settings` page: edit the stored configuration, defaults in view.
 #[component]
@@ -38,6 +40,12 @@ fn SettingsEditor() -> impl IntoView {
     let enable_docs = RwSignal::new(false);
     let skills_dir = RwSignal::new(String::new());
     let start_at_login = RwSignal::new(true);
+    let auto_update = RwSignal::new(true);
+    let pre_release = RwSignal::new(false);
+
+    // Manual check: the request is in flight, and the line under the buttons.
+    let check_pending = RwSignal::new(false);
+    let (check_result, set_check_result) = signal(None::<CheckResult>);
 
     // One payload update refreshes the draft and the restart markers.
     let apply_payload = move |payload: SettingsPayload| {
@@ -49,6 +57,8 @@ fn SettingsEditor() -> impl IntoView {
         enable_docs.set(effective.enable_docs);
         skills_dir.set(effective.skills_dir);
         start_at_login.set(effective.start_at_login);
+        auto_update.set(effective.auto_update);
+        pre_release.set(effective.update_channel == PRE_RELEASE_CHANNEL);
 
         set_stored.set(payload.values);
         set_defaults.set(Some(payload.defaults));
@@ -112,6 +122,14 @@ fn SettingsEditor() -> impl IntoView {
             .map(|d| d.start_at_login.to_string())
             .unwrap_or_default()
     });
+    let default_auto_update = Signal::derive(move || {
+        defaults
+            .get()
+            .map(|d| d.auto_update.to_string())
+            .unwrap_or_default()
+    });
+    let default_update_channel =
+        Signal::derive(move || defaults.get().map(|d| d.update_channel).unwrap_or_default());
 
     // The app runner binds a fixed host: the stored host never applies to it.
     let host_fixed = Signal::derive(move || running.get().is_some_and(|r| r.host_fixed));
@@ -154,6 +172,16 @@ fn SettingsEditor() -> impl IntoView {
             start_at_login.set(defaults.start_at_login);
         }
     });
+    let reset_auto_update = Callback::new(move |()| {
+        if let Some(defaults) = defaults.get_untracked() {
+            auto_update.set(defaults.auto_update);
+        }
+    });
+    let reset_update_channel = Callback::new(move |()| {
+        if let Some(defaults) = defaults.get_untracked() {
+            pre_release.set(defaults.update_channel == PRE_RELEASE_CHANNEL);
+        }
+    });
 
     // Save writes only the fields that differ from their default: a reset
     // field drops its key from the file.
@@ -185,6 +213,11 @@ fn SettingsEditor() -> impl IntoView {
             enable_docs: override_bool(enable_docs.get_untracked(), defaults.enable_docs),
             skills_dir: override_string(skills_dir.get_untracked(), &defaults.skills_dir),
             start_at_login: override_bool(start_at_login.get_untracked(), defaults.start_at_login),
+            auto_update: override_bool(auto_update.get_untracked(), defaults.auto_update),
+            update_channel: override_string(
+                channel_draft(pre_release.get_untracked()),
+                &defaults.update_channel,
+            ),
         };
 
         set_saving.set(true);
@@ -199,6 +232,41 @@ fn SettingsEditor() -> impl IntoView {
                 Err(error) => set_save_error.set(Some(error_message(&error))),
             }
             set_saving.set(false);
+        });
+    });
+
+    // Manual check: trigger it, give the service a moment, then read the state.
+    let on_check = Callback::new(move |()| {
+        if check_pending.get_untracked() {
+            return;
+        }
+
+        check_pending.set(true);
+        set_check_result.set(None);
+
+        // Report one result and re-enable the button.
+        let report = move |result: CheckResult| {
+            set_check_result.set(Some(result));
+            check_pending.set(false);
+        };
+
+        spawn_local(async move {
+            match api::update::check(true).await {
+                Ok(()) => set_timeout(
+                    move || {
+                        spawn_local(async move {
+                            let result = match api::update::status().await {
+                                Ok(payload) => CheckResult::Status(payload),
+                                Err(error) => CheckResult::Failed(error_message(&error)),
+                            };
+
+                            report(result);
+                        });
+                    },
+                    CHECK_SETTLE_DELAY,
+                ),
+                Err(error) => report(CheckResult::Failed(error_message(&error))),
+            }
         });
     });
 
@@ -353,6 +421,51 @@ fn SettingsEditor() -> impl IntoView {
                                     </span>
                                 </div>
                             </SettingsField>
+
+                            <SettingsField
+                                title="Auto-update"
+                                hint=default_line(default_auto_update)
+                                restart=Signal::derive(|| false)
+                                reset_disabled=Signal::derive(|| false)
+                                on_reset=reset_auto_update
+                            >
+                                <div class="flex items-center gap-3">
+                                    <input
+                                        type="checkbox"
+                                        prop:checked=move || auto_update.get()
+                                        on:change=move |ev| {
+                                            auto_update.set(event_target_checked(&ev))
+                                        }
+                                        class="h-4 w-4 accent-ctp-blue"
+                                    />
+                                    <span class="text-xs text-ctp-overlay0">
+                                        "Auto-checked when the app opens. Applies on the next check."
+                                    </span>
+                                </div>
+                            </SettingsField>
+
+                            <SettingsField
+                                title="Update channel"
+                                hint=default_line(default_update_channel)
+                                restart=Signal::derive(|| false)
+                                reset_disabled=Signal::derive(|| false)
+                                on_reset=reset_update_channel
+                            >
+                                <div class="flex items-center gap-3">
+                                    <input
+                                        type="checkbox"
+                                        prop:checked=move || pre_release.get()
+                                        on:change=move |ev| {
+                                            pre_release.set(event_target_checked(&ev))
+                                        }
+                                        class="h-4 w-4 accent-ctp-blue"
+                                    />
+                                    <span class="text-ctp-text">"Use pre-release channel"</span>
+                                    <span class="text-xs text-ctp-overlay0">
+                                        "Stable channel by default. Applies on the next check."
+                                    </span>
+                                </div>
+                            </SettingsField>
                         </div>
 
                         <div class="mt-6 flex items-center gap-4">
@@ -364,7 +477,31 @@ fn SettingsEditor() -> impl IntoView {
                             >
                                 {move || if saving.get() { "Saving..." } else { "Save" }}
                             </button>
+
+                            <button
+                                type="button"
+                                disabled=move || check_pending.get()
+                                on:click=move |_| on_check.run(())
+                                class="rounded-lg border border-ctp-surface1 px-4 py-2 font-medium text-ctp-text transition-colors hover:border-ctp-blue disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {move || if check_pending.get() { "Checking..." } else { "Check for updates" }}
+                            </button>
                         </div>
+
+                        {move || {
+                            check_result
+                                .get()
+                                .map(|report| {
+                                    let (line, failed) = report.line();
+                                    let class = if failed {
+                                        "mt-2 text-sm text-ctp-red"
+                                    } else {
+                                        "mt-2 text-sm text-ctp-subtext0"
+                                    };
+
+                                    view! { <p class=class>{line}</p> }
+                                })
+                        }}
 
                         {move || {
                             save_error
@@ -439,6 +576,54 @@ fn SettingsField(
 // Support
 // =============================================================================
 
+/// Channel name the pre-release checkbox stands for.
+const PRE_RELEASE_CHANNEL: &str = "pre-release";
+/// Channel name the unchecked checkbox stands for.
+const STABLE_CHANNEL: &str = "stable";
+/// How long the service gets to record the check before the state is read.
+const CHECK_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Outcome of the manual check shown under the buttons.
+#[derive(Debug, Clone)]
+enum CheckResult {
+    /// The update state the service reports.
+    Status(UpdateStatusPayload),
+    /// The check request or the follow-up read failed.
+    Failed(String),
+}
+
+impl CheckResult {
+    /// Line under the buttons, and whether it reports a failure.
+    fn line(&self) -> (String, bool) {
+        match self {
+            Self::Status(payload) => match (
+                payload.status.as_str(),
+                payload.candidate_version.as_deref(),
+            ) {
+                ("failed", _) => (
+                    format!(
+                        "failed: {}",
+                        payload.message.as_deref().unwrap_or("no detail")
+                    ),
+                    true,
+                ),
+                (status, Some(version)) => (format!("{status}: {version}"), false),
+                (status, None) => (status.to_string(), false),
+            },
+            Self::Failed(message) => (message.clone(), true),
+        }
+    }
+}
+
+/// Stored channel the checkbox drafts.
+fn channel_draft(pre_release: bool) -> String {
+    if pre_release {
+        PRE_RELEASE_CHANNEL.to_string()
+    } else {
+        STABLE_CHANNEL.to_string()
+    }
+}
+
 /// Stored values with every gap filled by the built-in default.
 fn effective_values(values: &SettingsValues, defaults: &SettingsDefaults) -> SettingsDefaults {
     SettingsDefaults {
@@ -451,6 +636,11 @@ fn effective_values(values: &SettingsValues, defaults: &SettingsDefaults) -> Set
             .clone()
             .unwrap_or_else(|| defaults.skills_dir.clone()),
         start_at_login: values.start_at_login.unwrap_or(defaults.start_at_login),
+        auto_update: values.auto_update.unwrap_or(defaults.auto_update),
+        update_channel: values
+            .update_channel
+            .clone()
+            .unwrap_or_else(|| defaults.update_channel.clone()),
     }
 }
 

@@ -131,6 +131,8 @@ pub struct SettingsValues {
     pub enable_docs: Option<bool>,
     pub skills_dir: Option<String>,
     pub start_at_login: Option<bool>,
+    pub auto_update: Option<bool>,
+    pub update_channel: Option<String>,
 }
 
 /// Built-in defaults for every settings field.
@@ -142,6 +144,29 @@ pub struct SettingsDefaults {
     pub enable_docs: bool,
     pub skills_dir: String,
     pub start_at_login: bool,
+    pub auto_update: bool,
+    pub update_channel: String,
+}
+
+/// Update state as `GET /api/v1/update/status` reports it.
+///
+/// Every optional field is absent from the response when it carries no value.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct UpdateStatusPayload {
+    pub current_version: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_tag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_is_prerelease: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 /// Settings the running server process started with.

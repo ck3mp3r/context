@@ -126,6 +126,8 @@ async fn get_settings_reports_values_defaults_and_running() {
         "enable_docs",
         "skills_dir",
         "start_at_login",
+        "auto_update",
+        "update_channel",
     ] {
         assert!(
             values.get(field).is_some(),
@@ -143,6 +145,8 @@ async fn get_settings_reports_values_defaults_and_running() {
     assert_eq!(defaults["verbosity"], 0);
     assert_eq!(defaults["enable_docs"], false);
     assert_eq!(defaults["start_at_login"], true);
+    assert_eq!(defaults["auto_update"], true);
+    assert_eq!(defaults["update_channel"], "stable");
 
     let running = &body["running"];
     assert_eq!(running["host"], "127.0.0.1");
@@ -293,6 +297,60 @@ async fn put_settings_rejects_an_invalid_host_without_writing() {
     let message = body["error"].as_str().expect("error envelope carries text");
     assert!(
         message.contains("host"),
+        "the message must name the field, got: {message}"
+    );
+    assert!(!exists, "a rejected write must not create {path:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn put_settings_writes_the_update_preferences() {
+    let _base = base_path();
+    let app = test_app(test_running()).await;
+
+    let (status, body) = put_settings(
+        &app,
+        json!({ "auto_update": false, "update_channel": "pre-release" }),
+    )
+    .await;
+    let path = get_config_path();
+    let written = load(&path).expect("the settings file loads");
+    clear_base_path();
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["values"]["auto_update"], false,
+        "the response reflects the stored preference, got: {}",
+        body["values"]
+    );
+    assert_eq!(body["values"]["update_channel"], "pre-release");
+    assert_eq!(
+        written.auto_update,
+        Some(false),
+        "config.toml must carry auto_update"
+    );
+    assert_eq!(
+        written.update_channel.as_deref(),
+        Some("pre-release"),
+        "config.toml must carry update_channel"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn put_settings_rejects_an_unknown_update_channel_without_writing() {
+    let _base = base_path();
+    let app = test_app(test_running()).await;
+
+    let (status, body) = put_settings(&app, json!({ "update_channel": "beta" })).await;
+    let path = get_config_path();
+    let exists = path.exists();
+    clear_base_path();
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let message = body["error"].as_str().expect("error envelope carries text");
+    assert!(
+        message.contains("update_channel"),
         "the message must name the field, got: {message}"
     );
     assert!(!exists, "a rejected write must not create {path:?}");
