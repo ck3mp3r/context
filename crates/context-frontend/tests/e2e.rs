@@ -80,6 +80,10 @@ const BOOT_TIMEOUT: Duration = Duration::from_secs(90);
 /// Budget for an interaction that follows a rendered page.
 const UI_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long one update announcement waits for the app's status fetch before the harness resends
+/// it, so a frame the stub lost costs one retry instead of the whole `UI_TIMEOUT`.
+const ANNOUNCE_RETRY: Duration = Duration::from_millis(250);
+
 /// The SPA runs a debug build, so its API base is the trunk `/dev` prefix.
 const API_PREFIX: &str = "/dev/api/v1/";
 
@@ -3337,7 +3341,12 @@ async fn spa_body() {
 
     // Pin (available): the candidate version, the Update call to action, and a dismiss control.
     server.set_update_status("available", Some(UPDATE_VERSION), None);
-    socket.send(&update_state_frame("available", UPDATE_VERSION));
+    announce_update(
+        &server,
+        &socket,
+        "available",
+        &update_state_frame("available", UPDATE_VERSION),
+    );
     let available = wait_for_pill(&page, "available", |probe| {
         probe.present && probe.phase == "available"
     })
@@ -3372,9 +3381,12 @@ async fn spa_body() {
         "a dismissal hides the pill: {dismissed:?}"
     );
 
-    let status_calls = server.api_calls("update/status");
-    socket.send(&update_state_frame("available", UPDATE_VERSION));
-    wait_for_api_calls(&server, "update/status", status_calls + 1);
+    announce_update(
+        &server,
+        &socket,
+        "dismissed",
+        &update_state_frame("available", UPDATE_VERSION),
+    );
     settle_frame();
     let still_dismissed = pill_probe(&page).await;
     assert!(
@@ -3385,9 +3397,12 @@ async fn spa_body() {
     // Pin (dismissal survives an install): `downloading` arrives without the candidate fields, and
     // the dismissed candidate stays hidden through it.
     server.set_update_status("downloading", None, None);
-    socket.send(&update_phase_frame("downloading"));
-    let install_calls = server.api_calls("update/status");
-    wait_for_api_calls(&server, "update/status", install_calls + 1);
+    announce_update(
+        &server,
+        &socket,
+        "installing",
+        &update_phase_frame("downloading"),
+    );
     settle_frame();
     let during_install = pill_probe(&page).await;
     assert!(
@@ -3447,7 +3462,12 @@ async fn spa_body() {
     // Pin (dismissal, newer candidate): a version newer than the dismissed one brings the pill back,
     // even with a surface open, and the surface still covers it.
     server.set_update_status("available", Some(UPDATE_NEWER_VERSION), None);
-    socket.send(&update_state_frame("available", UPDATE_NEWER_VERSION));
+    announce_update(
+        &server,
+        &socket,
+        "newer",
+        &update_state_frame("available", UPDATE_NEWER_VERSION),
+    );
     let newer = wait_for_pill(&page, "a newer candidate", |probe| {
         probe.present && probe.text.contains(UPDATE_NEWER_VERSION)
     })
@@ -3508,7 +3528,12 @@ async fn spa_body() {
     // phase carries no candidate version, and the pill still shows it: the newer candidate was never
     // dismissed.
     server.set_update_status("downloading", None, None);
-    socket.send(&update_phase_frame("downloading"));
+    announce_update(
+        &server,
+        &socket,
+        "downloading",
+        &update_phase_frame("downloading"),
+    );
     let downloading = wait_for_pill(&page, "downloading", |probe| {
         probe.present && probe.phase == "downloading"
     })
@@ -3537,7 +3562,12 @@ async fn spa_body() {
 
     // Pin (ready): the restart sentence and the Restart call to action.
     server.set_update_status("ready", Some(UPDATE_NEWER_VERSION), None);
-    socket.send(&update_state_frame("ready", UPDATE_NEWER_VERSION));
+    announce_update(
+        &server,
+        &socket,
+        "ready",
+        &update_state_frame("ready", UPDATE_NEWER_VERSION),
+    );
     let ready = wait_for_pill(&page, "ready", |probe| {
         probe.present && probe.phase == "ready"
     })
@@ -3593,7 +3623,12 @@ async fn spa_body() {
 
     // Pin (no flow): a 503 takes the same failed-pill path.
     server.set_update_status("ready", Some(UPDATE_NEWER_VERSION), None);
-    socket.send(&update_state_frame("ready", UPDATE_NEWER_VERSION));
+    announce_update(
+        &server,
+        &socket,
+        "re-announced ready",
+        &update_state_frame("ready", UPDATE_NEWER_VERSION),
+    );
     wait_for_pill(&page, "ready again", |probe| {
         probe.present && probe.phase == "ready"
     })
@@ -3619,7 +3654,7 @@ async fn spa_body() {
     // Pin (failure surface): the service's own failure message renders in the pill, with a dismiss
     // control and no action, so no second error surface exists.
     server.set_update_status("failed", None, Some("GitHub refused the manifest"));
-    socket.send(&update_phase_frame("failed"));
+    announce_update(&server, &socket, "failed", &update_phase_frame("failed"));
     let failed = wait_for_pill(&page, "a failed update", |probe| {
         probe.present
             && probe.phase == "failed"
@@ -3730,6 +3765,35 @@ fn wait_for_api_calls(server: &StaticServer, path: &str, count: usize) {
             "the API never answered {count} request(s) for {path}"
         );
         thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Announces one update state change and resends it until the app answers with a status fetch.
+///
+/// The stub owns a single socket and writes fire-and-forget: a frame handed to a socket the page
+/// has abandoned is lost with no error and no retry, so one announcement can leave the pill
+/// without the state the pins expect. Re-announcing an identical state is safe — the pill reads
+/// `/api/v1/update/status` once per frame and keeps no state of its own — so a resend repeats a
+/// read and nothing else.
+fn announce_update(server: &StaticServer, socket: &WebSocketStub, announced: &str, frame: &str) {
+    let answered = server.api_calls("update/status") + 1;
+    let deadline = Instant::now() + UI_TIMEOUT;
+    let mut attempts = 0usize;
+    let mut unwritten = 0usize;
+    while server.api_calls("update/status") < answered {
+        assert!(
+            Instant::now() < deadline,
+            "the app never answered {attempts} announcement(s) for the {announced} update state \
+             with a status fetch, and {unwritten} of them could not be written"
+        );
+        if socket.write_frame(frame).is_err() {
+            unwritten += 1;
+        }
+        attempts += 1;
+        let retry = Instant::now() + ANNOUNCE_RETRY;
+        while Instant::now() < retry && server.api_calls("update/status") < answered {
+            thread::sleep(Duration::from_millis(25));
+        }
     }
 }
 
@@ -4250,6 +4314,17 @@ impl WebSocketStub {
 
     /// Writes one text frame to the latest accepted socket.
     fn send(&self, text: &str) {
+        if let Err(error) = self.write_frame(text) {
+            panic!("the stub could not write a frame to the app's websocket: {error}");
+        }
+    }
+
+    /// Writes one text frame, reporting a socket the page has closed instead of panicking.
+    ///
+    /// A resend outlives the socket it first wrote into: the write of a frame nobody reads fails
+    /// once the peer's reset arrives, and the stub's accept loop puts the page's next socket in
+    /// the slot, so the following attempt lands in the live one.
+    fn write_frame(&self, text: &str) -> std::io::Result<()> {
         let mut slot = self
             .client
             .lock()
@@ -4257,10 +4332,9 @@ impl WebSocketStub {
         let stream = slot
             .as_mut()
             .unwrap_or_else(|| panic!("the stub has no open websocket to carry {text:?}"));
-        if let Err(error) = stream.write_all(&text_frame(text)) {
-            panic!("the stub could not write a frame to the app's websocket: {error}");
-        }
+        stream.write_all(&text_frame(text))?;
         let _ = stream.flush();
+        Ok(())
     }
 }
 
