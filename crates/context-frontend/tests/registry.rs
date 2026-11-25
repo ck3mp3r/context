@@ -4,6 +4,9 @@
 //! and compiled into this binary: no wasm, no browser, and no rendering. The registry is exercised
 //! through the same public API the shell uses, so the signal path is pinned headless too.
 
+// The model modules are included whole, so the parts this binary does not pin are dead here.
+#![allow(dead_code)]
+
 #[path = "../src/tabs/open.rs"]
 mod open;
 #[path = "../src/tabs/pure.rs"]

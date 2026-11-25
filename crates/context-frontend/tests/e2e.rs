@@ -75,6 +75,12 @@ const UI_TIMEOUT: Duration = Duration::from_secs(30);
 /// The SPA runs a debug build, so its API base is the trunk `/dev` prefix.
 const API_PREFIX: &str = "/dev/api/v1/";
 
+/// The session key a debug bundle stores under (decision 14): namespaced per environment.
+const SESSION_KEY: &str = "c5t.tabs.session.dev.v1";
+
+/// A project id no stub route serves, so a restored tab for it answers 404 (decision 14).
+const BOGUS_ID: &str = "e2e00fff";
+
 // region:    --- Test
 
 /// Reads the container's observable state in one round trip.
@@ -198,6 +204,18 @@ struct SurfaceProbe {
     body_children: usize,
     scroll_locks: usize,
 }
+
+/// Writes one storage key from an argument pair, so a boot restores the session it holds.
+const WRITE_SESSION_PROBE: &str = r#"([key, value]) => {
+    localStorage.setItem(key, value);
+    return true;
+}"#;
+
+/// Removes one storage key, so the next boot has no session to restore.
+const CLEAR_SESSION_PROBE: &str = r#"(key) => {
+    localStorage.removeItem(key);
+    return true;
+}"#;
 
 /// Runs a control's own click handler, without the pointer reaching it.
 ///
@@ -1083,6 +1101,9 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
     // The reload starts an empty strip, which is what the last-close path needs, and re-opens the
     // stub's socket because the debug bundle dials it on mount.
     let connections = socket.connections();
+    // A reload now restores the session (decision 14), so the pins that need a chrome boot clear it
+    // first.
+    clear_session(&page).await;
     page.goto(&origin, None)
         .await
         .expect("the SPA origin should load again for the deletion pins");
@@ -1221,6 +1242,7 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
     // The last-close path needs an empty strip, so the page reloads again and opens the parentless
     // note, whose only tab it is.
     let connections = socket.connections();
+    clear_session(&page).await;
     page.goto(&origin, None)
         .await
         .expect("the SPA origin should load again for the last-close pin");
@@ -1277,6 +1299,177 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         page.url().ends_with('/'),
         "the last close writes chrome home, got {}",
         page.url()
+    );
+
+    // Decision 14, corrupt: one garbage value under the namespaced key drops to chrome, with no
+    // error, no toast, and no tab. The last close left the URL on chrome home.
+    write_session(&page, "not a session").await;
+    let connections = socket.connections();
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load again with a corrupt session");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("a corrupt session boots to chrome home");
+    expect(page.locator("[data-tab-id]"))
+        .to_have_count(0)
+        .await
+        .expect("a corrupt session restores no tab");
+    socket.wait_for_connection_after(connections);
+
+    // Decision 14, restore: the project tab and its task list child, the child active. A reload of
+    // that URL rebuilds both in stored order with the child active, and mounts the child alone.
+    let restored_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(restored_project.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card");
+    restored_project
+        .click(None)
+        .await
+        .expect("the project card should open its tab");
+    wait_for_container(&page, "the project tab open", |probe| {
+        probe.wrappers == 1 && probe.active_view == "project"
+    })
+    .await;
+
+    let restored_task_list = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(restored_task_list.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the project dashboard should list the fixture task list");
+    restored_task_list
+        .click(None)
+        .await
+        .expect("the task list card should open its child tab");
+    wait_for_container(&page, "two stored tabs", |probe| {
+        probe.wrappers == 2 && probe.active_view == "task-list"
+    })
+    .await;
+
+    let deep_link = page.url();
+    let project_path = format!("projects/{PROJECT_ID}");
+    let project_calls_before = server.api_calls(&project_path);
+
+    let connections = socket.connections();
+    page.goto(&deep_link, None)
+        .await
+        .expect("the deep link should load again");
+    let restored = wait_for_container(&page, "the stored strip rebuilt", |probe| {
+        probe.wrappers == 2 && probe.active_view == "task-list"
+    })
+    .await;
+    socket.wait_for_connection_after(connections);
+
+    assert_eq!(
+        restored.active_id, "2",
+        "tab ids are issued in stored order, so the child keeps its place, got {:?}",
+        restored.active_id
+    );
+    assert_eq!(
+        restored.active_entity, TASK_LIST_ID,
+        "the reload rebuilds the same active surface, got {:?}",
+        restored.active_entity
+    );
+    assert_eq!(
+        restored.hidden_id, "1",
+        "the project tab is the first stored tab, got {:?}",
+        restored.hidden_id
+    );
+    assert_eq!(
+        restored.hidden_display, "none",
+        "a restored tab that is not active paints nowhere"
+    );
+    assert_eq!(
+        restored.hidden_children, 0,
+        "a restored hidden tab mounts on first activation only, so it holds no view at boot"
+    );
+    assert_eq!(
+        page.url(),
+        deep_link,
+        "boot restore writes no URL: the deep link it opened is still the URL"
+    );
+
+    wait_for_api_calls(&server, &project_path, project_calls_before + 1);
+    settle_frame();
+    assert_eq!(
+        server.api_calls(&project_path),
+        project_calls_before + 1,
+        "the hidden tab costs one label request and no surface fetch"
+    );
+
+    // The hidden tab mounts on its first activation, through the card that focuses it (decision 6).
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should reach chrome home");
+    let focus_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(focus_project.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card again");
+    focus_project
+        .click(None)
+        .await
+        .expect("the project card should focus the restored tab");
+    let activated = wait_for_container(&page, "the restored tab mounted", |probe| {
+        probe.wrappers == 2 && probe.active_view == "project"
+    })
+    .await;
+    assert_eq!(
+        activated.active_id, "1",
+        "the stored project tab takes focus, got {:?}",
+        activated.active_id
+    );
+    wait_for_api_calls(&server, &project_path, project_calls_before + 2);
+    assert!(
+        server.api_calls(&project_path) > project_calls_before + 1,
+        "the restored tab fetches its surface on activation, and only then"
+    );
+
+    // Decision 14, 404: a stored surface the server no longer has is dropped, without a reload. The
+    // session names one valid project and one bogus id, and the bogus one was the active tab.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should reach chrome home before the 404 session");
+    write_session(&page, &stale_session()).await;
+
+    let document_loads = server.calls("/");
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load again with a stale session");
+    let dropped = wait_for_container(&page, "the missing surface dropped", |probe| {
+        probe.wrappers == 1 && probe.active_entity == PROJECT_ID
+    })
+    .await;
+
+    assert_eq!(
+        dropped.active_view, "project",
+        "the surviving tab is the project the server still has, got {:?}",
+        dropped.active_view
+    );
+    expect(page.locator(format!(
+        "[data-tab-view=\"project\"][data-tab-entity-id=\"{BOGUS_ID}\"]",
+    )))
+    .with_timeout(UI_TIMEOUT)
+    .to_have_count(0)
+    .await
+    .expect("the missing surface must leave no wrapper behind");
+    wait_for_api_calls(&server, &format!("projects/{BOGUS_ID}"), 1);
+    assert_eq!(
+        server.calls("/"),
+        document_loads + 1,
+        "the dropped tab must not reload the page"
     );
 
     browser.close().await.expect("the browser should close");
@@ -1358,6 +1551,44 @@ async fn wait_for_container(
 /// what it says. A frame on loopback lands in microseconds; this margin is two orders wider.
 fn settle_frame() {
     thread::sleep(Duration::from_millis(500));
+}
+
+/// Waits until the server has answered `count` requests for one API path.
+///
+/// A "no fetch" pin must not race the app: the label resolve is asynchronous, so the count is polled
+/// before the exact value is asserted.
+fn wait_for_api_calls(server: &StaticServer, path: &str, count: usize) {
+    let deadline = Instant::now() + UI_TIMEOUT;
+    while server.api_calls(path) < count {
+        assert!(
+            Instant::now() < deadline,
+            "the API never answered {count} request(s) for {path}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Clears the stored session, so the next boot is chrome and not a restore (decision 14).
+async fn clear_session(page: &Page) {
+    let _: bool = page
+        .evaluate(CLEAR_SESSION_PROBE, Some(&SESSION_KEY))
+        .await
+        .expect("the page should clear the stored session");
+}
+
+/// Writes a session string, so the next boot restores what it holds (decision 14).
+async fn write_session(page: &Page, raw: &str) {
+    let _: bool = page
+        .evaluate(WRITE_SESSION_PROBE, Some(&(SESSION_KEY, raw)))
+        .await
+        .expect("the page should write the stored session");
+}
+
+/// A session with one project the stub serves and one it does not, the missing surface active.
+fn stale_session() -> String {
+    format!(
+        "{{\"version\":1,\"tabs\":[{{\"key\":{{\"kind\":\"project\",\"id\":\"{PROJECT_ID}\"}},\"title\":\"stale label\",\"parent\":null}},{{\"key\":{{\"kind\":\"project\",\"id\":\"{BOGUS_ID}\"}},\"title\":\"gone label\",\"parent\":null}}],\"active\":{{\"kind\":\"project\",\"id\":\"{BOGUS_ID}\"}}}}"
+    )
 }
 
 /// Runs a control's own click handler, for a control an open surface's backdrop covers.
@@ -1444,6 +1675,8 @@ fn origin_answers(addr: &SocketAddr) -> bool {
 /// outlive the run: `Drop` stops the accept loop and joins the thread.
 struct StaticServer {
     addr: SocketAddr,
+    /// Every request path the server answered, in arrival order: the boot-fetch witness.
+    requests: Arc<Mutex<Vec<String>>>,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -1461,10 +1694,13 @@ impl StaticServer {
 
         let shutdown = Arc::new(AtomicBool::new(false));
         let stop = Arc::clone(&shutdown);
-        let thread = thread::spawn(move || accept_loop(listener, &dist, &stop));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&requests);
+        let thread = thread::spawn(move || accept_loop(listener, &dist, &log, &stop));
 
         Self {
             addr,
+            requests,
             shutdown,
             thread: Some(thread),
         }
@@ -1472,6 +1708,22 @@ impl StaticServer {
 
     fn origin(&self) -> String {
         format!("http://{}", self.addr)
+    }
+
+    /// How many requests this server answered for one exact path, since the run started.
+    ///
+    /// The stub answers API paths whose query string was already stripped, so an exact comparison
+    /// counts one request and no lookalike beside it.
+    fn calls(&self, path: &str) -> usize {
+        self.requests
+            .lock()
+            .map(|log| log.iter().filter(|request| *request == path).count())
+            .unwrap_or_default()
+    }
+
+    /// How many requests this server answered for one API path.
+    fn api_calls(&self, path: &str) -> usize {
+        self.calls(&format!("{API_PREFIX}{path}"))
     }
 }
 
@@ -1486,10 +1738,15 @@ impl Drop for StaticServer {
     }
 }
 
-fn accept_loop(listener: TcpListener, dist: &Path, stop: &AtomicBool) {
+fn accept_loop(
+    listener: TcpListener,
+    dist: &Path,
+    requests: &Mutex<Vec<String>>,
+    stop: &AtomicBool,
+) {
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
-            Ok((stream, _)) => serve_connection(stream, dist),
+            Ok((stream, _)) => serve_connection(stream, dist, requests),
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(2));
             }
@@ -1501,7 +1758,7 @@ fn accept_loop(listener: TcpListener, dist: &Path, stop: &AtomicBool) {
     }
 }
 
-fn serve_connection(mut stream: TcpStream, dist: &Path) {
+fn serve_connection(mut stream: TcpStream, dist: &Path, requests: &Mutex<Vec<String>>) {
     // A socket accepted from a non-blocking listener inherits the flag, and a
     // non-blocking `write_all` fails with EWOULDBLOCK once the send buffer is
     // full, which truncates every large asset.
@@ -1513,6 +1770,9 @@ fn serve_connection(mut stream: TcpStream, dist: &Path) {
         return;
     };
     let path = target.split('?').next().unwrap_or("/");
+    if let Ok(mut log) = requests.lock() {
+        log.push(path.to_string());
+    }
 
     let response = route(path, dist);
     write_response(&mut stream, response);

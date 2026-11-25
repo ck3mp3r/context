@@ -11,7 +11,10 @@ use thaw::*;
 use crate::components::{ThemeSwitcher, UpdateBadge, UpdateBanner};
 use crate::models::{UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
-use crate::tabs::{TabContainer, TabKey, TabRegistry, surface_url, write_active_url};
+use crate::tabs::{
+    TabContainer, TabKey, TabRegistry, TabTitles, boot_surface, resolve_titles, restore_or_boot,
+    start_session_persistence, surface_url, write_owned_url,
+};
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection, use_websocket_updates};
 
@@ -82,6 +85,18 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     let tabs = TabRegistry::new();
     provide_context(tabs);
 
+    // The label of every open tab: restored from the session, re-resolved by id (decision 14).
+    let titles = TabTitles::new();
+    provide_context(titles);
+
+    // Boot: one storage read, one plan, one install, before the first render. Only the active tab
+    // mounts, so a restored strip costs one label request per tab and no surface fetch. Nothing here
+    // writes a URL; the one writer below adopts the boot URL as the URL it already owns.
+    let boot = boot_surface(&location.pathname.get_untracked());
+    let unresolved = restore_or_boot(tabs, titles, boot);
+    spawn_local(async move { resolve_titles(tabs, titles, unresolved).await });
+    start_session_persistence(tabs, titles);
+
     // The deletion reaction: a surface deleted over the websocket closes its tab. Cascade and
     // neighbour activation are the model's close rules; this reaction writes no URL, because the
     // one writer below names whatever tab survives. Every other update falls through to the tab's
@@ -117,19 +132,23 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     // An empty strip names no surface, so the last close writes chrome home. The write follows the
     // transition to an empty strip, not every empty read: a route the app opened no tab for (a
     // deep link, a chrome list) keeps the URL it already has.
+    //
+    // The URL the app owns starts as the boot URL, read once (decision 11), so a restore writes no
+    // navigation and cannot overwrite a deep link (decision 14).
     let url_writer = use_navigate();
+    let mut owned = location.pathname.get_untracked();
     let mut had_active = false;
     Effect::new(move |_| {
         let Some(key) = tabs.active_key() else {
             if had_active {
                 had_active = false;
-                write_active_url(&url_writer, "/");
+                write_owned_url(&url_writer, &mut owned, "/");
             }
             return;
         };
         had_active = true;
         let url = surface_url(&key, tabs.active_project().as_deref());
-        write_active_url(&url_writer, &url);
+        write_owned_url(&url_writer, &mut owned, &url);
     });
 
     // Determine active tab based on current path

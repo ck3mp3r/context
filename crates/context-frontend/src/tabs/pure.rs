@@ -112,6 +112,9 @@ pub struct Tab {
     key: TabKey,
     /// The project whose child row holds this tab, when the surface names one (ruling L).
     parent: Option<String>,
+    /// Whether the tab's surface has been mounted. A tab opened here mounts at once; a restored tab
+    /// mounts on its first activation (decisions 13 and 14).
+    mounted: bool,
 }
 
 impl Tab {
@@ -123,6 +126,12 @@ impl Tab {
     /// The tab's identity: kind plus entity id.
     pub fn key(&self) -> &TabKey {
         &self.key
+    }
+
+    /// Whether the tab's surface is mounted. It never turns off: a mounted tab hides, it never
+    /// unmounts (decision 13).
+    pub fn is_mounted(&self) -> bool {
+        self.mounted
     }
 
     /// The project whose child row and cycle group hold this tab, or `None` when it has no
@@ -275,7 +284,13 @@ impl Tabs {
             None => {
                 self.next_id += 1;
                 let id = TabId(self.next_id);
-                self.tabs.push(Tab { id, key, parent });
+                self.tabs
+                    .push(Tab {
+                        id,
+                        key,
+                        parent,
+                        mounted: true,
+                    });
                 id
             }
         };
@@ -283,7 +298,32 @@ impl Tabs {
         id
     }
 
-    /// Focus an open tab.
+    /// Open a stored surface without focusing it and without mounting it (decision 14).
+    ///
+    /// The tab lands in strip order and stays unmounted until its first activation, so a restore
+    /// mounts only the active tab and the other tabs fetch nothing until they are opened. The caller
+    /// focuses the restored active tab afterwards, which mounts it.
+    pub fn restore(&mut self, key: TabKey, parent: Option<String>) -> TabId {
+        if let Some(id) = self.find(&key) {
+            return id;
+        }
+        self.next_id += 1;
+        let id = TabId(self.next_id);
+        self.tabs.push(Tab {
+            id,
+            key,
+            parent,
+            mounted: false,
+        });
+        id
+    }
+
+    /// Whether this id names an open tab whose surface is mounted.
+    pub fn is_mounted(&self, id: TabId) -> bool {
+        self.tab(id).is_some_and(Tab::is_mounted)
+    }
+
+    /// Focus an open tab, and mount it if it is not mounted yet.
     ///
     /// An id that names no open tab changes nothing, so `active` never points at a removed tab and
     /// no tab is ever hidden in favour of a tab that does not exist.
@@ -291,8 +331,19 @@ impl Tabs {
         if !self.contains(id) {
             return false;
         }
-        self.active = Some(id);
+        self.focus(Some(id));
         true
+    }
+
+    /// Focus a tab and mount it, or clear focus with `None`.
+    ///
+    /// Every path that moves focus goes through here, so a tab the user reaches is never left
+    /// unmounted and hidden: a restored tab mounts the moment it takes focus (decision 14).
+    fn focus(&mut self, id: Option<TabId>) {
+        if let Some(tab) = id.and_then(|id| self.tabs.iter_mut().find(|tab| tab.id == id)) {
+            tab.mounted = true;
+        }
+        self.active = id;
     }
 
     /// The tabs a close of `id` removes: the tab itself, and for a project every tab attached to
@@ -332,7 +383,7 @@ impl Tabs {
             active => active,
         };
         self.tabs.retain(|tab| !closing.contains(&tab.id));
-        self.active = active;
+        self.focus(active);
         CloseOutcome::Closed {
             ids: closing,
             active,
@@ -387,7 +438,7 @@ impl Tabs {
     pub fn cycle_next(&mut self) -> Option<TabId> {
         let ring = self.cycle_sequence();
         if ring.is_empty() {
-            self.active = None;
+            self.focus(None);
             return None;
         }
         let next = match self
@@ -397,7 +448,7 @@ impl Tabs {
             Some(position) => ring[(position + 1) % ring.len()],
             None => ring[0],
         };
-        self.active = Some(next);
+        self.focus(Some(next));
         Some(next)
     }
 
@@ -405,7 +456,7 @@ impl Tabs {
     pub fn cycle_previous(&mut self) -> Option<TabId> {
         let ring = self.cycle_sequence();
         if ring.is_empty() {
-            self.active = None;
+            self.focus(None);
             return None;
         }
         let previous = match self
@@ -415,7 +466,7 @@ impl Tabs {
             Some(position) => ring[(position + ring.len() - 1) % ring.len()],
             None => ring[0],
         };
-        self.active = Some(previous);
+        self.focus(Some(previous));
         Some(previous)
     }
 

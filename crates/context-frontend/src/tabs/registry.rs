@@ -89,6 +89,24 @@ impl TabRegistry {
         activated
     }
 
+    /// Open a stored surface without focusing or mounting it (decision 14).
+    ///
+    /// The tab lands in strip order and mounts on its first activation, so a restore mounts only the
+    /// active tab. The caller focuses the restored active tab afterwards.
+    pub fn restore(&self, key: TabKey, parent: Option<String>) -> TabId {
+        let mut restored = TabId::default();
+        self.state
+            .update(|tabs| restored = tabs.restore(key, parent));
+        restored
+    }
+
+    /// Whether this tab's surface is mounted.
+    pub fn mounted(&self, id: TabId) -> bool {
+        self.state
+            .try_get()
+            .is_some_and(|tabs| tabs.is_mounted(id))
+    }
+
     /// Close a tab, cascade a project's children, and move `active` in one update.
     pub fn close(&self, id: TabId) -> CloseOutcome {
         let mut outcome = CloseOutcome::NotOpen;

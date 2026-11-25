@@ -107,9 +107,16 @@ pub fn TabContainer(registry: TabRegistry) -> impl IntoView {
 }
 
 /// One tab's wrapper: the tab's fixed mount point, hidden while the tab is not active.
+///
+/// The wrapper always renders, so a restored tab has its place in the strip and the container order
+/// before it is ever opened. Its surface renders only once the tab is mounted: a tab opened here
+/// mounts at once, a restored tab mounts on its first activation (decisions 13 and 14).
 #[component]
 fn TabWrapper(registry: TabRegistry, id: TabId, tab_key: TabKey) -> impl IntoView {
     let active = Signal::derive(move || registry.active() == Some(id));
+    // A memo, not a derived signal: the mount view must re-render only when the flag changes, or
+    // every registry update would remount the surface and throw its state away (decision 13).
+    let mounted = Memo::new(move |_| registry.mounted(id));
     let parent = registry
         .tabs()
         .into_iter()
@@ -123,7 +130,7 @@ fn TabWrapper(registry: TabRegistry, id: TabId, tab_key: TabKey) -> impl IntoVie
             data-tab-active=move || active_label(active.get())
             style=move || wrapper_style(active.get())
         >
-            <TabMount/>
+            {move || mounted.get().then(|| view! { <TabMount/> })}
         </div>
     }
 }

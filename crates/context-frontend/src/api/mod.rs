@@ -20,6 +20,11 @@ const API_BASE: &str = "/dev/api/v1";
 #[cfg(not(debug_assertions))]
 const API_BASE: &str = "/api/v1";
 
+/// The API base this build dials: the trunk `/dev` prefix in a debug build, `/api/v1` in release.
+pub fn base() -> &'static str {
+    API_BASE
+}
+
 /// Trait for types that have a list endpoint
 pub trait ListEndpoint: DeserializeOwned {
     fn endpoint() -> &'static str;
