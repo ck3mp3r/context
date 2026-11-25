@@ -11,13 +11,11 @@
 //! build.
 //!
 //! Close writes the registry only. The shell's one URL writer names whatever tab survives, and chrome
-//! home when none does, so no close path navigates. The one navigation here is the `+` control, which
-//! is decision 16's route to the Projects chrome view.
+//! home when none does, so no close path navigates, and no control here navigates either.
 
 use leptos::prelude::*;
-use leptos_router::hooks::{use_location, use_navigate};
+use leptos_router::hooks::use_location;
 
-use super::open::write_active_url;
 use super::pure::{Tab, TabId, TabKey, TabRouteKind};
 use super::registry::TabRegistry;
 use super::route::{RouteKind, route_kind};
@@ -47,9 +45,6 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
         RouteKind::ProjectsHome => !projects.get().is_empty(),
         RouteKind::TabSurface | RouteKind::Unknown => !registry.is_empty(),
     });
-
-    let navigate = use_navigate();
-    let open_projects = move |_| write_active_url(&navigate, "/");
 
     view! {
         <div
@@ -88,16 +83,6 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
                     </div>
                 </div>
             </Show>
-            <button
-                type="button"
-                data-strip-add=""
-                class="self-start px-3 py-1 rounded-lg text-sm font-medium text-ctp-subtext1 hover:bg-ctp-surface1 hover:text-ctp-text transition-colors"
-                title="New tab"
-                aria-label="New tab"
-                on:click=open_projects
-            >
-                "+"
-            </button>
         </div>
     }
 }

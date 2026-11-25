@@ -266,7 +266,6 @@ const STRIP_PROBE: &str = r#"() => {
     return {
         present: root !== null,
         visible: root ? getComputedStyle(root).display !== 'none' : false,
-        add: root ? root.querySelectorAll('[data-strip-add]').length : 0,
         rows: rows,
     };
 }"#;
@@ -276,7 +275,6 @@ const STRIP_PROBE: &str = r#"() => {
 struct StripProbe {
     present: bool,
     visible: bool,
-    add: usize,
     rows: Vec<StripRowProbe>,
 }
 
@@ -420,8 +418,34 @@ struct PillProbe {
     hit_in_surface: bool,
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
+/// Stack the harness body runs on.
+///
+/// The whole async state machine of the e2e body lives in `block_on`'s frame, and a debug build
+/// makes it big: the body of this test needs about 1 MiB before the deepest interaction runs. A
+/// libtest test thread gets 2 MiB, so the harness sat close to its own limit and a rebuild could
+/// tip it over. An explicit stack keeps the margin independent of the toolchain's frame sizes.
+const HARNESS_STACK: usize = 32 * 1024 * 1024;
+
+#[test]
+fn spa_boots_and_project_card_navigation_reaches_project_detail() {
+    let body = thread::Builder::new()
+        .name("spa-e2e".to_string())
+        .stack_size(HARNESS_STACK)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("the e2e runtime should build")
+                .block_on(spa_body());
+        })
+        .expect("the e2e harness thread should start");
+
+    if body.join().is_err() {
+        panic!("the spa e2e body panicked");
+    }
+}
+
+async fn spa_body() {
     // The debug bundle dials the hardcoded `ws://localhost:8080/dev/ws`, so the stub owns that
     // exact port and this page connects to it from its first load. A taken port fails here.
     let socket = WebSocketStub::start();
@@ -1972,7 +1996,6 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         strip_chips(&empty_strip).is_empty(),
         "an empty strip holds no chip"
     );
-    assert_eq!(empty_strip.add, 1, "the strip offers the + control");
 
     // Pin (one project tab): row one holds its chip, and the chip's close control is a sibling.
     let strip_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
@@ -2454,41 +2477,7 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "the one writer names the tab the strip focused"
     );
 
-    let tabs_before_plus = tabs_probe(&page).await.len();
-    page.locator("[data-strip-add]")
-        .click(None)
-        .await
-        .expect("the + control should be clickable");
-    expect(page.locator("[data-page=\"projects\"]"))
-        .with_timeout(UI_TIMEOUT)
-        .to_be_visible()
-        .await
-        .expect("the + control reaches the Projects chrome view");
-    assert_eq!(
-        page_path(&page).await,
-        "/",
-        "the + control writes chrome home"
-    );
-    assert_eq!(
-        tabs_probe(&page).await.len(),
-        tabs_before_plus,
-        "the + control opens no blank tab"
-    );
-
     // Pin (decision 17): Cmd+Shift+W stays the window's accelerator, so the SPA does not claim it.
-    // It is a tab-surface pin: the projects overview activates no tab, and the witness below needs
-    // one to survive the chord. The chip focuses its own tab and writes its URL.
-    page.locator(format!("[data-tab-activate=\"{project_chip}\"]"))
-        .click(None)
-        .await
-        .expect("the project chip should return to its tab surface");
-    wait_for_container(
-        &page,
-        "the project tab focused before the window chord",
-        |probe| probe.active_entity == PROJECT_ID && probe.active_view == "project",
-    )
-    .await;
-
     let tabs_before_shift = tabs_probe(&page).await.len();
     assert!(
         !press_chord(&page, "w", true, false, true).await,
