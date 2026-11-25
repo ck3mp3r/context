@@ -436,6 +436,24 @@ pub mod update {
         expect_success(response).await
     }
 
+    /// Restart onto the bundle an install staged.
+    ///
+    /// The service owns the one restart sequence; this call only asks for it. A 409
+    /// (nothing staged, or a run in flight) and a 503 (no flow attached) come back
+    /// as the server's error envelope, which the pill renders as a failure.
+    pub async fn restart() -> Result<()> {
+        let url = format!("{}/update/restart", API_BASE);
+        let request = Request::post(&url)
+            .json(&())
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
     /// Report success for an empty response, or the server error envelope.
     async fn expect_success(response: gloo_net::http::Response) -> Result<()> {
         if (200..300).contains(&response.status()) {

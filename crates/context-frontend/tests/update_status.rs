@@ -7,7 +7,7 @@
 #[allow(dead_code)]
 mod update_status;
 
-use update_status::{update_failure, update_phrase};
+use update_status::{update_dismissed, update_failure, update_phrase};
 
 #[test]
 fn the_busy_phases_read_as_progress() {
@@ -29,7 +29,7 @@ fn the_busy_phases_read_as_progress() {
 fn a_finished_install_reads_as_a_restart() {
     assert_eq!(
         update_phrase("ready", None).as_deref(),
-        Some("Update installed — restarting…")
+        Some("Update installed — restart to apply")
     );
 }
 
@@ -84,5 +84,27 @@ fn a_failure_without_detail_reads_as_a_plain_failure() {
         update_failure(Some("   ")),
         "The update failed.",
         "a blank message is not a detail"
+    );
+}
+
+#[test]
+fn a_dismissal_hides_one_candidate_version_only() {
+    assert!(
+        !update_dismissed(None, Some("0.9.0")),
+        "nothing is dismissed before the user dismisses it"
+    );
+    assert!(update_dismissed(Some("0.9.0"), Some("0.9.0")));
+    assert!(
+        !update_dismissed(Some("0.9.0"), Some("0.9.1")),
+        "a newer candidate brings the pill back"
+    );
+}
+
+#[test]
+fn a_dismissal_without_a_candidate_hides_the_bare_notice() {
+    assert!(update_dismissed(Some(""), None));
+    assert!(
+        !update_dismissed(Some(""), Some("0.9.0")),
+        "a named candidate is a different key than the bare notice"
     );
 }

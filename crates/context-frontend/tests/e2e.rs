@@ -25,7 +25,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -89,6 +89,11 @@ const OTHER_TASK_LIST_ID: &str = "e2e00f01";
 
 /// A note no tab shows, so its update message names another entity (decision 15).
 const OTHER_NOTE_ID: &str = "e2e00f02";
+
+/// The candidate the stubbed updater announces, and the newer one that must bring a dismissed
+/// pill back.
+const UPDATE_VERSION: &str = "0.9.0";
+const UPDATE_NEWER_VERSION: &str = "0.9.1";
 
 // region:    --- Test
 
@@ -336,6 +341,83 @@ const KEYDOWN_PROBE: &str = r#"([key, meta, ctrl, shift]) => {
     window.dispatchEvent(event);
     return event.defaultPrevented;
 }"#;
+
+/// The update pill, its controls, and its place in the stacking order.
+///
+/// `pill_z`, `nav_z`, and `surface_z` are the computed z-index values of the pill, the app nav, and
+/// the open inline surface. The hit test reads the pointer at the pill's own centre, which is how a
+/// surface covering the pill proves the stacking order the CSS declares.
+const PILL_PROBE: &str = r#"() => {
+    const pill = document.querySelector('[data-update-pill]');
+    const nav = document.querySelector('nav');
+    const surface = Array.from(document.querySelectorAll('[data-surface]'))
+        .find((candidate) => getComputedStyle(candidate).display !== 'none');
+    const depth = (element) => {
+        if (!element) return null;
+        const value = getComputedStyle(element).zIndex;
+        return value === 'auto' ? 0 : parseInt(value, 10);
+    };
+    const rect = pill ? pill.getBoundingClientRect() : null;
+    const hit = rect
+        ? document.elementFromPoint(
+            Math.floor(rect.left + rect.width / 2),
+            Math.floor(rect.top + rect.height / 2),
+        )
+        : null;
+    const sentence = pill ? pill.querySelector('[data-update-text]') : null;
+    const text = sentence ? (sentence.textContent || '').trim() : '';
+    return {
+        present: pill !== null,
+        phase: pill ? (pill.getAttribute('data-update-phase') || '') : '',
+        text: text,
+        percent: text.includes('%'),
+        spinners: pill ? pill.querySelectorAll('[data-update-spinner]').length : 0,
+        thaw_spinners: pill ? pill.querySelectorAll('.thaw-spinner').length : 0,
+        progress_bars: pill
+            ? Array.from(pill.querySelectorAll('progress, [role="progressbar"]'))
+                .filter((node) => !node.classList.contains('thaw-spinner'))
+                .length
+            : 0,
+        update_cta: pill ? pill.querySelectorAll('[data-update-install]').length : 0,
+        restart_cta: pill ? pill.querySelectorAll('[data-update-restart]').length : 0,
+        dismiss_cta: pill ? pill.querySelectorAll('[data-update-dismiss]').length : 0,
+        position: pill ? getComputedStyle(pill).position : '',
+        pill_z: depth(pill),
+        nav_z: depth(nav),
+        surface_z: depth(surface),
+        right_gap: rect ? Math.round(window.innerWidth - rect.right) : -1,
+        bottom_gap: rect ? Math.round(window.innerHeight - rect.bottom) : -1,
+        in_right_half: rect ? rect.left > window.innerWidth / 2 : false,
+        in_bottom_half: rect ? rect.top > window.innerHeight / 2 : false,
+        hit_in_pill: pill && hit ? pill.contains(hit) : false,
+        hit_in_surface: surface && hit ? surface.contains(hit) : false,
+    };
+}"#;
+
+/// The pill state [`PILL_PROBE`] returns.
+#[derive(Debug, Deserialize)]
+struct PillProbe {
+    present: bool,
+    phase: String,
+    text: String,
+    percent: bool,
+    spinners: usize,
+    thaw_spinners: usize,
+    progress_bars: usize,
+    update_cta: usize,
+    restart_cta: usize,
+    dismiss_cta: usize,
+    position: String,
+    pill_z: Option<i32>,
+    nav_z: Option<i32>,
+    surface_z: Option<i32>,
+    right_gap: i32,
+    bottom_gap: i32,
+    in_right_half: bool,
+    in_bottom_half: bool,
+    hit_in_pill: bool,
+    hit_in_surface: bool,
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
@@ -2410,6 +2492,317 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "a tab is still active after Cmd+Shift+W"
     );
 
+    // === Update pill (one surface, app level, bottom right) ===
+
+    // Pin (idle): nothing is announced, so nothing shows. The mount fetch has long landed.
+    let idle = pill_probe(&page).await;
+    assert!(
+        !idle.present,
+        "an idle update state shows no pill, got {idle:?}"
+    );
+
+    // Pin (available): the candidate version, the Update call to action, and a dismiss control.
+    server.set_update_status("available", Some(UPDATE_VERSION), None);
+    socket.send(&update_state_frame("available", UPDATE_VERSION));
+    let available = wait_for_pill(&page, "available", |probe| {
+        probe.present && probe.phase == "available"
+    })
+    .await;
+    assert_eq!(
+        available.text,
+        format!("Update {UPDATE_VERSION} available"),
+        "the available pill names the candidate version"
+    );
+    assert_eq!(
+        available.update_cta, 1,
+        "the available pill offers Update: {available:?}"
+    );
+    assert_eq!(
+        available.dismiss_cta, 1,
+        "the available pill can be dismissed: {available:?}"
+    );
+    assert_eq!(
+        available.restart_cta, 0,
+        "no restart is offered before an install: {available:?}"
+    );
+
+    // Pin (dismissal, per version): the dismissal names one candidate, so re-announcing the same
+    // version keeps the pill hidden and a newer one brings it back.
+    page.locator("[data-update-pill] [data-update-dismiss]")
+        .click(None)
+        .await
+        .expect("the dismiss control should be clickable");
+    let dismissed = wait_for_pill(&page, "dismissed", |probe| !probe.present).await;
+    assert!(
+        !dismissed.present,
+        "a dismissal hides the pill: {dismissed:?}"
+    );
+
+    let status_calls = server.api_calls("update/status");
+    socket.send(&update_state_frame("available", UPDATE_VERSION));
+    wait_for_api_calls(&server, "update/status", status_calls + 1);
+    settle_frame();
+    let still_dismissed = pill_probe(&page).await;
+    assert!(
+        !still_dismissed.present,
+        "a same-version re-announcement keeps the dismissed pill hidden: {still_dismissed:?}"
+    );
+
+    // Pin (dismissal survives an install): `downloading` arrives without the candidate fields, and
+    // the dismissed candidate stays hidden through it.
+    server.set_update_status("downloading", None, None);
+    socket.send(&update_phase_frame("downloading"));
+    let install_calls = server.api_calls("update/status");
+    wait_for_api_calls(&server, "update/status", install_calls + 1);
+    settle_frame();
+    let during_install = pill_probe(&page).await;
+    assert!(
+        !during_install.present,
+        "a dismissed candidate stays hidden through the install: {during_install:?}"
+    );
+
+    // Pin (stacking): the pill floats above the app chrome but below an open inline surface, which
+    // covers it completely, so a dialog never sits under an update notice.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to chrome home");
+    let host_card = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(host_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render its cards");
+    host_card
+        .click(None)
+        .await
+        .expect("the project card should focus its open tab");
+    page.locator("[data-tab-active=\"true\"] [data-panel=\"task-lists\"]")
+        .click(None)
+        .await
+        .expect("the Task Lists pill should be clickable");
+    let host_task_list = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(host_task_list.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the task lists panel should list the fixture task list");
+    host_task_list
+        .click(None)
+        .await
+        .expect("the task list card should focus its open tab");
+    let task_card = page
+        .locator(format!(
+            "[data-tab-active=\"true\"] [data-task-card=\"{TASK_ID}\"]",
+        ))
+        .first();
+    expect(task_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the task list tab should render the fixture task card");
+    task_card
+        .click(None)
+        .await
+        .expect("the task card should open the task detail surface");
+    wait_for_open_surface(&page, "task-detail").await;
+
+    // Pin (dismissal, newer candidate): a version newer than the dismissed one brings the pill back,
+    // even with a surface open, and the surface still covers it.
+    server.set_update_status("available", Some(UPDATE_NEWER_VERSION), None);
+    socket.send(&update_state_frame("available", UPDATE_NEWER_VERSION));
+    let newer = wait_for_pill(&page, "a newer candidate", |probe| {
+        probe.present && probe.text.contains(UPDATE_NEWER_VERSION)
+    })
+    .await;
+    assert_eq!(
+        newer.text,
+        format!("Update {UPDATE_NEWER_VERSION} available"),
+        "a newer candidate brings the pill back"
+    );
+
+    let layered = pill_probe(&page).await;
+    assert!(
+        layered.present,
+        "the pill stays mounted under an open surface: {layered:?}"
+    );
+    assert_eq!(
+        layered.position, "fixed",
+        "the pill is fixed to the viewport: {layered:?}"
+    );
+    assert_eq!(
+        layered.pill_z,
+        Some(40),
+        "the pill paints at z-index 40: {layered:?}"
+    );
+    assert!(
+        layered.nav_z.unwrap_or_default() < 40,
+        "the pill sits above the app chrome: {layered:?}"
+    );
+    assert_eq!(
+        layered.surface_z,
+        Some(50),
+        "the open inline surface paints at z-index 50: {layered:?}"
+    );
+    assert!(
+        !layered.hit_in_pill,
+        "an open surface covers the pill: {layered:?}"
+    );
+    assert!(
+        layered.hit_in_surface,
+        "the pointer at the pill's centre lands in the open surface: {layered:?}"
+    );
+    assert!(
+        layered.in_right_half && layered.in_bottom_half,
+        "the pill hugs the bottom right corner: {layered:?}"
+    );
+    assert!(
+        (0..=32).contains(&layered.right_gap) && (0..=32).contains(&layered.bottom_gap),
+        "the pill keeps a small gap to both viewport edges: {layered:?}"
+    );
+
+    page.keyboard()
+        .press("Escape", None)
+        .await
+        .expect("the page should accept the Escape key");
+    wait_for_closed_surface(&page).await;
+
+    // Pin (phases): a spinner and the phase sentence, with no percentage and no progress bar. The
+    // phase carries no candidate version, and the pill still shows it: the newer candidate was never
+    // dismissed.
+    server.set_update_status("downloading", None, None);
+    socket.send(&update_phase_frame("downloading"));
+    let downloading = wait_for_pill(&page, "downloading", |probe| {
+        probe.present && probe.phase == "downloading"
+    })
+    .await;
+    assert_eq!(downloading.text, "Downloading update…");
+    assert_eq!(
+        downloading.spinners, 1,
+        "a running phase shows the spinner: {downloading:?}"
+    );
+    assert_eq!(
+        downloading.thaw_spinners, 1,
+        "the phase reuses the thaw Spinner: {downloading:?}"
+    );
+    assert!(
+        !downloading.percent,
+        "a phase shows no percentage: {downloading:?}"
+    );
+    assert_eq!(
+        downloading.progress_bars, 0,
+        "a phase shows no progress bar: {downloading:?}"
+    );
+    assert_eq!(
+        downloading.dismiss_cta, 0,
+        "a running phase carries no dismiss control: {downloading:?}"
+    );
+
+    // Pin (ready): the restart sentence and the Restart call to action.
+    server.set_update_status("ready", Some(UPDATE_NEWER_VERSION), None);
+    socket.send(&update_state_frame("ready", UPDATE_NEWER_VERSION));
+    let ready = wait_for_pill(&page, "ready", |probe| {
+        probe.present && probe.phase == "ready"
+    })
+    .await;
+    assert_eq!(ready.text, "Update installed — restart to apply");
+    assert_eq!(
+        ready.restart_cta, 1,
+        "the ready pill offers Restart: {ready:?}"
+    );
+    assert_eq!(
+        ready.dismiss_cta, 1,
+        "the ready pill can be dismissed: {ready:?}"
+    );
+
+    // Pin (one restart path): the CTA posts to /update/restart and nothing else. A 202 leaves the
+    // staged state in place, which is what a restarting app would report.
+    server.set_restart_status(202);
+    let restart_calls = server.api_calls("update/restart");
+    page.locator("[data-update-pill] [data-update-restart]")
+        .click(None)
+        .await
+        .expect("the Restart control should be clickable");
+    wait_for_api_calls(&server, "update/restart", restart_calls + 1);
+    settle_frame();
+    let restarted = pill_probe(&page).await;
+    assert_eq!(
+        restarted.phase, "ready",
+        "a 202 keeps the restart state: {restarted:?}"
+    );
+
+    // Pin (refused restart): a 409 ends at the failed pill state, not a spinner that never ends.
+    server.set_restart_status(409);
+    page.locator("[data-update-pill] [data-update-restart]")
+        .click(None)
+        .await
+        .expect("the Restart control should be clickable a second time");
+    let refused = wait_for_pill(&page, "a refused restart", |probe| {
+        probe.present && probe.phase == "failed"
+    })
+    .await;
+    assert!(
+        refused.text.contains("restart failed"),
+        "the failed pill reports the refused restart: {refused:?}"
+    );
+    assert_eq!(
+        refused.spinners, 0,
+        "a refused restart ends the spinner: {refused:?}"
+    );
+    assert_eq!(
+        refused.dismiss_cta, 1,
+        "the failed pill is dismissible: {refused:?}"
+    );
+
+    // Pin (no flow): a 503 takes the same failed-pill path.
+    server.set_update_status("ready", Some(UPDATE_NEWER_VERSION), None);
+    socket.send(&update_state_frame("ready", UPDATE_NEWER_VERSION));
+    wait_for_pill(&page, "ready again", |probe| {
+        probe.present && probe.phase == "ready"
+    })
+    .await;
+    server.set_restart_status(503);
+    page.locator("[data-update-pill] [data-update-restart]")
+        .click(None)
+        .await
+        .expect("the Restart control should be clickable after the state moved on");
+    let unavailable = wait_for_pill(&page, "a restart with no flow", |probe| {
+        probe.present && probe.phase == "failed"
+    })
+    .await;
+    assert!(
+        unavailable.text.contains("The restart failed"),
+        "a 503 ends at the failed pill state: {unavailable:?}"
+    );
+    assert_eq!(
+        unavailable.spinners, 0,
+        "a 503 leaves no spinner behind: {unavailable:?}"
+    );
+
+    // Pin (failure surface): the service's own failure message renders in the pill, with a dismiss
+    // control and no action, so no second error surface exists.
+    server.set_update_status("failed", None, Some("GitHub refused the manifest"));
+    socket.send(&update_phase_frame("failed"));
+    let failed = wait_for_pill(&page, "a failed update", |probe| {
+        probe.present
+            && probe.phase == "failed"
+            && probe.text.contains("GitHub refused the manifest")
+    })
+    .await;
+    assert_eq!(
+        failed.dismiss_cta, 1,
+        "the failed pill is dismissible: {failed:?}"
+    );
+    assert_eq!(failed.spinners, 0, "a failure shows no spinner: {failed:?}");
+    assert_eq!(
+        failed.update_cta + failed.restart_cta,
+        0,
+        "a failure offers no action: {failed:?}"
+    );
+
     browser.close().await.expect("the browser should close");
     drop(socket);
     drop(server);
@@ -2634,6 +3027,34 @@ async fn press_chord(page: &Page, key: &str, meta: bool, ctrl: bool, shift: bool
         .expect("the page should accept a synthetic keydown")
 }
 
+/// Reads the update pill in one round trip.
+async fn pill_probe(page: &Page) -> PillProbe {
+    page.evaluate(PILL_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the update pill")
+}
+
+/// Polls the pill until `predicate` holds, so a websocket frame and the status fetch it triggers
+/// have time to reach the app.
+async fn wait_for_pill(
+    page: &Page,
+    what: &str,
+    predicate: impl Fn(&PillProbe) -> bool,
+) -> PillProbe {
+    let deadline = Instant::now() + UI_TIMEOUT;
+    loop {
+        let probe = pill_probe(page).await;
+        if predicate(&probe) {
+            return probe;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the update pill never reached {what}: {probe:?}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
 /// A session holding both stub projects, the second one active.
 ///
 /// The first project therefore restores unmounted, which is the state a close has to activate without
@@ -2715,6 +3136,8 @@ struct StaticServer {
     addr: SocketAddr,
     /// Every request path the server answered, in arrival order: the boot-fetch witness.
     requests: Arc<Mutex<Vec<String>>>,
+    /// The mutable update stub: the pill re-reads `/update/status` after every announcement.
+    update: Arc<UpdateStub>,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -2734,14 +3157,27 @@ impl StaticServer {
         let stop = Arc::clone(&shutdown);
         let requests = Arc::new(Mutex::new(Vec::new()));
         let log = Arc::clone(&requests);
-        let thread = thread::spawn(move || accept_loop(listener, &dist, &log, &stop));
+        let update = Arc::new(UpdateStub::new());
+        let stub = Arc::clone(&update);
+        let thread = thread::spawn(move || accept_loop(listener, &dist, &log, &stub, &stop));
 
         Self {
             addr,
             requests,
+            update,
             shutdown,
             thread: Some(thread),
         }
+    }
+
+    /// Re-stub the state `GET /update/status` reports.
+    fn set_update_status(&self, status: &str, candidate: Option<&str>, message: Option<&str>) {
+        self.update.set_status(status, candidate, message);
+    }
+
+    /// Re-stub the answer `POST /update/restart` gives.
+    fn set_restart_status(&self, status: u16) {
+        self.update.set_restart_status(status);
     }
 
     fn origin(&self) -> String {
@@ -2780,11 +3216,12 @@ fn accept_loop(
     listener: TcpListener,
     dist: &Path,
     requests: &Mutex<Vec<String>>,
+    update: &UpdateStub,
     stop: &AtomicBool,
 ) {
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
-            Ok((stream, _)) => serve_connection(stream, dist, requests),
+            Ok((stream, _)) => serve_connection(stream, dist, requests, update),
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(2));
             }
@@ -2796,7 +3233,12 @@ fn accept_loop(
     }
 }
 
-fn serve_connection(mut stream: TcpStream, dist: &Path, requests: &Mutex<Vec<String>>) {
+fn serve_connection(
+    mut stream: TcpStream,
+    dist: &Path,
+    requests: &Mutex<Vec<String>>,
+    update: &UpdateStub,
+) {
     // A socket accepted from a non-blocking listener inherits the flag, and a
     // non-blocking `write_all` fails with EWOULDBLOCK once the send buffer is
     // full, which truncates every large asset.
@@ -2812,7 +3254,7 @@ fn serve_connection(mut stream: TcpStream, dist: &Path, requests: &Mutex<Vec<Str
         log.push(path.to_string());
     }
 
-    let response = route(path, dist);
+    let response = route(path, dist, update);
     write_response(&mut stream, response);
     close_gracefully(&mut stream);
 }
@@ -3168,9 +3610,78 @@ fn websocket_accept_matches_the_rfc_example() {
 
 // endregion: --- WebSocket stub
 
-fn route(path: &str, dist: &Path) -> Response {
+/// The mutable part of the update stub.
+///
+/// The pill re-reads `/update/status` after every announcement, so a test re-stubs this state and
+/// sends an `UpdateStateChanged` frame to drive one phase.
+struct UpdateStub {
+    status: Mutex<String>,
+    restart: AtomicU16,
+}
+
+impl UpdateStub {
+    fn new() -> Self {
+        Self {
+            status: Mutex::new(update_status_body("idle", None, None)),
+            restart: AtomicU16::new(202),
+        }
+    }
+
+    fn set_status(&self, status: &str, candidate: Option<&str>, message: Option<&str>) {
+        if let Ok(mut body) = self.status.lock() {
+            *body = update_status_body(status, candidate, message);
+        }
+    }
+
+    fn status_body(&self) -> String {
+        self.status
+            .lock()
+            .map(|body| body.clone())
+            .unwrap_or_default()
+    }
+
+    fn set_restart_status(&self, status: u16) {
+        self.restart.store(status, Ordering::Relaxed);
+    }
+
+    fn restart_status(&self) -> u16 {
+        self.restart.load(Ordering::Relaxed)
+    }
+}
+
+/// The `/update/status` body for one phase, in the shape `UpdateStatusPayload` deserializes.
+fn update_status_body(status: &str, candidate: Option<&str>, message: Option<&str>) -> String {
+    let candidate = candidate
+        .map(|version| format!(",\"candidate_version\":\"{version}\""))
+        .unwrap_or_default();
+    let message = message
+        .map(|message| format!(",\"message\":\"{message}\""))
+        .unwrap_or_default();
+
+    format!(
+        "{{\"current_version\":\"{}\",\"status\":\"{status}\"{candidate}{message}}}",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+/// One `/ws` announcement of an update state change, in the shape `UpdateMessage` deserializes.
+fn update_state_frame(status: &str, version: &str) -> String {
+    format!(
+        "{{\"type\":\"UpdateStateChanged\",\"data\":{{\"status\":\"{status}\",\"version\":\"{version}\"}}}}"
+    )
+}
+
+/// One announcement for a phase that names no candidate version, which is how an install's
+/// `downloading` and `installing` frames arrive.
+fn update_phase_frame(status: &str) -> String {
+    format!(
+        "{{\"type\":\"UpdateStateChanged\",\"data\":{{\"status\":\"{status}\",\"version\":null}}}}"
+    )
+}
+
+fn route(path: &str, dist: &Path, update: &UpdateStub) -> Response {
     if let Some(api_path) = path.strip_prefix(API_PREFIX) {
-        return api_response(api_path);
+        return api_response(api_path, update);
     }
 
     // The SPA dials `ws://localhost:8080/dev/ws`, which the harness serves from its own listener
@@ -3183,21 +3694,26 @@ fn route(path: &str, dist: &Path) -> Response {
     static_response(dist, path)
 }
 
-fn api_response(path: &str) -> Response {
+fn api_response(path: &str, update: &UpdateStub) -> Response {
     match path {
         "projects" => Response::json(200, &project_page()),
         "task-lists" => Response::json(200, &task_list_page()),
         "notes" => Response::json(200, &note_page()),
         "repos" => Response::json(200, &empty_page()),
         "skills" => Response::json(200, &skill_page()),
-        "update/status" => Response::json(
-            200,
-            &format!(
-                "{{\"current_version\":\"{}\",\"status\":\"up_to_date\"}}",
-                env!("CARGO_PKG_VERSION")
-            ),
-        ),
+        "update/status" => Response::json(200, &update.status_body()),
         "update/check" => Response::json(200, "{}"),
+        "update/restart" => {
+            let status = update.restart_status();
+            if (200..300).contains(&status) {
+                Response::json(status, "{}")
+            } else {
+                Response::json(
+                    status,
+                    "{\"error\":\"e2e stub: the restart was refused\",\"details\":null}",
+                )
+            }
+        }
         _ => match record_by_path(path) {
             Some(body) => Response::json(200, &body),
             None => Response::json(
@@ -3425,8 +3941,11 @@ fn write_response(stream: &mut TcpStream, response: Response) {
 fn reason_phrase(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        202 => "Accepted",
         404 => "Not Found",
+        409 => "Conflict",
         500 => "Internal Server Error",
+        503 => "Service Unavailable",
         _ => "Error",
     }
 }

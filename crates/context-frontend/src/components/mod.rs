@@ -7,7 +7,7 @@ pub mod sort_controls;
 pub mod task_components;
 pub mod theme_switcher;
 pub mod ui_components;
-pub mod update_banner;
+pub mod update_pill;
 
 pub use inline_surface::{InlineSurface, SurfaceLayout};
 pub use note_components::{MarkdownContent, NoteCard, NoteStackSidebar};
@@ -18,4 +18,4 @@ pub use sort_controls::SortControls;
 pub use task_components::{ExternalRefLink, TaskListCard, TaskListContent};
 pub use theme_switcher::ThemeSwitcher;
 pub use ui_components::{CopyableId, Pagination};
-pub use update_banner::{UpdateBadge, UpdateBanner};
+pub use update_pill::UpdatePill;

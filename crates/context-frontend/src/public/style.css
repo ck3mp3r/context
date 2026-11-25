@@ -640,31 +640,16 @@
       border-color: color-mix(in oklab, var(--ctp-blue) 30%, transparent);
     }
   }
-  .border-ctp-blue\/40 {
-    border-color: var(--ctp-blue);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix(in oklab, var(--ctp-blue) 40%, transparent);
-    }
-  }
   .border-ctp-green {
     border-color: var(--ctp-green);
   }
-  .border-ctp-green\/40 {
-    border-color: var(--ctp-green);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix(in oklab, var(--ctp-green) 40%, transparent);
-    }
+  .border-ctp-mauve {
+    border-color: var(--ctp-mauve);
   }
   .border-ctp-mauve\/30 {
     border-color: var(--ctp-mauve);
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--ctp-mauve) 30%, transparent);
-    }
-  }
-  .border-ctp-mauve\/40 {
-    border-color: var(--ctp-mauve);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix(in oklab, var(--ctp-mauve) 40%, transparent);
     }
   }
   .border-ctp-overlay0 {
@@ -1174,6 +1159,14 @@
         background-color: color-mix(in oklab, var(--ctp-green) 20%, transparent);
       }
     }
+    .hover\:bg-ctp-mauve\/20:hover {
+      background-color: var(--ctp-mauve);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-ctp-mauve\/20:hover {
+        background-color: color-mix(in oklab, var(--ctp-mauve) 20%, transparent);
+      }
+    }
     .hover\:bg-ctp-overlay0:hover {
       background-color: var(--ctp-overlay0);
     }
@@ -1454,6 +1447,23 @@ body {
   to {
     transform: translateX(0);
   }
+}
+.update-pill {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(28rem, calc(100vw - 3rem));
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 0.5rem;
+  background: var(--ctp-surface0);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  font-size: 0.875rem;
+  color: var(--ctp-text);
 }
 .task-detail-split {
   display: flex;

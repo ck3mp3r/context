@@ -8,7 +8,7 @@ use leptos_router::{
 use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
-use crate::components::{ThemeSwitcher, UpdateBadge, UpdateBanner};
+use crate::components::{ThemeSwitcher, UpdatePill};
 use crate::models::{UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
 use crate::tabs::{
@@ -77,7 +77,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     let ws_state = use_websocket_connection();
     let location = use_location();
 
-    // Update state shared by the shell banner, the nav badge, and the settings check.
+    // Update state shared by the pill and the settings check.
     let update_status = RwSignal::new(None::<UpdateStatusPayload>);
     provide_context(update_status);
 
@@ -188,7 +188,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                     class:bg-ctp-red=move || matches!(ws_state.get(), ConnectionReadyState::Closed)>
                 </div>
             </Tooltip>
-            <UpdateBanner status=update_status/>
+            <UpdatePill status=update_status/>
             <nav class="bg-ctp-surface0 border-b border-ctp-surface1 relative">
                 <div class="container mx-auto flex justify-between items-center px-6 py-4">
                     <a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
@@ -198,7 +198,6 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                         <span class="text-xs text-ctp-subtext0 font-mono">
                             {env!("CARGO_PKG_VERSION")}
                         </span>
-                        <UpdateBadge status=update_status/>
                     </a>
                     <div class="flex gap-4 items-center">
                         <div class="flex gap-2 items-center">
