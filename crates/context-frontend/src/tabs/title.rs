@@ -5,8 +5,9 @@
 //! native menu item behind it. The call is best-effort — a webview without the injected
 //! `__TAURI__` global keeps the static window title, and no interaction depends on the call.
 //!
-//! The only IPC this frontend holds is `core:window:allow-set-title` for the two SPA origins
-//! (`crates/context-app/capabilities/spa-ipc.json`).
+//! The IPC this seam adds is one permission, `core:window:allow-set-title`, for the two SPA origins
+//! (`crates/context-app/capabilities/spa-ipc.json`). The print capability that predates it is
+//! unchanged, and no event or close permission is granted.
 
 use js_sys::{Function, Reflect};
 use leptos::prelude::Effect;

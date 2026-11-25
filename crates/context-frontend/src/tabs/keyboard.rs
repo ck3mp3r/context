@@ -1,7 +1,8 @@
 //! One window `keydown` listener: the cycle ring, the tab close, and the chrome shortcut.
 //!
-//! Decision 17: Cmd+W and Cmd+T arrive as a JS `keydown` in the webview. Nothing here goes through
-//! a native menu item or an event bridge, and the frontend holds no `__TAURI__` reference at all.
+//! Decision 17: Cmd+W and Cmd+T arrive as a JS `keydown` in the webview. Nothing in this listener
+//! goes through a native menu item or an event bridge: the webview receives the chord and this
+//! module decides what it does.
 //! macOS Cmd is `meta_key`; Cmd never sets `ctrl_key`, so the two combinations stay apart.
 //!
 //! Cmd+Shift+W is the native Close Window accelerator and is deliberately not handled here. Close a
