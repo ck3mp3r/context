@@ -1376,31 +1376,6 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
     }
 }
 
-#[component]
-pub fn TaskListDetailModal(
-    task_list: ReadSignal<Option<TaskList>>,
-    open: RwSignal<bool>,
-) -> impl IntoView {
-    view! {
-        <InlineSurface
-            name="task-list-detail"
-            label="Task list detail"
-            layout=SurfaceLayout::RightDrawer
-            panel_class="task-list-detail-panel"
-            open=open
-        >
-            {move || {
-                task_list.get().map(|tl| {
-                    let task_list_signal = Signal::derive(move || tl.clone());
-                    view! {
-                        <TaskListContent task_list=task_list_signal/>
-                    }
-                })
-            }}
-        </InlineSurface>
-    }
-}
-
 /// ExternalRefLink component - renders external references as clickable links
 /// Intelligently parses different formats:
 /// - Full URLs: https://jira.company.com/browse/PROJ-123 → displays "PROJ-123", links to full URL

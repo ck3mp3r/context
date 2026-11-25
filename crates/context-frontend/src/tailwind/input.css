@@ -298,11 +298,6 @@ body {
   max-width: 85vw;
 }
 
-.task-list-detail-panel {
-  width: 95vw;
-  max-width: 95vw;
-}
-
 /* Task Card Stacked Effect - indicates parent task with subtasks */
 .task-card-parent {
   position: relative;

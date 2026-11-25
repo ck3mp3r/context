@@ -15,7 +15,7 @@ pub use repo_components::RepoCard;
 pub use search_input::SearchInput;
 pub use skill_components::{SkillCard, SkillDetailModal};
 pub use sort_controls::SortControls;
-pub use task_components::{ExternalRefLink, TaskListCard, TaskListContent, TaskListDetailModal};
+pub use task_components::{ExternalRefLink, TaskListCard, TaskListContent};
 pub use theme_switcher::ThemeSwitcher;
 pub use ui_components::{CopyableId, Pagination};
 pub use update_banner::{UpdateBadge, UpdateBanner};

@@ -5,7 +5,7 @@ use thaw::*;
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
     ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput, SkillCard, SkillDetailModal,
-    SortControls, TaskListCard, TaskListDetailModal,
+    SortControls, TaskListCard,
 };
 use crate::hooks::{use_pagination_in_memory, use_search_in_memory, use_sort_in_memory};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
@@ -57,10 +57,6 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
 
     // Show archived is per-tab list state: it never enters the URL (decision 20).
     let show_archived_task_lists = RwSignal::new(false);
-
-    // Task list detail modal state
-    let task_list_modal_open = RwSignal::new(false);
-    let selected_task_list = RwSignal::new(None::<TaskList>);
 
     // Skill detail modal state
     let skill_modal_open = RwSignal::new(false);
@@ -863,20 +859,6 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
 
             </div>
             // End container div (from line 329)
-
-            // Task list detail modal
-            {move || {
-                if task_list_modal_open.get() {
-                    Some(view! {
-                        <TaskListDetailModal
-                            task_list=selected_task_list.read_only()
-                            open=task_list_modal_open
-                        />
-                    })
-                } else {
-                    None
-                }
-            }}
 
             // Skill detail modal
             {move || {
