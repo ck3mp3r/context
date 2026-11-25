@@ -18,10 +18,8 @@ extern "C" {
 
 #[component]
 pub fn RepoDetail(scope: TabScope) -> impl IntoView {
-    // The tab's entity id never changes for the tab's lifetime, and the parent project is fixed
-    // when the tab opens (ruling L).
+    // The tab's entity id never changes for the tab's lifetime.
     let repo_id = StoredValue::new_local(scope.entity_id().to_string());
-    let project_id = StoredValue::new_local(scope.parent_project().map(str::to_string));
 
     let (repo_data, set_repo_data) = signal(None::<Result<Repo, ApiClientError>>);
 
@@ -43,12 +41,12 @@ pub fn RepoDetail(scope: TabScope) -> impl IntoView {
                     UpdateMessage::RepoDeleted {
                         repo_id: deleted_id,
                     } if *deleted_id == current_id => {
-                        let navigate = leptos_router::hooks::use_navigate();
-                        if let Some(proj_id) = project_id.get_value() {
-                            navigate(&format!("/projects/{}/repos", proj_id), Default::default());
-                        } else {
-                            navigate("/repos", Default::default());
-                        }
+                        // No route exists for this surface any more, and closing the tab is the
+                        // deletion reaction's job: this handler writes nothing.
+                        web_sys::console::log_1(
+                            &format!("Repo {} deleted via WebSocket, tab stays open", deleted_id)
+                                .into(),
+                        );
                     }
                     _ => {}
                 }

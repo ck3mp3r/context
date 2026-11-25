@@ -40,15 +40,12 @@ pub fn NoteDetail(scope: TabScope) -> impl IntoView {
                     UpdateMessage::NoteDeleted {
                         note_id: updated_id,
                     } if updated_id == current_note_id => {
-                        // Note was deleted - navigate back to notes list
+                        // No route exists for this surface any more, and closing the tab is the
+                        // deletion reaction's job: this handler writes nothing.
                         web_sys::console::log_1(
-                            &format!(
-                                "Note {} deleted via WebSocket, navigating back...",
-                                updated_id
-                            )
-                            .into(),
+                            &format!("Note {} deleted via WebSocket, tab stays open", updated_id)
+                                .into(),
                         );
-                        leptos_router::hooks::use_navigate()("/notes", Default::default());
                     }
                     _ => {}
                 }
