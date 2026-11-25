@@ -30,6 +30,7 @@ enum Answer {
     #[default]
     Ok,
     Busy,
+    Invalid,
     Unavailable,
 }
 
@@ -38,6 +39,9 @@ impl Answer {
         match self {
             Self::Ok => Ok(()),
             Self::Busy => Err(UpdateStateError::Busy),
+            Self::Invalid => Err(UpdateStateError::Invalid {
+                message: "an installed update awaits a restart".to_string(),
+            }),
             Self::Unavailable => Err(UpdateStateError::Unavailable),
         }
     }
@@ -288,6 +292,36 @@ async fn a_busy_flow_maps_to_conflict() {
             "the message must name the conflict, got: {message}"
         );
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_check_refused_while_a_staged_bundle_waits_maps_to_conflict() {
+    let flow = FakeFlow::with_answer(Answer::Invalid);
+    let app = test_app(flow.clone()).await;
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/v1/update/check",
+        Some(json!({ "manual": true })),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "a check refused because a staged bundle waits must answer 409, got: {body}"
+    );
+    assert_eq!(
+        flow.calls(),
+        vec!["check manual=true".to_string()],
+        "the trigger still reaches the flow, which owns the refusal"
+    );
+    let message = body["error"].as_str().expect("error envelope carries text");
+    assert!(
+        message.contains("restart"),
+        "the refusal must name the restart the staged bundle waits on, got: {message}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

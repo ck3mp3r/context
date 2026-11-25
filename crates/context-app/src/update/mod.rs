@@ -167,6 +167,12 @@ impl UpdateFlow for ServiceUpdateFlow {
 
         claim(&self.busy)?;
 
+        // The gate runs before the state moves: a check would write `checking`
+        // and then overwrite the `ready` a staged bundle waits on, so the pill
+        // would lose its restart offer while the bundle waits for the next
+        // login. A refusal writes nothing and broadcasts nothing.
+        check_gate(&self.state_path, &self.busy)?;
+
         if let Err(error) = transition(
             &self.state_path,
             &self.notifier,
@@ -367,6 +373,48 @@ pub(crate) fn restart_target(state: &UpdateState) -> UpdateStateResult<()> {
 pub(crate) fn restart_gate(state_path: &Path, busy: &Mutex<bool>) -> UpdateStateResult<()> {
     let target = match load_state(state_path) {
         Ok(state) => restart_target(&state),
+        Err(error) => Err(UpdateStateError::Io {
+            message: error.to_string(),
+        }),
+    };
+
+    if target.is_err() {
+        release(busy);
+    }
+
+    target
+}
+
+/// Whether `state` allows a check to start.
+///
+/// Only `ready` refuses: an install already staged a bundle and the process has
+/// not restarted on it, so a check would replace the state that carries the
+/// restart offer and orphan the bundle until the next login. Every other status
+/// has nothing waiting and checks as before.
+pub(crate) fn check_target(state: &UpdateState) -> UpdateStateResult<()> {
+    match state.status {
+        UpdateStatus::Ready => Err(UpdateStateError::Invalid {
+            message: "an installed update awaits a restart".to_string(),
+        }),
+        UpdateStatus::Idle
+        | UpdateStatus::Checking
+        | UpdateStatus::Available
+        | UpdateStatus::Downloading
+        | UpdateStatus::Installing
+        | UpdateStatus::Failed => Ok(()),
+    }
+}
+
+/// Gate a check trigger against the state, releasing the claim on a refusal.
+///
+/// The trigger runs this after it claims the flow and before it records
+/// `checking`, so a state that keeps a staged bundle answers 409 without
+/// rewriting the state or broadcasting a change. A refused trigger leaves the
+/// flow free for the next one; an accepted trigger keeps the claim for the run
+/// it spawns.
+pub(crate) fn check_gate(state_path: &Path, busy: &Mutex<bool>) -> UpdateStateResult<()> {
+    let target = match load_state(state_path) {
+        Ok(state) => check_target(&state),
         Err(error) => Err(UpdateStateError::Io {
             message: error.to_string(),
         }),

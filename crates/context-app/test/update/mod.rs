@@ -6,9 +6,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{
-    CheckDecision, CheckGate, claim, dev_build_refusal, read_state, release, restart_gate,
-    restart_sequence, restart_target, settled_after_install, should_check, state_available,
-    state_with, transition,
+    CheckDecision, CheckGate, check_gate, check_target, claim, dev_build_refusal, read_state,
+    release, restart_gate, restart_sequence, restart_target, settled_after_install, should_check,
+    state_available, state_with, transition,
 };
 use crate::update::releases::{Candidate, manifest_url};
 use context_core::settings::Settings;
@@ -341,6 +341,84 @@ fn state_file(state: &UpdateState) -> (TempDir, PathBuf) {
     context_core::update::write(&path, state).expect("the state file writes");
 
     (dir, path)
+}
+
+#[test]
+fn a_ready_state_refuses_a_check() {
+    let refusal = check_target(&ready_state());
+
+    assert!(
+        matches!(refusal, Err(UpdateStateError::Invalid { ref message }) if message.contains("restart")),
+        "a staged bundle must refuse a check and name the restart, got: {refusal:?}"
+    );
+}
+
+#[test]
+fn every_other_status_opens_the_check_gate() {
+    for status in [
+        UpdateStatus::Idle,
+        UpdateStatus::Checking,
+        UpdateStatus::Available,
+        UpdateStatus::Downloading,
+        UpdateStatus::Installing,
+        UpdateStatus::Failed,
+    ] {
+        let state = UpdateState {
+            status,
+            ..ready_state()
+        };
+
+        assert!(
+            check_target(&state).is_ok(),
+            "{status:?} must check exactly as before"
+        );
+    }
+}
+
+#[test]
+fn a_check_gate_refuses_ready_and_keeps_the_staged_bundle() {
+    let (_dir, path) = state_file(&ready_state());
+    let busy = Mutex::new(false);
+    claim(&busy).expect("the trigger claims the flow");
+
+    let outcome = check_gate(&path, &busy);
+
+    assert!(
+        matches!(outcome, Err(UpdateStateError::Invalid { .. })),
+        "a check while a staged bundle waits must answer 409, got: {outcome:?}"
+    );
+    assert!(
+        claim(&busy).is_ok(),
+        "a refused check must release the claim, so the next trigger is not Busy"
+    );
+
+    let stored = read_state(&path);
+    assert_eq!(
+        stored.status,
+        UpdateStatus::Ready,
+        "a refused check writes no state, so the pill keeps its restart offer"
+    );
+    assert_eq!(
+        stored.candidate_version.as_deref(),
+        Some("0.9.0"),
+        "a refused check keeps the staged candidate"
+    );
+}
+
+#[test]
+fn a_check_gate_holds_the_claim_while_a_candidate_waits_for_consent() {
+    let (_dir, path) = state_file(&available_state());
+    let busy = Mutex::new(false);
+    claim(&busy).expect("the trigger claims the flow");
+
+    assert!(
+        check_gate(&path, &busy).is_ok(),
+        "an available candidate does not block a check"
+    );
+    assert!(
+        matches!(claim(&busy), Err(UpdateStateError::Busy)),
+        "the claim stays held for the run the trigger spawns"
+    );
 }
 
 #[test]
