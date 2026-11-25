@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 use std::env;
 use std::sync::Arc;
 
-use context_core::{get_config_path, settings};
+use context_core::{settings, try_get_config_path};
 
 use crate::cli::error::CliResult;
 
@@ -130,8 +130,13 @@ impl ApiClient {
 /// The stored host is ignored: the server may bind `0.0.0.0`, which no client
 /// can dial, so the port is always reached through `localhost`. A missing,
 /// unreadable, unparsable, or invalid settings file yields the profile default.
+/// So does an environment that names no config root: the client still dials.
 fn stored_base_url() -> String {
-    let Ok(stored) = settings::load(&get_config_path()) else {
+    let Some(path) = try_get_config_path() else {
+        return DEFAULT_API_URL.to_string();
+    };
+
+    let Ok(stored) = settings::load(&path) else {
         return DEFAULT_API_URL.to_string();
     };
 

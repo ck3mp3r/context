@@ -8,7 +8,7 @@ use miette::{IntoDiagnostic, Result};
 use context_core::Database;
 use context_core::settings::{self, Settings};
 use context_core::update::NoUpdateFlow;
-use context_core::{get_config_path, get_db_path, set_base_path};
+use context_core::{get_db_path, set_base_path, try_get_config_path};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::api::{self, Config};
@@ -39,6 +39,10 @@ pub async fn run(
     if let Some(home_path) = home {
         set_base_path(home_path);
     }
+
+    // A legacy XDG config file reaches the root this run reads before the
+    // settings are used.
+    settings::migrate_legacy_config();
 
     // Use the singleton to get db path
     let db_path = get_db_path();
@@ -90,9 +94,12 @@ pub async fn run(
 ///
 /// A file that cannot be read or parsed, or that carries values outside the
 /// accepted range, is reported and ignored: the server still starts, on the
-/// built-in defaults.
+/// built-in defaults. An environment that names no config root yields the same
+/// defaults, without a panic.
 pub(crate) fn stored_settings() -> Settings {
-    let path = get_config_path();
+    let Some(path) = try_get_config_path() else {
+        return Settings::default();
+    };
 
     let stored = match settings::load(&path) {
         Ok(stored) => stored,

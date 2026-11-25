@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use context_core::settings::{self, Settings, StoredSettings};
 use context_core::update::UpdateFlow;
-use context_core::{Database, get_config_path, get_db_path};
+use context_core::{Database, get_db_path, try_get_config_path};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::api::{self, Config};
@@ -59,9 +59,12 @@ fn profile_api_port() -> u16 {
 /// Stored settings for this run: the file when it is readable and valid.
 ///
 /// A file that cannot be read or parsed, or that carries values outside the
-/// accepted range, is reported and ignored, so the app still starts.
+/// accepted range, is reported and ignored, so the app still starts. An
+/// environment that names no config root yields the same defaults.
 fn stored_settings() -> StoredSettings {
-    let path = get_config_path();
+    let Some(path) = try_get_config_path() else {
+        return StoredSettings::default();
+    };
 
     let stored = match settings::load(&path) {
         Ok(stored) => stored,

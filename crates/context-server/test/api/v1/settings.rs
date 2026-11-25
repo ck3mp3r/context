@@ -61,6 +61,14 @@ async fn json_body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&body).expect("body is JSON")
 }
 
+/// Put a variable back the way this test found it.
+fn restore_env(name: &str, previous: Option<std::ffi::OsString>) {
+    match previous {
+        Some(value) => unsafe { std::env::set_var(name, value) },
+        None => unsafe { std::env::remove_var(name) },
+    }
+}
+
 async fn get_settings(app: &axum::Router) -> (StatusCode, Value) {
     let response = app
         .clone()
@@ -364,5 +372,43 @@ fn settings_paths_are_registered_in_the_openapi_document() {
         document.paths.paths.contains_key("/api/v1/settings"),
         "OpenAPI paths must include /api/v1/settings, got: {:?}",
         document.paths.paths.keys().collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[serial]
+async fn get_settings_without_a_config_root_returns_500() {
+    clear_base_path();
+    let app = test_app(test_running()).await;
+
+    let previous_home = std::env::var_os("HOME");
+    let previous_xdg = std::env::var_os("XDG_CONFIG_HOME");
+    unsafe {
+        std::env::remove_var("HOME");
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+    #[cfg(target_os = "windows")]
+    let previous_appdata = std::env::var_os("APPDATA");
+    #[cfg(target_os = "windows")]
+    unsafe {
+        std::env::remove_var("APPDATA");
+    };
+
+    let (status, body) = get_settings(&app).await;
+
+    restore_env("HOME", previous_home);
+    restore_env("XDG_CONFIG_HOME", previous_xdg);
+    #[cfg(target_os = "windows")]
+    restore_env("APPDATA", previous_appdata);
+
+    assert_eq!(
+        status,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "a settings handler without a config root must answer 500, not panic"
+    );
+    let message = body["error"].as_str().expect("error envelope carries text");
+    assert!(
+        message.contains("HOME"),
+        "the message must name the missing environment, got: {message}"
     );
 }

@@ -52,6 +52,14 @@ impl Drop for EnvUrlGuard {
     }
 }
 
+/// Put a variable back the way this test found it.
+fn restore_env(name: &str, previous: Option<std::ffi::OsString>) {
+    match previous {
+        Some(value) => unsafe { std::env::set_var(name, value) },
+        None => unsafe { std::env::remove_var(name) },
+    }
+}
+
 #[test]
 fn test_new_with_explicit_url() {
     init_crypto();
@@ -216,4 +224,38 @@ fn invalid_stored_port_uses_the_profile_port() {
     drop(base);
 
     assert_eq!(base_url, format!("http://localhost:{PROFILE_PORT}"));
+}
+
+#[test]
+#[serial]
+fn missing_config_root_uses_the_profile_port() {
+    init_crypto();
+    let _env = EnvUrlGuard::clear();
+    clear_base_path();
+
+    let previous_home = std::env::var_os("HOME");
+    let previous_xdg = std::env::var_os("XDG_CONFIG_HOME");
+    unsafe {
+        std::env::remove_var("HOME");
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+    #[cfg(target_os = "windows")]
+    let previous_appdata = std::env::var_os("APPDATA");
+    #[cfg(target_os = "windows")]
+    unsafe {
+        std::env::remove_var("APPDATA");
+    };
+
+    let base_url = ApiClient::new(None).base_url().to_string();
+
+    restore_env("HOME", previous_home);
+    restore_env("XDG_CONFIG_HOME", previous_xdg);
+    #[cfg(target_os = "windows")]
+    restore_env("APPDATA", previous_appdata);
+
+    assert_eq!(
+        base_url,
+        format!("http://localhost:{PROFILE_PORT}"),
+        "a missing config root should fall back to the profile port"
+    );
 }

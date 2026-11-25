@@ -1,15 +1,44 @@
 //! Path resolution for c5t directories.
 //!
-//! Provides XDG-compliant path resolution with global base path override.
+//! ## Two roots, one profile name
 //!
-//! ## Singleton Pattern for Base Path
+//! Data and configuration resolve independently:
+//! - **Data** follows `XDG_DATA_HOME`, else `~/.local/share`. It holds
+//!   `context.db` and the sync repository.
+//! - **Configuration** follows the platform config root: `~/Library/Application
+//!   Support` on macOS, `%APPDATA%` on Windows, `~/.config` elsewhere. It holds
+//!   `config.toml`.
 //!
-//! This module implements a SINGLETON pattern for path resolution:
-//! - **API startup**: Calls `set_base_path(XDG_DATA_HOME or ~/.local/share)`
-//! - **Test startup**: Calls `set_base_path(/tmp/test-xyz)`
-//! - **All code**: Calls `get_data_dir()` → uses singleton base + constant (c5t-dev or c5t)
+//! The profile name `c5t-dev` (debug) or `c5t` (release) is appended to both, so a
+//! debug build never shares a database or a settings file with a release build.
+//! The split stays on purpose: it isolates the development server from the
+//! production one.
 //!
-//! This ensures ONE canonical function knows the base path, following SOLID principles.
+//! ## One config location for the app, the service and the CLI
+//!
+//! `XDG_CONFIG_HOME` does NOT move the configuration directory. The app and
+//! `context-service` start from launchd or Finder without the shell's
+//! environment, while a terminal CLI inherits it; honoring the variable would
+//! give the same profile two different `config.toml` files. Ignoring it makes the
+//! location deterministic. The data root still honors `XDG_DATA_HOME`, because no
+//! launchd process opens the database.
+//!
+//! ## Base path override
+//!
+//! A singleton override replaces both roots:
+//! - **API startup**: Calls `set_base_path(<--home value>)`
+//! - **Test startup**: Calls `set_base_path(<temp dir>)`
+//!
+//! The override always wins over the environment. [`clear_base_path`] restores
+//! environment resolution.
+//!
+//! ## Last resort
+//!
+//! [`try_get_config_dir`] and [`try_get_config_path`] return `None` when no
+//! environment variable names a config root. [`get_config_dir`] and
+//! [`get_config_path`] cannot fail: they fall back to `{temp_dir}/{profile}/`.
+//! Only callers that cannot distinguish use the infallible form; every
+//! `config.toml` consumer resolves through the `try_*` lookups.
 
 use std::env;
 use std::path::PathBuf;
@@ -107,57 +136,83 @@ pub fn get_db_path() -> PathBuf {
 
 /// Get the configuration directory for c5t.
 ///
-/// Uses the global base path singleton if set, otherwise falls back to
-/// `XDG_CONFIG_HOME` and then to the platform config root.
+/// Uses the global base path singleton if set, otherwise the platform config
+/// root. `XDG_CONFIG_HOME` does not participate: the location is identical for
+/// the app, the service and the CLI.
 ///
 /// # Returns
 /// Path to the configuration directory:
 /// - If base path set: `{base_path}/c5t-dev/` (debug) or `{base_path}/c5t/` (release)
-/// - If `XDG_CONFIG_HOME` set: `{XDG_CONFIG_HOME}/c5t-dev/` (debug) or `.../c5t/` (release)
 /// - Otherwise: `{platform config root}/c5t-dev/` (debug) or `.../c5t/` (release),
 ///   where the platform config root is `~/Library/Application Support` on macOS,
 ///   `%APPDATA%` on Windows and `~/.config` on other platforms
+/// - When no environment variable names a root: `{temp_dir}/c5t-dev/` (debug) or
+///   `{temp_dir}/c5t/` (release)
 ///
-/// # Panics
-/// Panics if the platform config root cannot be resolved and no base path
-/// override is set.
+/// The last resort is silent. Callers that must distinguish use
+/// [`try_get_config_dir`].
 pub fn get_config_dir() -> PathBuf {
+    try_get_config_dir().unwrap_or_else(|| env::temp_dir().join(DATA_DIR_NAME))
+}
+
+/// Resolve the configuration directory, or `None` when no root is named.
+///
+/// The base path override wins. Otherwise the platform config root resolves
+/// from `APPDATA` on Windows and from `HOME` elsewhere; both unset yields
+/// `None`, never a panic.
+pub fn try_get_config_dir() -> Option<PathBuf> {
     let base_path = BASE_PATH_OVERRIDE.lock().unwrap();
 
-    let config_home = if let Some(path) = base_path.as_ref() {
-        path.clone()
-    } else {
-        env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| default_config_home())
+    let config_home = match base_path.as_ref() {
+        Some(path) => path.clone(),
+        None => default_config_home()?,
     };
 
-    config_home.join(DATA_DIR_NAME)
+    Some(config_home.join(DATA_DIR_NAME))
 }
 
 /// Get settings file path (config_dir/config.toml).
 ///
 /// # Returns
-/// Path to settings file: `{config_dir}/config.toml`
+/// Path to settings file: `{config_dir}/config.toml`, with the documented
+/// temp-directory last resort when no config root resolves.
 pub fn get_config_path() -> PathBuf {
     get_config_dir().join(CONFIG_FILE_NAME)
 }
 
-/// OS text-config root used when `XDG_CONFIG_HOME` is unset.
-fn default_config_home() -> PathBuf {
+/// Resolve the settings file path, or `None` when no config root is named.
+pub fn try_get_config_path() -> Option<PathBuf> {
+    try_get_config_dir().map(|dir| dir.join(CONFIG_FILE_NAME))
+}
+
+/// Legacy settings file location: `$XDG_CONFIG_HOME/c5t[-dev]/config.toml`.
+///
+/// This is the one path older builds wrote when `XDG_CONFIG_HOME` was set. The
+/// migration in [`crate::settings`] copies it into the native config root once.
+/// Returns `None` when `XDG_CONFIG_HOME` is unset.
+pub fn legacy_config_path() -> Option<PathBuf> {
+    env::var("XDG_CONFIG_HOME").ok().map(|home| {
+        PathBuf::from(home)
+            .join(DATA_DIR_NAME)
+            .join(CONFIG_FILE_NAME)
+    })
+}
+
+/// Platform text-config root, or `None` when no environment variable names it.
+fn default_config_home() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         if let Ok(appdata) = env::var("APPDATA") {
-            return PathBuf::from(appdata);
+            return Some(PathBuf::from(appdata));
         }
     }
 
-    let home = env::var("HOME").expect("HOME environment variable not set");
+    let home = env::var("HOME").ok()?;
 
     #[cfg(target_os = "macos")]
     let config_home = PathBuf::from(home).join("Library/Application Support");
     #[cfg(not(target_os = "macos"))]
     let config_home = PathBuf::from(home).join(".config");
 
-    config_home
+    Some(config_home)
 }

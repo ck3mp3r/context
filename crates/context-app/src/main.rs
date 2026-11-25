@@ -31,6 +31,10 @@ fn main() -> tauri::Result<()> {
             lifecycle::reload_after_web_content_terminate(webview);
         })
         .setup(move |app| {
+            // A legacy XDG config file reaches the native root before the port
+            // decision reads it.
+            context_core::settings::migrate_legacy_config();
+
             // Regular policy: the GUI owns a Dock icon and a Cmd+Tab entry.
             app.handle()
                 .set_activation_policy(tauri::ActivationPolicy::Regular)?;

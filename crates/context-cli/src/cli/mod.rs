@@ -714,6 +714,10 @@ enum TaskListCommands {
 
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
+
+    // One-time legacy config migration, before any command reads the settings.
+    context_core::settings::migrate_legacy_config();
+
     let api_client = api_client::ApiClient::new(cli.api_url);
 
     match cli.command {

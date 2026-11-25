@@ -6,6 +6,7 @@
 //! every gap. [`load`] and [`write()`] are plain serde + toml file I/O: no platform
 //! APIs, no locking, no async, and no opinion on which process owns the file.
 
+use std::io::Write;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
@@ -13,7 +14,7 @@ use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::paths::get_data_dir;
+use crate::paths::{get_data_dir, legacy_config_path, try_get_config_path};
 
 #[cfg(debug_assertions)]
 const DEFAULT_API_PORT: u16 = 3738;
@@ -164,6 +165,47 @@ pub fn write(path: &Path, stored: &StoredSettings) -> SettingsResult<()> {
         path: path.display().to_string(),
         source,
     })
+}
+
+/// Copy a legacy config file into the native config directory, once.
+///
+/// Older builds honored `XDG_CONFIG_HOME`, so a user who set it kept
+/// `config.toml` in `$XDG_CONFIG_HOME/c5t[-dev]/`. The native root is the one
+/// the app, the service and the CLI read. This copies the legacy file when the
+/// native file is absent and the legacy one exists.
+///
+/// The copy is one-time and non-destructive: an existing native file wins, and
+/// a second call finds it and does nothing. A missing environment root, an
+/// unreadable legacy file, or a failed write leaves the filesystem untouched
+/// and is not an error, so startup never fails on migration.
+pub fn migrate_legacy_config() {
+    let Some(native) = try_get_config_path() else {
+        return;
+    };
+    if native.exists() {
+        return;
+    }
+    let Some(legacy) = legacy_config_path() else {
+        return;
+    };
+    let Ok(contents) = std::fs::read(&legacy) else {
+        return;
+    };
+    if let Some(parent) = native.parent()
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+    // `create_new` fails when another process created the file first: the
+    // native file is never overwritten.
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&native)
+    else {
+        return;
+    };
+    let _ = file.write_all(&contents);
 }
 
 /// Reject stored values that fall outside the accepted range.

@@ -168,6 +168,7 @@ fn test_verbosity_levels() {
 }
 
 #[test]
+#[serial]
 fn test_get_db_path_with_custom_home() {
     // Test get_db_path with custom home directory
     use context_core::{get_db_path, set_base_path};
@@ -176,16 +177,19 @@ fn test_get_db_path_with_custom_home() {
     let custom_home = PathBuf::from("/custom/home");
     set_base_path(custom_home.clone());
     let db_path = get_db_path();
+    clear_base_path();
 
     assert!(db_path.starts_with(custom_home));
     assert!(db_path.to_string_lossy().contains("c5t"));
 }
 
 #[test]
+#[serial]
 fn test_get_db_path_without_home() {
     // Test get_db_path with default home directory
     use context_core::get_db_path;
 
+    clear_base_path();
     let db_path = get_db_path();
 
     // Should use default path

@@ -1,6 +1,6 @@
 //! Tests for settings.rs.
 
-use crate::settings::{load, resolve, validate_stored, write};
+use crate::settings::{load, migrate_legacy_config, resolve, validate_stored, write};
 use crate::*;
 use serial_test::serial;
 use std::env;
@@ -13,6 +13,35 @@ use tempfile::TempDir;
 const PROFILE_DIR: &str = "c5t-dev";
 #[cfg(not(debug_assertions))]
 const PROFILE_DIR: &str = "c5t";
+
+/// Environment variable restored when the guard drops.
+struct EnvGuard {
+    name: &'static str,
+    previous: Option<String>,
+}
+
+impl EnvGuard {
+    fn set(name: &'static str, value: &std::ffi::OsStr) -> Self {
+        let previous = env::var(name).ok();
+        unsafe { env::set_var(name, value) };
+        Self { name, previous }
+    }
+
+    fn remove(name: &'static str) -> Self {
+        let previous = env::var(name).ok();
+        unsafe { env::remove_var(name) };
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(value) => unsafe { env::set_var(self.name, value) },
+            None => unsafe { env::remove_var(self.name) },
+        }
+    }
+}
 
 /// Stored settings with every field set.
 fn full_stored() -> StoredSettings {
@@ -47,32 +76,79 @@ fn config_path_sits_in_the_profile_config_dir() {
 #[serial]
 fn base_path_override_replaces_the_config_root() {
     let base = TempDir::new().expect("test temp dir");
+    let xdg = TempDir::new().expect("xdg temp dir");
+    let _xdg = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().as_os_str());
     set_base_path(base.path().to_path_buf());
 
     let config_dir = get_config_dir();
 
     clear_base_path();
 
+    assert!(
+        config_dir.starts_with(base.path()),
+        "base path override should win over XDG_CONFIG_HOME, got {config_dir:?}"
+    );
     assert_eq!(
         config_dir,
         base.path().join(PROFILE_DIR),
         "base path override should replace the config root"
     );
+    assert!(
+        config_dir.to_string_lossy().contains("c5t"),
+        "the override path should carry the profile name, got {config_dir:?}"
+    );
 }
 
 #[test]
 #[serial]
-fn xdg_config_home_replaces_the_config_root() {
+fn xdg_config_home_does_not_move_the_config_root() {
     clear_base_path();
-    unsafe { env::set_var("XDG_CONFIG_HOME", "/tmp/c5t-settings-xdg") };
+    let xdg = TempDir::new().expect("xdg temp dir");
+    let _xdg = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().as_os_str());
 
     let config_dir = get_config_dir();
+    let home = PathBuf::from(env::var("HOME").expect("HOME is set"));
 
-    unsafe { env::remove_var("XDG_CONFIG_HOME") };
+    #[cfg(target_os = "macos")]
+    let expected = home.join("Library/Application Support").join(PROFILE_DIR);
+    #[cfg(not(target_os = "macos"))]
+    let expected = home.join(".config").join(PROFILE_DIR);
 
+    assert!(
+        !config_dir.starts_with(xdg.path()),
+        "XDG_CONFIG_HOME must not move the config root, got {config_dir:?}"
+    );
     assert_eq!(
-        config_dir,
-        PathBuf::from("/tmp/c5t-settings-xdg").join(PROFILE_DIR)
+        config_dir, expected,
+        "a set XDG_CONFIG_HOME should leave the native config root in place"
+    );
+}
+
+#[test]
+#[serial]
+fn config_resolution_does_not_panic_without_home() {
+    clear_base_path();
+    let _home = EnvGuard::remove("HOME");
+    let _xdg = EnvGuard::remove("XDG_CONFIG_HOME");
+    #[cfg(target_os = "windows")]
+    let _appdata = EnvGuard::remove("APPDATA");
+
+    let config_dir = try_get_config_dir();
+    let config_path = try_get_config_path();
+    let fallback = get_config_path();
+
+    assert!(
+        config_dir.is_none(),
+        "no HOME means no config dir, got {config_dir:?}"
+    );
+    assert!(
+        config_path.is_none(),
+        "no HOME means no config path, got {config_path:?}"
+    );
+    assert_eq!(
+        fallback,
+        env::temp_dir().join(PROFILE_DIR).join("config.toml"),
+        "the infallible lookup should fall back to the temp directory"
     );
 }
 
@@ -93,6 +169,69 @@ fn config_root_falls_back_to_the_platform_default() {
     assert_eq!(
         config_dir, expected,
         "unset XDG_CONFIG_HOME should fall back to the platform config root"
+    );
+}
+
+#[test]
+#[serial]
+fn migration_copies_a_legacy_config_once() {
+    let native_base = TempDir::new().expect("native temp dir");
+    let legacy_home = TempDir::new().expect("legacy temp dir");
+    let _xdg = EnvGuard::set("XDG_CONFIG_HOME", legacy_home.path().as_os_str());
+    set_base_path(native_base.path().to_path_buf());
+
+    let legacy_dir = legacy_home.path().join(PROFILE_DIR);
+    std::fs::create_dir_all(&legacy_dir).expect("legacy config dir creates");
+    std::fs::write(legacy_dir.join("config.toml"), "port = 4040\n").expect("legacy file writes");
+
+    migrate_legacy_config();
+
+    let native = get_config_path();
+    let copied = std::fs::read_to_string(&native).expect("the native file exists after migration");
+
+    // A second run must not copy again: a changed native file stays changed.
+    std::fs::write(&native, "port = 5050\n").expect("the native file rewrites");
+    migrate_legacy_config();
+    let after_second = std::fs::read_to_string(&native).expect("the native file survives");
+
+    clear_base_path();
+
+    assert_eq!(
+        copied, "port = 4040\n",
+        "the migration should copy the legacy contents"
+    );
+    assert_eq!(
+        after_second, "port = 5050\n",
+        "a second migration should not re-copy the legacy file"
+    );
+}
+
+#[test]
+#[serial]
+fn migration_keeps_the_native_file_when_both_exist() {
+    let native_base = TempDir::new().expect("native temp dir");
+    let legacy_home = TempDir::new().expect("legacy temp dir");
+    let _xdg = EnvGuard::set("XDG_CONFIG_HOME", legacy_home.path().as_os_str());
+    set_base_path(native_base.path().to_path_buf());
+
+    let native = get_config_path();
+    std::fs::create_dir_all(native.parent().expect("native config dir"))
+        .expect("native dir creates");
+    std::fs::write(&native, "port = 5050\n").expect("native file writes");
+
+    let legacy_dir = legacy_home.path().join(PROFILE_DIR);
+    std::fs::create_dir_all(&legacy_dir).expect("legacy config dir creates");
+    std::fs::write(legacy_dir.join("config.toml"), "port = 4040\n").expect("legacy file writes");
+
+    migrate_legacy_config();
+
+    let native_contents = std::fs::read_to_string(&native).expect("the native file stays readable");
+
+    clear_base_path();
+
+    assert_eq!(
+        native_contents, "port = 5050\n",
+        "an existing native file must win over the legacy one"
     );
 }
 

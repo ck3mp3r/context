@@ -17,8 +17,8 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use context_core::Database;
-use context_core::get_config_path;
 use context_core::settings::{self, Settings, SettingsError, StoredSettings};
+use context_core::try_get_config_path;
 use context_core::update::UpdateFlow;
 use context_sync::GitOps;
 use serde::{Deserialize, Serialize};
@@ -230,7 +230,11 @@ impl SettingsValues {
 pub async fn get_settings<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
     State(state): State<AppState<D, G, U>>,
 ) -> Result<Json<SettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let stored = settings::load(&get_config_path()).map_err(internal_error)?;
+    let Some(path) = try_get_config_path() else {
+        return Err(missing_config_root());
+    };
+
+    let stored = settings::load(&path).map_err(internal_error)?;
 
     Ok(Json(settings_response(
         &stored,
@@ -259,7 +263,11 @@ pub async fn put_settings<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
     let stored = values.into_stored().map_err(bad_request)?;
     settings::validate_stored(&stored).map_err(bad_request)?;
 
-    settings::write(&get_config_path(), &stored).map_err(internal_error)?;
+    let Some(path) = try_get_config_path() else {
+        return Err(missing_config_root());
+    };
+
+    settings::write(&path, &stored).map_err(internal_error)?;
 
     Ok(Json(settings_response(
         &stored,
@@ -301,6 +309,16 @@ fn internal_error(error: SettingsError) -> (StatusCode, Json<ErrorResponse>) {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ErrorResponse {
             error: error.to_string(),
+        }),
+    )
+}
+
+/// Server error: no environment variable names the settings directory.
+fn missing_config_root() -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse {
+            error: "cannot locate the settings file: neither APPDATA nor HOME is set".to_string(),
         }),
     )
 }
