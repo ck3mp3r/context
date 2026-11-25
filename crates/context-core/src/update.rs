@@ -115,6 +115,15 @@ pub type UpdateStateResult<T> = Result<T, UpdateStateError>;
 ///
 /// A trigger that would start work while another run is in flight answers
 /// [`UpdateStateError::Busy`] unless a decline above applies.
+///
+/// A claim is not a promise that the trigger runs. A check claims the flow and
+/// then refuses while the state is [`UpdateStatus::Ready`]: an install already
+/// staged a bundle the running process has not restarted on, and a check would
+/// overwrite the state that carries it. The refusal answers
+/// [`UpdateStateError::Invalid`] ("an installed update awaits a restart"), writes
+/// no state, broadcasts nothing, and releases the claim, so the next trigger is
+/// not [`UpdateStateError::Busy`]. It runs after the claim, so it is a refusal,
+/// not a decline.
 pub trait UpdateFlow: Send + Sync {
     /// Start a check; `manual` marks a check the user asked for.
     fn check(&self, manual: bool) -> UpdateStateResult<()>;

@@ -110,7 +110,7 @@ pub async fn get_update_status<D: Database, G: GitOps + Send + Sync, U: UpdateFl
     request_body = UpdateCheckRequest,
     responses(
         (status = 202, description = "Check started; progress arrives through /ws"),
-        (status = 409, description = "A check or install already runs", body = ErrorResponse),
+        (status = 409, description = "A check or install already runs, or an installed update awaits a restart", body = ErrorResponse),
         (status = 503, description = "No update flow is attached", body = ErrorResponse)
     )
 )]
