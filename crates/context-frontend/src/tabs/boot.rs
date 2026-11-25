@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::api;
 
-use super::open::{open_card, open_surface};
+use super::open::open_card;
 use super::pure::TabKey;
 use super::registry::TabRegistry;
 use super::session::{
@@ -65,7 +65,7 @@ pub fn restore_or_boot(
 
     let Some(session) = session else {
         return match boot {
-            Some(boot) => vec![open_boot(tabs, &boot)],
+            Some(boot) => open_boot(tabs, titles, &boot),
             None => Vec::new(),
         };
     };
@@ -76,7 +76,7 @@ pub fn restore_or_boot(
     }
 
     if let BootPlan::RestorePlusBoot { boot } = plan {
-        unresolved.push(open_boot(tabs, &boot));
+        unresolved.extend(open_boot(tabs, titles, &boot));
     }
     unresolved
 }
@@ -89,12 +89,17 @@ fn focus_of(plan: &BootPlan) -> Option<&StoredKey> {
     }
 }
 
-/// Open the surface a boot URL names and focus it, so a deep link keeps its own tab (decisions 8
-/// and 14).
-fn open_boot(tabs: TabRegistry, boot: &BootSurface) -> TabKey {
+/// Open the surface a boot URL names and focus it, so a deep link keeps its own tab, and report the
+/// labels to resolve: the parent project tab this boot opens first, then the boot surface (decisions
+/// 8 and 14).
+///
+/// The pair comes from `open_card`, so a boot and a card click enqueue the same labels by the same
+/// rule and cannot drift.
+fn open_boot(tabs: TabRegistry, titles: TabTitles, boot: &BootSurface) -> Vec<TabKey> {
     let key = boot.key.key();
-    open_surface(tabs, key.clone(), boot.parent.as_deref());
-    key
+    open_card(tabs, key, boot.parent.as_deref(), &|key| {
+        titles.has_label(key)
+    })
 }
 
 // endregion: --- Boot
@@ -113,10 +118,10 @@ pub async fn resolve_titles(tabs: TabRegistry, titles: TabTitles, keys: Vec<TabK
 
 /// Open the surface a card click names, and resolve the labels it opened without one.
 ///
-/// A card click is the only path that enqueues a label fetch: boot resolves the identities
-/// `restore_or_boot` reports, so the surface a boot URL names is never fetched twice. The resolves
-/// run in the order `open_card` names them, the parent project tab before the surface it holds, and
-/// on the local task queue, so the click handler never waits for one.
+/// A card click and a boot open report their labels through the same `open_card` rule, so the parent
+/// project tab is fetched once, by whichever path opened it. The resolves run in the order `open_card`
+/// names them, the parent project tab before the surface it holds, and on the local task queue, so
+/// the click handler never waits for one.
 pub fn open_from_card(tabs: TabRegistry, titles: TabTitles, key: TabKey, project_id: Option<&str>) {
     let pending = open_card(tabs, key, project_id, &|key| titles.has_label(key));
     if pending.is_empty() {

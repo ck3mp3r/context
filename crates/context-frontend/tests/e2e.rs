@@ -1614,6 +1614,53 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "the dropped tab must not reload the page"
     );
 
+    // Decision 14, fresh deep link: no stored session, and a boot URL naming a note under its
+    // project. The boot open enqueues the parent project beside the surface it opens, so the strip
+    // labels that parent instead of rendering the "<Kind> <id>" fallback.
+    clear_session(&page).await;
+    let fresh_boot_path = format!("/projects/{NOTE_PARENT_PROJECT_ID}/notes/{NOTE_ID}");
+    let connections = socket.connections();
+    page.goto(&format!("{origin}{fresh_boot_path}"), None)
+        .await
+        .expect("the SPA should load the fresh deep link");
+    let fresh_boot =
+        wait_for_container(&page, "the deep-linked note beside its project", |probe| {
+            probe.wrappers == 2 && probe.active_view == "note"
+        })
+        .await;
+    socket.wait_for_connection_after(connections);
+
+    assert_eq!(
+        fresh_boot.active_entity, NOTE_ID,
+        "the boot URL's own surface is the active tab, got {:?}",
+        fresh_boot.active_entity
+    );
+    assert!(
+        page.url().ends_with(&fresh_boot_path),
+        "boot writes no URL: the deep link it opened is still the URL, got {}",
+        page.url()
+    );
+
+    let boot_strip = wait_for_strip(&page, "the fresh boot's parent project labelled", |probe| {
+        probe.visible
+            && strip_row(probe, "projects")
+                .iter()
+                .any(|chip| chip.label == NOTE_PARENT_PROJECT_TITLE)
+            && strip_chips(probe)
+                .iter()
+                .all(|chip| !chip.label.contains("e2e000"))
+    })
+    .await;
+    let boot_project_titles: Vec<&str> = strip_row(&boot_strip, "projects")
+        .iter()
+        .map(|chip| chip.label.as_str())
+        .collect();
+    assert_eq!(
+        boot_project_titles,
+        vec![NOTE_PARENT_PROJECT_TITLE],
+        "a fresh boot labels the parent project it opened, not its id: {boot_strip:?}"
+    );
+
     // === Decision 15: scoped liveness ===
     //
     // A panel the user never opened fetches nothing; a hidden tab keeps the data it loaded live on
