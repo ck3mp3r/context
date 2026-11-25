@@ -58,7 +58,12 @@ version = "0.3.106"
 features = [
     "Window",
     "Document",
+    "Element",
     "HtmlElement",
+    "Node",
+    "NodeList",
+    "Event",
+    "KeyboardEvent",
     "Location",
     "WebSocket",
     "MessageEvent",

@@ -30,7 +30,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use playwright_rs::{Playwright, expect};
+use playwright_rs::{Page, Playwright, expect};
 use serde::Deserialize;
 
 /// Project the stubbed API serves, so a real card exists to click.
@@ -49,6 +49,13 @@ const TASK_LIST_ID: &str = "e2e00003";
 /// must open that parent project tab first (decision 8).
 const NOTE_ID: &str = "e2e00004";
 const NOTE_PARENT_PROJECT_ID: &str = "e2e00009";
+
+/// The task the stubbed API serves inside the fixture task list, so a task card exists to open the
+/// task detail surface.
+const TASK_ID: &str = "e2e00006";
+
+/// The skill the stubbed API serves, so a skill card exists to open the skill detail surface.
+const SKILL_ID: &str = "e2e00005";
 
 /// How long the harness waits for the served origin before failing.
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
@@ -128,6 +135,74 @@ struct ContainerProbe {
     active_entity: String,
     in_container: bool,
 }
+
+/// Reads every overlay surface: where it renders, whether it paints, and whether it holds the page.
+///
+/// `body_overlays` counts the nodes a surface would add under `document.body` if it teleported
+/// there; decision 12 keeps every surface inside its tab wrapper, so the count stays zero.
+const SURFACE_PROBE: &str = r#"() => {
+    const surfaces = Array.from(document.querySelectorAll('[data-surface]'));
+    const activeTab = document.querySelector('[data-tab-active="true"]');
+    const open = surfaces.filter((surface) => getComputedStyle(surface).display !== 'none');
+    const shown = open[0];
+    const panel = shown ? shown.querySelector('[data-surface-panel]') : null;
+    const rect = panel ? panel.getBoundingClientRect() : null;
+    const wrapper = shown ? shown.closest('[data-tab-id]') : null;
+    const hit = document.elementFromPoint(
+        Math.floor(window.innerWidth / 2),
+        Math.floor(window.innerHeight / 2),
+    );
+    return {
+        surfaces: surfaces.length,
+        open: open.length,
+        open_names: open.map((surface) => surface.getAttribute('data-surface')).join(','),
+        open_in_active_tab: open.filter((surface) => activeTab && activeTab.contains(surface)).length,
+        inside_tab: wrapper ? wrapper.getAttribute('data-tab-id') : '',
+        wrapper_display: wrapper ? getComputedStyle(wrapper).display : 'missing',
+        panel_width: rect ? Math.round(rect.width) : 0,
+        panel_height: rect ? Math.round(rect.height) : 0,
+        hit_in_surface: surfaces.some((surface) => surface.contains(hit)),
+        focus_in_surface: surfaces.some((surface) => surface.contains(document.activeElement)),
+        active_element: document.activeElement
+            ? document.activeElement.tagName + '.' + (document.activeElement.className || '')
+            : 'none',
+        body_overlays: document.querySelectorAll(
+            'body > [data-surface], body > [data-surface-backdrop], body > .thaw-dialog, body > .thaw-overlay-drawer-container, body > .thaw-overlay-drawer',
+        ).length,
+        body_children: document.body.childElementCount,
+        scroll_locks: document.querySelectorAll('style[data-c5t-scroll-lock]').length,
+    };
+}"#;
+
+/// The surface state [`SURFACE_PROBE`] returns.
+#[derive(Debug, Deserialize)]
+struct SurfaceProbe {
+    surfaces: usize,
+    open: usize,
+    open_names: String,
+    open_in_active_tab: usize,
+    inside_tab: String,
+    wrapper_display: String,
+    panel_width: f64,
+    panel_height: f64,
+    hit_in_surface: bool,
+    focus_in_surface: bool,
+    active_element: String,
+    body_overlays: usize,
+    body_children: usize,
+    scroll_locks: usize,
+}
+
+/// Runs a control's own click handler, without the pointer reaching it.
+///
+/// An open surface owns the pointer: its backdrop covers the viewport. A tab trigger behind that
+/// backdrop is therefore reached through the handler the app itself installed.
+const CLICK_THROUGH_PROBE: &str = r#"(selector) => {
+    const element = document.querySelector(selector);
+    if (!element) return false;
+    element.click();
+    return true;
+}"#;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
@@ -696,6 +771,303 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "the note tab should write {expected_note_path}, got {note_url}"
     );
 
+    // === Inline surfaces (decision 12): a surface renders inside its tab wrapper ===
+
+    // The project tab hosts both surfaces: return to chrome and focus it.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to chrome home");
+    let host_card = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(host_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render its cards again");
+    host_card
+        .click(None)
+        .await
+        .expect("the project card should focus its open tab");
+
+    // Pin (inline dialog): a task card opens the detail surface inside the task list tab.
+    page.locator("[data-tab-active=\"true\"] [data-panel=\"task-lists\"]")
+        .click(None)
+        .await
+        .expect("the Task Lists pill should be clickable");
+    let host_task_list = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(host_task_list.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the task lists panel should list the fixture task list");
+    host_task_list
+        .click(None)
+        .await
+        .expect("the task list card should focus its open tab");
+
+    // The stub serves one task, so every column renders it; any card opens a task detail surface.
+    let task_card = page
+        .locator(format!(
+            "[data-tab-active=\"true\"] [data-task-card=\"{TASK_ID}\"]",
+        ))
+        .first();
+    expect(task_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the task list tab should render the fixture task card");
+    task_card
+        .click(None)
+        .await
+        .expect("the task card should open the task detail surface");
+
+    let dialog = wait_for_open_surface(&page, "task-detail").await;
+    assert_eq!(
+        dialog.open, 1,
+        "exactly one task detail surface may open, got {}",
+        dialog.open
+    );
+    assert!(
+        !dialog.inside_tab.is_empty(),
+        "the task detail surface must render inside a tab wrapper, not under document.body"
+    );
+    assert_eq!(
+        dialog.body_overlays, 0,
+        "no dialog, overlay, or backdrop node may render under document.body"
+    );
+    assert_eq!(
+        dialog.body_children, body_children_before,
+        "opening a surface must not add a node under document.body"
+    );
+    assert!(
+        dialog.panel_width > 0.0 && dialog.panel_height > 0.0,
+        "the open panel must paint, got {}x{}",
+        dialog.panel_width,
+        dialog.panel_height
+    );
+    assert_eq!(
+        dialog.scroll_locks, 1,
+        "an open surface in the active tab holds the page scroll"
+    );
+    assert!(
+        dialog.focus_in_surface,
+        "the open surface takes focus, so the page behind it gets no keystroke; focus sits on {}",
+        dialog.active_element
+    );
+
+    // A Tab press stays inside the surface, which is the focus containment the active tab needs.
+    page.keyboard()
+        .press("Tab", None)
+        .await
+        .expect("the page should accept the Tab key");
+    let tabbed = surface_probe(&page).await;
+    assert!(
+        tabbed.focus_in_surface,
+        "a Tab press must not move focus behind the open surface"
+    );
+
+    // Escape closes the surface and releases the page.
+    page.keyboard()
+        .press("Escape", None)
+        .await
+        .expect("the page should accept the Escape key");
+    let escaped = wait_for_closed_surface(&page).await;
+    assert_eq!(
+        escaped.scroll_locks, 0,
+        "closing the surface must release the page scroll"
+    );
+
+    // Pin (backdrop): a click on the mask closes the surface too.
+    task_card
+        .click(None)
+        .await
+        .expect("the task card should reopen the task detail surface");
+    wait_for_open_surface(&page, "task-detail").await;
+    page.mouse()
+        .click(5.0, 5.0, None)
+        .await
+        .expect("the mouse should click the backdrop");
+    wait_for_closed_surface(&page).await;
+
+    // Pin (inline drawer): a skill card opens the detail surface inside the project tab.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to chrome home");
+    expect(host_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render its cards again");
+    host_card
+        .click(None)
+        .await
+        .expect("the project card should focus its open tab");
+
+    page.locator("[data-tab-active=\"true\"] [data-panel=\"skills\"]")
+        .click(None)
+        .await
+        .expect("the Skills pill should be clickable");
+    let skill_card = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-skill-card=\"{SKILL_ID}\"]",
+    ));
+    expect(skill_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the skills panel should list the fixture skill");
+    skill_card
+        .click(None)
+        .await
+        .expect("the skill card should open the skill detail surface");
+
+    let drawer = wait_for_open_surface(&page, "skill-detail").await;
+    assert!(
+        !drawer.inside_tab.is_empty(),
+        "the skill detail surface must render inside a tab wrapper, not under document.body"
+    );
+    assert_eq!(
+        drawer.body_overlays, 0,
+        "no dialog, overlay, or backdrop node may render under document.body"
+    );
+    assert_eq!(
+        drawer.body_children, body_children_before,
+        "opening a drawer must not add a node under document.body"
+    );
+    assert!(
+        drawer.panel_width > 0.0 && drawer.panel_height > 0.0,
+        "the open drawer must paint, got {}x{}",
+        drawer.panel_width,
+        drawer.panel_height
+    );
+    assert_eq!(
+        drawer.scroll_locks, 1,
+        "an open drawer in the active tab holds the page scroll"
+    );
+
+    page.keyboard()
+        .press("Escape", None)
+        .await
+        .expect("the page should accept the Escape key");
+    wait_for_closed_surface(&page).await;
+
+    skill_card
+        .click(None)
+        .await
+        .expect("the skill card should reopen the skill detail surface");
+    wait_for_open_surface(&page, "skill-detail").await;
+    page.mouse()
+        .click(5.0, 5.0, None)
+        .await
+        .expect("the mouse should click the drawer backdrop");
+    wait_for_closed_surface(&page).await;
+
+    // Pin (decision 13): switching tabs keeps the open surface, paints it nowhere, and releases
+    // the page; switching back restores it. The surface's backdrop covers the viewport, so the tab
+    // trigger behind it runs its own click handler.
+    skill_card
+        .click(None)
+        .await
+        .expect("the skill card should reopen the skill detail surface");
+    wait_for_open_surface(&page, "skill-detail").await;
+
+    click_through(&page, "[data-tab-active=\"true\"] [data-panel=\"task-lists\"]").await;
+    click_through(
+        &page,
+        &format!("[data-tab-id=\"1\"] [data-task-list-card=\"{TASK_LIST_ID}\"]"),
+    )
+    .await;
+
+    let hidden = surface_probe(&page).await;
+    assert_eq!(
+        hidden.surfaces, drawer.surfaces,
+        "the tab switch must not add or remove a surface node"
+    );
+    assert_eq!(
+        hidden.open, 1,
+        "the open drawer must survive the tab switch"
+    );
+    assert_eq!(
+        hidden.open_names, "skill-detail",
+        "the surviving surface is the skill drawer, got {:?}",
+        hidden.open_names
+    );
+    assert_eq!(
+        hidden.open_in_active_tab, 0,
+        "a surface of a hidden tab belongs to no active tab"
+    );
+    assert_eq!(
+        hidden.wrapper_display, "none",
+        "the hidden tab's wrapper is display:none, got {:?}",
+        hidden.wrapper_display
+    );
+    assert_eq!(
+        (hidden.panel_width, hidden.panel_height),
+        (0.0, 0.0),
+        "a hidden surface must paint nowhere, got {}x{}",
+        hidden.panel_width,
+        hidden.panel_height
+    );
+    assert!(
+        !hidden.hit_in_surface,
+        "a hidden surface must not be hit-testable"
+    );
+    assert_eq!(
+        hidden.scroll_locks, 0,
+        "a hidden tab's open surface must not hold the page scroll"
+    );
+    assert_eq!(
+        hidden.body_overlays, 0,
+        "a tab switch must not move a surface under document.body"
+    );
+
+    // The pointer reaches the page again, because the hidden surface is inert.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should be clickable while a hidden tab holds a surface");
+    expect(host_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render its cards again");
+    host_card
+        .click(None)
+        .await
+        .expect("the project card should take focus back");
+
+    let restored = wait_for_open_surface(&page, "skill-detail").await;
+    assert_eq!(
+        restored.inside_tab, drawer.inside_tab,
+        "the surface returns to the tab it was opened in, got {:?}",
+        restored.inside_tab
+    );
+    assert!(
+        restored.panel_width > 0.0 && restored.panel_height > 0.0,
+        "the surface must paint again after the tab takes focus back, got {}x{}",
+        restored.panel_width,
+        restored.panel_height
+    );
+    assert_eq!(
+        restored.scroll_locks, 1,
+        "the restored surface holds the page scroll again"
+    );
+
+    page.keyboard()
+        .press("Escape", None)
+        .await
+        .expect("the page should accept the Escape key");
+    let closed_after_return = wait_for_closed_surface(&page).await;
+    assert_eq!(
+        closed_after_return.scroll_locks, 0,
+        "closing the restored surface must release the page scroll"
+    );
+
     browser.close().await.expect("the browser should close");
     drop(server);
 }
@@ -703,6 +1075,60 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
 // endregion: --- Test
 
 // region:    --- Support
+
+/// Reads the surface state in one round trip.
+async fn surface_probe(page: &Page) -> SurfaceProbe {
+    page.evaluate(SURFACE_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the surface state")
+}
+
+/// Waits for a surface to be open and painted in the active tab.
+async fn wait_for_open_surface(page: &Page, name: &str) -> SurfaceProbe {
+    let deadline = Instant::now() + UI_TIMEOUT;
+    loop {
+        let probe = surface_probe(page).await;
+        if probe.open == 1 && probe.open_names == name && probe.open_in_active_tab == 1 {
+            return probe;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the {name} surface never opened in the active tab: {probe:?}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Waits until no surface paints.
+async fn wait_for_closed_surface(page: &Page) -> SurfaceProbe {
+    let deadline = Instant::now() + UI_TIMEOUT;
+    loop {
+        let probe = surface_probe(page).await;
+        if probe.open == 0 {
+            return probe;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a surface stayed open: {probe:?}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Runs a control's own click handler, for a control an open surface's backdrop covers.
+async fn click_through(page: &Page, selector: &str) {
+    expect(page.locator(selector))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .unwrap_or_else(|error| panic!("{selector} should exist before its click: {error}"));
+
+    let clicked: bool = page
+        .evaluate(CLICK_THROUGH_PROBE, Some(&selector))
+        .await
+        .expect("the page should run the control's click handler");
+    assert!(clicked, "{selector} should be reachable through its handler");
+}
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -920,7 +1346,8 @@ fn api_response(path: &str) -> Response {
         "projects" => Response::json(200, &project_page()),
         "task-lists" => Response::json(200, &task_list_page()),
         "notes" => Response::json(200, &note_page()),
-        "repos" | "skills" => Response::json(200, &empty_page()),
+        "repos" => Response::json(200, &empty_page()),
+        "skills" => Response::json(200, &skill_page()),
         "update/status" => Response::json(
             200,
             &format!(
@@ -949,6 +1376,15 @@ fn record_by_path(path: &str) -> Option<String> {
     }
     if path == format!("task-lists/{TASK_LIST_ID}") {
         return Some(task_list_record());
+    }
+    if path == format!("task-lists/{TASK_LIST_ID}/tasks") {
+        return Some(task_page());
+    }
+    if path == format!("tasks/{TASK_ID}") {
+        return Some(task_record());
+    }
+    if path == format!("skills/{SKILL_ID}") {
+        return Some(skill_record());
     }
     if path == format!("notes/{NOTE_ID}") {
         return Some(note_record());
@@ -999,7 +1435,35 @@ fn task_list_page() -> String {
 
 fn task_stats_record() -> String {
     format!(
-        "{{\"list_id\":\"{TASK_LIST_ID}\",\"total\":0,\"backlog\":0,\"todo\":0,\"in_progress\":0,\"review\":0,\"done\":0,\"cancelled\":0}}"
+        "{{\"list_id\":\"{TASK_LIST_ID}\",\"total\":1,\"backlog\":0,\"todo\":1,\"in_progress\":0,\"review\":0,\"done\":0,\"cancelled\":0}}"
+    )
+}
+
+/// The task inside the fixture task list, so a column holds a card to open the detail surface.
+fn task_record() -> String {
+    format!(
+        "{{\"id\":\"{TASK_ID}\",\"list_id\":\"{TASK_LIST_ID}\",\"parent_id\":null,\"title\":\"E2E Fixture Task\",\"description\":\"Fixture task served by the e2e harness.\",\"status\":\"todo\",\"priority\":3,\"tags\":[\"e2e\"],\"external_refs\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+    )
+}
+
+fn task_page() -> String {
+    format!(
+        "{{\"items\":[{}],\"total\":1,\"limit\":25,\"offset\":0}}",
+        task_record()
+    )
+}
+
+/// The fixture skill, so the project dashboard lists a card to open the skill detail surface.
+fn skill_record() -> String {
+    format!(
+        "{{\"id\":\"{SKILL_ID}\",\"name\":\"E2E Fixture Skill\",\"description\":\"Fixture skill served by the e2e harness.\",\"content\":\"Fixture skill body.\",\"tags\":[\"e2e\"],\"project_ids\":[\"{PROJECT_ID}\"],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+    )
+}
+
+fn skill_page() -> String {
+    format!(
+        "{{\"items\":[{}],\"total\":1,\"limit\":12,\"offset\":0}}",
+        skill_record()
     )
 }
 

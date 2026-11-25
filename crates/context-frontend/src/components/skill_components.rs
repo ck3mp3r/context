@@ -3,7 +3,7 @@ use pulldown_cmark::{Options, Parser, html};
 use thaw::*;
 
 use crate::api::skills;
-use crate::components::CopyableId;
+use crate::components::{CopyableId, InlineSurface, SurfaceLayout};
 use crate::models::{Skill, UpdateMessage};
 use crate::websocket::use_websocket_updates;
 
@@ -108,6 +108,7 @@ pub fn SkillCard(
                  style="z-index: 2; width: 100%; height: 100%;">
             <a
                 href=href
+                data-skill-card=skill.id.clone()
                 on:click=move |ev| {
                     if let Some(callback) = on_click {
                         ev.prevent_default();
@@ -294,12 +295,14 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
     });
 
     view! {
-        <OverlayDrawer
-            open
-            position=DrawerPosition::Right
-            class="skill-detail-drawer"
+        <InlineSurface
+            name="skill-detail"
+            label="Skill detail"
+            layout=SurfaceLayout::RightDrawer
+            panel_class="skill-detail-panel"
+            open=open
         >
-            <DrawerBody class="h-full overflow-hidden p-0">
+            <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <div class="h-full">
                     {move || {
                         if loading.get() {
@@ -490,7 +493,7 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                         }
                     }}
                 </div>
-            </DrawerBody>
-        </OverlayDrawer>
+            </div>
+        </InlineSurface>
     }
 }

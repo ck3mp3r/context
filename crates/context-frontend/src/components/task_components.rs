@@ -3,7 +3,7 @@ use leptos::task::spawn_local;
 use thaw::*;
 
 use crate::api::{ApiClientError, task_lists, tasks};
-use crate::components::CopyableId;
+use crate::components::{CopyableId, InlineSurface, SurfaceLayout};
 use crate::models::{Task, TaskList, TaskStats};
 use crate::tabs::{TabKey, TabRegistry, open_surface, surface_url};
 
@@ -463,6 +463,7 @@ pub fn TaskCard(
                     )
                 }
                 on:click=handle_card_click
+                data-task-card=task_id_for_list.clone()
             >
 
 
@@ -897,137 +898,138 @@ pub fn TaskDetailDialog(
     });
 
     view! {
-        <Dialog open=open>
-            <DialogSurface class="task-detail-dialog-surface overflow-hidden flex flex-col">
-                <DialogBody class="flex flex-col overflow-hidden">
-                    <div class="task-detail-split">
-                        <div class="task-detail-split-side p-3">
-                            {move || {
-                                if entry_loading.get() {
-                                    return view! {
-                                        <p class="text-ctp-subtext0">"Loading task..."</p>
-                                    }
-                                        .into_any();
-                                }
+        <InlineSurface
+            name="task-detail"
+            label="Task detail"
+            layout=SurfaceLayout::Modal
+            open=open
+        >
+            <div class="task-detail-split">
+                <div class="task-detail-split-side p-3">
+                    {move || {
+                        if entry_loading.get() {
+                            return view! {
+                                <p class="text-ctp-subtext0">"Loading task..."</p>
+                            }
+                                .into_any();
+                        }
 
-                                let Some(result) = entry_task.get() else {
-                                    return view! {
-                                        <p class="text-ctp-subtext0">"No task selected"</p>
-                                    }
-                                        .into_any();
-                                };
+                        let Some(result) = entry_task.get() else {
+                            return view! {
+                                <p class="text-ctp-subtext0">"No task selected"</p>
+                            }
+                                .into_any();
+                        };
 
-                                let entry = match result {
-                                    Ok(entry) => entry,
-                                    Err(err) => {
-                                        return view! {
-                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
-                                                <p class="text-ctp-red font-semibold">
-                                                    "Error loading task"
-                                                </p>
-                                                <p class="text-ctp-subtext0 text-sm mt-2">
-                                                    {err.to_string()}
-                                                </p>
-                                            </div>
-                                        }
-                                            .into_any();
-                                    }
-                                };
-
-                                let entry_id = entry.id.clone();
-                                let entry_id_for_selected = entry_id.clone();
-
-                                view! {
-                                    <div
-                                        class="task-stack-card mb-2 rounded-lg p-1 cursor-pointer"
-                                        data-task-id=entry_id.clone()
-                                        data-selected=move || {
-                                            (selected_task_id.get() == entry_id_for_selected).to_string()
-                                        }
-                                    >
-                                        <TaskCard
-                                            task=entry
-                                            show_subtasks_inline=false
-                                            on_click=Callback::new(
-                                                move |clicked: Task| selected_task_id.set(clicked.id),
-                                            )
-                                        />
+                        let entry = match result {
+                            Ok(entry) => entry,
+                            Err(err) => {
+                                return view! {
+                                    <div class="bg-ctp-red/10 border border-ctp-red rounded p-4">
+                                        <p class="text-ctp-red font-semibold">
+                                            "Error loading task"
+                                        </p>
+                                        <p class="text-ctp-subtext0 text-sm mt-2">
+                                            {err.to_string()}
+                                        </p>
                                     </div>
+                                }
+                                    .into_any();
+                            }
+                        };
 
-                                    {move || {
-                                        if children.get().is_empty() {
-                                            view! {
-                                                <p class="text-xs text-ctp-overlay0">"No subtasks"</p>
-                                            }
-                                                .into_any()
-                                        } else {
-                                            view! {
-                                                <For
-                                                    each=move || children.get()
-                                                    key=|child| child.id.clone()
-                                                    children=move |child| {
-                                                        let child_id = child.id.clone();
-                                                        let child_id_for_selected = child_id.clone();
-                                                        view! {
-                                                            <div
-                                                                class="task-stack-card ml-2 mb-2 rounded-lg p-1 cursor-pointer"
-                                                                data-task-id=child_id.clone()
-                                                                data-selected=move || {
-                                                                    (selected_task_id.get() == child_id_for_selected).to_string()
-                                                                }
-                                                            >
-                                                                <TaskCard
-                                                                    task=child
-                                                                    show_subtasks_inline=false
-                                                                    on_click=Callback::new(
-                                                                        move |clicked: Task| {
-                                                                            selected_task_id.set(clicked.id)
-                                                                        },
-                                                                    )
-                                                                />
-                                                            </div>
+                        let entry_id = entry.id.clone();
+                        let entry_id_for_selected = entry_id.clone();
+
+                        view! {
+                            <div
+                                class="task-stack-card mb-2 rounded-lg p-1 cursor-pointer"
+                                data-task-id=entry_id.clone()
+                                data-selected=move || {
+                                    (selected_task_id.get() == entry_id_for_selected).to_string()
+                                }
+                            >
+                                <TaskCard
+                                    task=entry
+                                    show_subtasks_inline=false
+                                    on_click=Callback::new(
+                                        move |clicked: Task| selected_task_id.set(clicked.id),
+                                    )
+                                />
+                            </div>
+
+                            {move || {
+                                if children.get().is_empty() {
+                                    view! {
+                                        <p class="text-xs text-ctp-overlay0">"No subtasks"</p>
+                                    }
+                                        .into_any()
+                                } else {
+                                    view! {
+                                        <For
+                                            each=move || children.get()
+                                            key=|child| child.id.clone()
+                                            children=move |child| {
+                                                let child_id = child.id.clone();
+                                                let child_id_for_selected = child_id.clone();
+                                                view! {
+                                                    <div
+                                                        class="task-stack-card ml-2 mb-2 rounded-lg p-1 cursor-pointer"
+                                                        data-task-id=child_id.clone()
+                                                        data-selected=move || {
+                                                            (selected_task_id.get() == child_id_for_selected).to_string()
                                                         }
-                                                    }
-                                                />
+                                                    >
+                                                        <TaskCard
+                                                            task=child
+                                                            show_subtasks_inline=false
+                                                            on_click=Callback::new(
+                                                                move |clicked: Task| {
+                                                                    selected_task_id.set(clicked.id)
+                                                                },
+                                                            )
+                                                        />
+                                                    </div>
+                                                }
                                             }
-                                                .into_any()
-                                        }
-                                    }}
+                                        />
+                                    }
+                                        .into_any()
+                                }
+                            }}
+                        }
+                            .into_any()
+                    }}
+                </div>
+
+                <div class="task-detail-split-main">
+                    {move || {
+                        match selected_task.get() {
+                            None => {
+                                view! { <p class="p-3 text-ctp-subtext0">"Loading..."</p> }
+                                    .into_any()
+                            }
+                            Some(Err(err)) => {
+                                view! {
+                                    <div class="bg-ctp-red/10 border border-ctp-red rounded p-4 m-3">
+                                        <p class="text-ctp-red font-semibold">
+                                            "Error loading task"
+                                        </p>
+                                        <p class="text-ctp-subtext0 text-sm mt-2">
+                                            {err.to_string()}
+                                        </p>
+                                    </div>
                                 }
                                     .into_any()
-                            }}
-                        </div>
-
-                        <div class="task-detail-split-main">
-                            {move || {
-                                match selected_task.get() {
-                                    None => {
-                                        view! { <p class="p-3 text-ctp-subtext0">"Loading..."</p> }
-                                            .into_any()
-                                    }
-                                    Some(Err(err)) => {
-                                        view! {
-                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4 m-3">
-                                                <p class="text-ctp-red font-semibold">
-                                                    "Error loading task"
-                                                </p>
-                                                <p class="text-ctp-subtext0 text-sm mt-2">
-                                                    {err.to_string()}
-                                                </p>
-                                            </div>
-                                        }
-                                            .into_any()
-                                    }
-                                    Some(Ok(task)) => {
-                                        view! { <TaskDetailContent task=task /> }.into_any()
-                                    }
-                                }
-                            }}
-                        </div>
-                    </div>
-                </DialogBody>
-            </DialogSurface>
-        </Dialog>
+                            }
+                            Some(Ok(task)) => {
+                                view! { <TaskDetailContent task=task /> }.into_any()
+                            }
+                        }
+                    }}
+                </div>
+            </div>
+        </InlineSurface>
     }
 }
 
@@ -1366,22 +1368,22 @@ pub fn TaskListDetailModal(
     open: RwSignal<bool>,
 ) -> impl IntoView {
     view! {
-        <OverlayDrawer
-            open
-            position=DrawerPosition::Right
-            class="task-list-detail-drawer"
+        <InlineSurface
+            name="task-list-detail"
+            label="Task list detail"
+            layout=SurfaceLayout::RightDrawer
+            panel_class="task-list-detail-panel"
+            open=open
         >
-            <DrawerBody class="h-full overflow-hidden p-0">
-                {move || {
-                    task_list.get().map(|tl| {
-                        let task_list_signal = Signal::derive(move || tl.clone());
-                        view! {
-                            <TaskListContent task_list=task_list_signal/>
-                        }
-                    })
-                }}
-            </DrawerBody>
-        </OverlayDrawer>
+            {move || {
+                task_list.get().map(|tl| {
+                    let task_list_signal = Signal::derive(move || tl.clone());
+                    view! {
+                        <TaskListContent task_list=task_list_signal/>
+                    }
+                })
+            }}
+        </InlineSurface>
     }
 }
 
