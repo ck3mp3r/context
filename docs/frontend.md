@@ -257,10 +257,36 @@ trunk serve  # Fresh rebuild
 
 ## Testing
 
-### Frontend Tests
-Currently minimal - future work to add:
-- Component unit tests (Leptos testing utilities)
-- Integration tests (playwright/selenium)
+### Browser end-to-end harness
+
+`crates/context-frontend/tests/e2e.rs` drives a real Chromium through Playwright
+against the built SPA. It is a standalone cargo test binary: it never links the
+frontend lib, because that crate's `cdylib` target does not host-link.
+
+The harness is gated behind the `e2e` feature, so `cargo nextest run --workspace`
+never compiles the Playwright driver. Install the matching Chromium once:
+
+```sh
+cargo run --manifest-path crates/context-frontend/Cargo.toml \
+  --features e2e --example install-browsers
+```
+
+Then run the harness:
+
+```sh
+cargo test --manifest-path crates/context-frontend/Cargo.toml \
+  --features e2e --test e2e
+```
+
+The harness runs `trunk build`, serves `crates/context-server/dist/` plus a
+stubbed `/dev/api/v1` from a loopback port the OS assigns, polls that origin
+until it answers, and stops its server thread when the test ends. The SPA's
+debug build reads its API from `/dev/api/v1`, which is why the stub serves that
+prefix instead of a backend on port 3738.
+
+`cargo test -p context-frontend ...` does not work from the repository root:
+the package is excluded from the workspace (`Cargo.toml` line 10), so cargo
+cannot select it with `-p` and rejects features for it. Use `--manifest-path`.
 
 ### Backend Static Asset Tests
 See `crates/context-server/src/api/static_assets.rs`:

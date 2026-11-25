@@ -11,6 +11,11 @@ crate-type = [
     "rlib",
 ]
 
+[features]
+# The browser end-to-end harness. Off by default so the headless workspace
+# build never pulls the Playwright driver into its dependency graph.
+e2e = ["dep:playwright-rs"]
+
 [dependencies]
 serde_json = "1.0.154"
 leptos_router = "0.8.17"
@@ -59,3 +64,33 @@ features = [
     "CloseEvent",
     "ErrorEvent",
 ]
+
+# Optional, feature-gated: only the e2e harness links a browser driver.
+# Cargo forbids optional dev-dependencies, so it lives here behind `e2e`.
+# Default features are off: `native-tls` pulls openssl, which this repo does
+# not build against, and the harness only talks to a local driver over stdio.
+[dependencies.playwright-rs]
+version = "0.21.1"
+optional = true
+default-features = false
+features = ["ring"]
+
+[dev-dependencies.tokio]
+version = "1.47.1"
+features = [
+    "macros",
+    "rt-multi-thread",
+]
+
+[[test]]
+name = "e2e"
+required-features = ["e2e"]
+
+[[example]]
+name = "install-browsers"
+required-features = ["e2e"]
+
+[lints.cargo]
+# playwright-rs is only reachable from the feature-gated e2e targets, and an
+# optional dependency is the only way to keep it out of the default graph.
+unused_dependencies = "allow"

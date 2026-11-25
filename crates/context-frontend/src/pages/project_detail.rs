@@ -340,7 +340,7 @@ pub fn ProjectDetail() -> impl IntoView {
     });
 
     view! {
-        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
+        <div class="flex flex-col min-h-[calc(100vh-8rem)]" data-page="project-detail">
             <div class="container mx-auto p-6 flex-1">
             {move || match project_data.get() {
                 None => {

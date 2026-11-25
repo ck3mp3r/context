@@ -69,7 +69,7 @@ pub fn Projects() -> impl IntoView {
     });
 
     view! {
-        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
+        <div class="flex flex-col min-h-[calc(100vh-8rem)]" data-page="projects">
             <div class="container mx-auto p-6 flex-1">
                 // Search bar and sort controls
                 <div class="mb-6 flex gap-4 items-center">
@@ -136,6 +136,7 @@ pub fn Projects() -> impl IntoView {
                                                 <a
                                                     href=format!("/projects/{}", project_id)
                                                     class="flex flex-col h-full"
+                                                    data-project-card=project_id.clone()
                                                 >
                                                     <div class="flex items-start gap-2 mb-2">
                                                         <div class="flex-shrink-0">
