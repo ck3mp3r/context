@@ -30,6 +30,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use playwright_rs::protocol::{ClickOptions, MouseButton};
 use playwright_rs::{Page, Playwright, expect};
 use serde::Deserialize;
 
@@ -232,6 +233,106 @@ const CLICK_THROUGH_PROBE: &str = r#"(selector) => {
     if (!element) return false;
     element.click();
     return true;
+}"#;
+
+/// Reads the strip: whether it shows, which row each chip sits in, and how each chip is built.
+///
+/// `separated` is the structural pin: it is true only when the `×` control and the activate control
+/// both exist and the `×` control is not a descendant of the activate control.
+const STRIP_PROBE: &str = r#"() => {
+    const root = document.querySelector('[data-strip]');
+    const rows = Array.from(document.querySelectorAll('[data-strip-row]')).map((row) => ({
+        name: row.getAttribute('data-strip-row') || '',
+        chips: Array.from(row.querySelectorAll('[data-strip-tab]')).map((chip) => {
+            const activate = chip.querySelector('[data-tab-activate]');
+            const close = chip.querySelector('[data-tab-close]');
+            return {
+                id: chip.getAttribute('data-strip-tab') || '',
+                kind: chip.getAttribute('data-strip-kind') || '',
+                active: chip.getAttribute('data-strip-active') === 'true',
+                label: activate ? (activate.textContent || '').trim() : '',
+                separated: activate !== null && close !== null
+                    && close.closest('[data-tab-activate]') === null,
+            };
+        }),
+    }));
+    return {
+        present: root !== null,
+        visible: root ? getComputedStyle(root).display !== 'none' : false,
+        add: root ? root.querySelectorAll('[data-strip-add]').length : 0,
+        rows: rows,
+    };
+}"#;
+
+/// The strip state [`STRIP_PROBE`] returns.
+#[derive(Debug, Deserialize)]
+struct StripProbe {
+    present: bool,
+    visible: bool,
+    add: usize,
+    rows: Vec<StripRowProbe>,
+}
+
+/// One strip row and the chips it holds.
+#[derive(Debug, Deserialize)]
+struct StripRowProbe {
+    name: String,
+    chips: Vec<StripChipProbe>,
+}
+
+/// One tab chip: its id, its surface kind, whether it is the active chip, its label, and whether its
+/// close control is structurally separate from its activate control.
+#[derive(Debug, Deserialize)]
+struct StripChipProbe {
+    id: String,
+    kind: String,
+    active: bool,
+    label: String,
+    separated: bool,
+}
+
+/// Reads every tab wrapper: its id, visibility, and the surface mounted inside it.
+const TABS_PROBE: &str = r#"() => Array.from(document.querySelectorAll('[data-tab-id]')).map((wrapper) => ({
+    id: wrapper.getAttribute('data-tab-id') || '',
+    active: wrapper.getAttribute('data-tab-active') === 'true',
+    display: getComputedStyle(wrapper).display,
+    view: wrapper.querySelector('[data-tab-view]')
+        ? wrapper.querySelector('[data-tab-view]').getAttribute('data-tab-view')
+        : '',
+    entity: wrapper.querySelector('[data-tab-entity-id]')
+        ? wrapper.querySelector('[data-tab-entity-id]').getAttribute('data-tab-entity-id')
+        : '',
+}))"#;
+
+/// The wrapper state [`TABS_PROBE`] returns.
+#[derive(Debug, Deserialize)]
+struct TabEntry {
+    id: String,
+    active: bool,
+    display: String,
+    view: String,
+    entity: String,
+}
+
+/// Reads the path the address bar holds, without touching history.
+const PATH_PROBE: &str = r#"() => location.pathname"#;
+
+/// Dispatches one `keydown` on the window, exactly as the webview delivers it.
+///
+/// The return value is `defaultPrevented`: it is true only when the app's own handler ran and claimed
+/// the chord. A plain Chromium claims Cmd+W and Ctrl+Tab before the page sees them, so this probe is
+/// the Tier-1 witness that the handler is wired (decision 17).
+const KEYDOWN_PROBE: &str = r#"([key, meta, ctrl, shift]) => {
+    const event = new KeyboardEvent('keydown', {
+        key: key,
+        bubbles: true,
+        cancelable: true,
+        metaKey: meta,
+        ctrlKey: ctrl,
+        shiftKey: shift,
+    });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
 }"#;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1668,6 +1769,497 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "a refetch opens no second websocket"
     );
 
+    // === The strip and its keyboard (decisions 2, 5, 9, 10, 16, 17) ===
+    //
+    // The strip renders two levels, every close leaves a visible survivor, the `×` control sits beside
+    // the activate control rather than inside it, and the ring and the two Cmd chords reach the same
+    // registry as the strip.
+
+    let connections = socket.connections();
+    clear_session(&page).await;
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load for the strip pins");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render before the strip pins");
+    socket.wait_for_connection_after(connections);
+
+    // Pin (chrome home): no tab is open, so the strip paints nothing at all.
+    let empty_strip = strip_probe(&page).await;
+    assert!(
+        empty_strip.present,
+        "the strip stays in the tree, so it can show itself when a tab opens"
+    );
+    assert!(
+        !empty_strip.visible,
+        "chrome home hides the strip: {empty_strip:?}"
+    );
+    assert!(
+        strip_chips(&empty_strip).is_empty(),
+        "an empty strip holds no chip"
+    );
+    assert_eq!(empty_strip.add, 1, "the strip offers the + control");
+
+    // Pin (one project tab): row one holds its chip, and the chip's close control is a sibling.
+    let strip_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(strip_project.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card");
+    strip_project
+        .click(None)
+        .await
+        .expect("the project card should open its tab");
+    let one_tab = wait_for_container(&page, "the project tab open for the strip pins", |probe| {
+        probe.wrappers == 1 && probe.active_view == "project"
+    })
+    .await;
+
+    let strip = wait_for_strip(&page, "one project chip", |probe| {
+        probe.visible && strip_chips(probe).len() == 1
+    })
+    .await;
+    let projects = strip_row(&strip, "projects");
+    assert_eq!(projects.len(), 1, "row one holds the project chip");
+    assert_eq!(projects[0].kind, "project");
+    assert_eq!(
+        projects[0].id, one_tab.active_id,
+        "the chip names the tab it activates"
+    );
+    assert!(projects[0].active, "the open tab's chip is the active chip");
+    assert!(
+        projects[0].separated,
+        "the close control is a sibling of the activate control, never its child"
+    );
+    assert!(
+        !projects[0].label.is_empty(),
+        "a chip never renders a blank label"
+    );
+    assert!(
+        !has_strip_row(&strip, "children"),
+        "a project with no child row renders no level-two row"
+    );
+    assert!(
+        !has_strip_row(&strip, "parentless"),
+        "a project tab is not parentless"
+    );
+
+    // Pin (two levels): the child tab lands in row two while its project holds row one.
+    let strip_task_list = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(strip_task_list.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the project dashboard should list the fixture task list");
+    strip_task_list
+        .click(None)
+        .await
+        .expect("the task list card should open its child tab");
+    let two_tabs = wait_for_container(&page, "the task list child tab open", |probe| {
+        probe.wrappers == 2 && probe.active_view == "task-list"
+    })
+    .await;
+
+    let strip = wait_for_strip(&page, "the child chip in row two", |probe| {
+        strip_chips(probe).len() == 2
+    })
+    .await;
+    let projects = strip_row(&strip, "projects");
+    let children = strip_row(&strip, "children");
+    assert_eq!(projects.len(), 1, "row one keeps the project chip");
+    assert_eq!(projects[0].kind, "project");
+    assert!(
+        !projects[0].active,
+        "the project chip is not the active chip any more"
+    );
+    assert_eq!(
+        children.len(),
+        1,
+        "row two holds the active project's child"
+    );
+    assert_eq!(children[0].kind, "task-list");
+    assert_eq!(children[0].id, two_tabs.active_id);
+    assert!(children[0].active);
+    assert!(
+        projects.iter().all(|chip| chip.kind == "project")
+            && children.iter().all(|chip| chip.kind != "project"),
+        "no row mixes a project tab with a child"
+    );
+
+    // Pin (activate): the strip's activate control focuses its own tab.
+    let child_id = children[0].id.clone();
+    page.locator(format!("[data-tab-activate=\"{}\"]", projects[0].id))
+        .click(None)
+        .await
+        .expect("the project chip should be clickable");
+    let back_on_project = wait_for_container(&page, "the project chip focused", |probe| {
+        probe.wrappers == 2 && probe.active_view == "project"
+    })
+    .await;
+    assert_eq!(back_on_project.active_id, projects[0].id);
+
+    // Pin (close a background tab): the active tab's content is unchanged.
+    page.locator(format!("[data-tab-close=\"{child_id}\"]"))
+        .click(None)
+        .await
+        .expect("the background chip's × should be clickable");
+    let after_background_close =
+        wait_for_container(&page, "the background child tab closed", |probe| {
+            probe.wrappers == 1
+        })
+        .await;
+    assert_eq!(
+        after_background_close.active_id, back_on_project.active_id,
+        "closing a background tab leaves the active tab alone"
+    );
+    assert_eq!(after_background_close.active_view, "project");
+    assert_eq!(after_background_close.active_display, "block");
+    let strip = wait_for_strip(&page, "the child chip gone", |probe| {
+        strip_chips(probe).len() == 1
+    })
+    .await;
+    assert!(
+        !has_strip_row(&strip, "children"),
+        "an empty level-two row leaves the tree"
+    );
+
+    // Pin (close the active tab): the restored survivor must mount and paint. This is the first
+    // build's failure: a close re-activated a removed id and the content area went blank.
+    write_session(&page, &two_project_session()).await;
+    let connections = socket.connections();
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should restore the stored strip");
+    let stored = wait_for_container(&page, "the two stored project tabs", |probe| {
+        probe.wrappers == 2 && probe.active_entity == SECOND_PROJECT_ID
+    })
+    .await;
+    socket.wait_for_connection_after(connections);
+    assert_eq!(
+        stored.active_id, "2",
+        "tab ids follow stored order, so the active tab is the second"
+    );
+    assert_eq!(
+        stored.hidden_children, 0,
+        "the restored background tab mounts nothing at boot"
+    );
+
+    let strip = wait_for_strip(&page, "the stored labels", |probe| {
+        probe.visible && strip_chips(probe).len() == 2
+    })
+    .await;
+    let labels: Vec<&str> = strip_row(&strip, "projects")
+        .iter()
+        .map(|chip| chip.label.as_str())
+        .collect();
+    assert_eq!(
+        labels,
+        vec![PROJECT_TITLE, SECOND_PROJECT_TITLE],
+        "the strip renders the labels the session restored"
+    );
+    assert!(
+        strip_chips(&strip).iter().all(|chip| chip.separated),
+        "every chip keeps its close control outside its activate control"
+    );
+
+    page.locator(format!("[data-tab-close=\"{}\"]", stored.active_id))
+        .click(None)
+        .await
+        .expect("the active chip's × should be clickable");
+    let survivor = wait_for_container(&page, "the survivor of an active close", |probe| {
+        probe.wrappers == 1
+    })
+    .await;
+    assert_eq!(survivor.active, 1, "exactly one tab takes focus");
+    assert_eq!(survivor.active_entity, PROJECT_ID);
+    assert_eq!(
+        survivor.active_display, "block",
+        "a close never leaves every tab hidden"
+    );
+    assert_eq!(
+        survivor.active_view, "project",
+        "the survivor the close activated is mounted, so the content area is not blank"
+    );
+
+    // Pin (middle click): it closes a tab too, and the last close lands on chrome home.
+    let survivor_chip = page.locator(format!("[data-strip-tab=\"{}\"]", survivor.active_id));
+    expect(survivor_chip.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the survivor's chip should be visible");
+    survivor_chip
+        .click(Some(
+            ClickOptions::builder().button(MouseButton::Middle).build(),
+        ))
+        .await
+        .expect("the chip should accept a middle click");
+    let emptied = wait_for_container(&page, "the middle-clicked tab closed", |probe| {
+        probe.wrappers == 0
+    })
+    .await;
+    assert_eq!(emptied.active, 0, "the last close leaves no active tab");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the last close returns to chrome home, never closes the window");
+    assert_eq!(
+        page_path(&page).await,
+        "/",
+        "the last close writes chrome home"
+    );
+    assert!(
+        !strip_probe(&page).await.visible,
+        "the empty strip hides again"
+    );
+
+    // Pin (ring): Ctrl+Tab walks the fixed ring and reaches a child of an inactive project, while
+    // that child's chip is not rendered at all.
+    let ring_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(ring_project.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card for the ring pins");
+    ring_project
+        .click(None)
+        .await
+        .expect("the project card should open its tab");
+    wait_for_container(&page, "the project tab open for the ring pins", |probe| {
+        probe.wrappers == 1 && probe.active_view == "project"
+    })
+    .await;
+
+    let ring_task_list = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(ring_task_list.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the project dashboard should list the fixture task list");
+    ring_task_list
+        .click(None)
+        .await
+        .expect("the task list card should open its child tab");
+    wait_for_container(&page, "the child tab open for the ring pins", |probe| {
+        probe.wrappers == 2 && probe.active_view == "task-list"
+    })
+    .await;
+
+    // Chrome navigation opens and closes no tab, so the second project card is reachable while both
+    // tabs stay open (decision 8).
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should reach chrome home");
+    let ring_second_selector = format!("[data-project-card=\"{SECOND_PROJECT_ID}\"]");
+    let ring_second = page.locator(ring_second_selector);
+    expect(ring_second.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the second fixture card");
+    ring_second
+        .click(None)
+        .await
+        .expect("the second project card should open its own tab");
+    wait_for_container(&page, "the second project tab open", |probe| {
+        probe.wrappers == 3 && probe.active_entity == SECOND_PROJECT_ID
+    })
+    .await;
+
+    let ring_child = tab_entry(&page, "task-list", TASK_LIST_ID).await;
+    assert_eq!(
+        ring_child.display, "none",
+        "a child of an inactive project stays mounted and hidden"
+    );
+    assert!(!ring_child.active);
+
+    let strip = wait_for_strip(&page, "the two project chips", |probe| {
+        strip_chips(probe).len() == 2
+    })
+    .await;
+    assert_eq!(
+        strip_row(&strip, "projects").len(),
+        2,
+        "row one holds both project chips"
+    );
+    assert!(
+        !has_strip_row(&strip, "children"),
+        "the active project has no child, so level two renders nothing"
+    );
+    assert!(
+        strip_chips(&strip)
+            .iter()
+            .all(|chip| chip.id != ring_child.id),
+        "a child of an inactive project is not rendered in the strip"
+    );
+
+    assert!(
+        press_chord(&page, "Tab", false, true, false).await,
+        "the app claims Ctrl+Tab"
+    );
+    let on_ring_child = wait_for_container(
+        &page,
+        "the ring reached the other project's child",
+        |probe| probe.wrappers == 3 && probe.active_view == "task-list",
+    )
+    .await;
+    assert_eq!(
+        on_ring_child.active_id, ring_child.id,
+        "Ctrl+Tab advanced one step of the fixed ring"
+    );
+    assert_eq!(on_ring_child.active_entity, TASK_LIST_ID);
+    assert_eq!(on_ring_child.active_display, "block");
+
+    let strip = wait_for_strip(&page, "the active project's child row", |probe| {
+        has_strip_row(probe, "children")
+    })
+    .await;
+    let children = strip_row(&strip, "children");
+    assert_eq!(
+        children.len(),
+        1,
+        "row two holds the active project's child"
+    );
+    assert_eq!(children[0].id, ring_child.id);
+    assert!(children[0].active);
+    assert_eq!(
+        strip_row(&strip, "projects").len(),
+        2,
+        "both project chips stay in row one"
+    );
+    assert!(
+        strip_row(&strip, "projects")
+            .iter()
+            .all(|chip| chip.kind == "project")
+            && children.iter().all(|chip| chip.kind == "task-list"),
+        "row two never holds a project tab"
+    );
+
+    assert!(
+        press_chord(&page, "Tab", false, true, true).await,
+        "the app claims Ctrl+Shift+Tab"
+    );
+    let back_on_second = wait_for_container(&page, "the ring stepped back", |probe| {
+        probe.wrappers == 3 && probe.active_entity == SECOND_PROJECT_ID
+    })
+    .await;
+    assert_eq!(back_on_second.active_view, "project");
+    let strip = wait_for_strip(&page, "the child row gone again", |probe| {
+        !has_strip_row(probe, "children")
+    })
+    .await;
+    assert_eq!(strip_chips(&strip).len(), 2);
+
+    // Pin (Cmd+W): the active tab closes and a mounted survivor paints.
+    assert!(
+        press_chord(&page, "w", true, false, false).await,
+        "the app claims Cmd+W"
+    );
+    let after_cmd_w = wait_for_container(&page, "Cmd+W closed the active tab", |probe| {
+        probe.wrappers == 2
+    })
+    .await;
+    assert_eq!(
+        after_cmd_w.active_id, ring_child.id,
+        "the ring's next survivor takes focus"
+    );
+    assert_eq!(after_cmd_w.active_view, "task-list");
+    assert_eq!(after_cmd_w.active_display, "block");
+
+    // Pin (Cmd+T): it reaches chrome Projects and opens no blank tab.
+    let tabs_before_cmd_t = tabs_probe(&page).await.len();
+    assert!(
+        press_chord(&page, "t", true, false, false).await,
+        "the app claims Cmd+T"
+    );
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("Cmd+T reaches the Projects chrome view");
+    assert_eq!(page_path(&page).await, "/", "Cmd+T writes chrome home");
+    assert_eq!(
+        tabs_probe(&page).await.len(),
+        tabs_before_cmd_t,
+        "Cmd+T opens no blank tab"
+    );
+
+    // Pin (the + control): it reaches the same chrome view, and a chip's activate control writes the
+    // tab URL back through the one writer.
+    let strip = strip_probe(&page).await;
+    let project_chip = strip_row(&strip, "projects")
+        .first()
+        .expect("the project chip is still in row one")
+        .id
+        .clone();
+    page.locator(format!("[data-tab-activate=\"{project_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the project chip should focus its tab");
+    let focused_project = wait_for_container(&page, "the project chip focused", |probe| {
+        probe.active_entity == PROJECT_ID && probe.active_view == "project"
+    })
+    .await;
+    assert_eq!(
+        focused_project.active_id, project_chip,
+        "the strip's activate control focuses its own tab"
+    );
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}"),
+        "the one writer names the tab the strip focused"
+    );
+
+    let tabs_before_plus = tabs_probe(&page).await.len();
+    page.locator("[data-strip-add]")
+        .click(None)
+        .await
+        .expect("the + control should be clickable");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the + control reaches the Projects chrome view");
+    assert_eq!(
+        page_path(&page).await,
+        "/",
+        "the + control writes chrome home"
+    );
+    assert_eq!(
+        tabs_probe(&page).await.len(),
+        tabs_before_plus,
+        "the + control opens no blank tab"
+    );
+
+    // Pin (decision 17): Cmd+Shift+W stays the window's accelerator, so the SPA does not claim it.
+    let tabs_before_shift = tabs_probe(&page).await.len();
+    assert!(
+        !press_chord(&page, "w", true, false, true).await,
+        "Cmd+Shift+W belongs to the window, not to the tab shell"
+    );
+    settle_frame();
+    let after_shift = tabs_probe(&page).await;
+    assert_eq!(
+        after_shift.len(),
+        tabs_before_shift,
+        "Cmd+Shift+W closes no tab in the page"
+    );
+    assert!(
+        after_shift.iter().any(|tab| tab.active),
+        "a tab is still active after Cmd+Shift+W"
+    );
+
     browser.close().await.expect("the browser should close");
     drop(socket);
     drop(server);
@@ -1800,6 +2392,103 @@ async fn click_through(page: &Page, selector: &str) {
         .await
         .expect("the page should run the control's click handler");
     assert!(clicked, "{selector} should be reachable through its handler");
+}
+
+/// Reads the strip in one round trip.
+async fn strip_probe(page: &Page) -> StripProbe {
+    page.evaluate(STRIP_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the strip state")
+}
+
+/// Polls the strip until `predicate` holds.
+async fn wait_for_strip(
+    page: &Page,
+    what: &str,
+    predicate: impl Fn(&StripProbe) -> bool,
+) -> StripProbe {
+    let deadline = Instant::now() + UI_TIMEOUT;
+    loop {
+        let probe = strip_probe(page).await;
+        if predicate(&probe) {
+            return probe;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the strip never showed {what}: {probe:?}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// The chips of one row, or an empty slice when the row is not rendered.
+fn strip_row<'a>(probe: &'a StripProbe, name: &str) -> &'a [StripChipProbe] {
+    probe
+        .rows
+        .iter()
+        .find(|row| row.name == name)
+        .map(|row| row.chips.as_slice())
+        .unwrap_or_default()
+}
+
+/// Whether the strip renders this row at all.
+fn has_strip_row(probe: &StripProbe, name: &str) -> bool {
+    probe.rows.iter().any(|row| row.name == name)
+}
+
+/// Every chip of the strip, whatever row renders it.
+fn strip_chips(probe: &StripProbe) -> Vec<&StripChipProbe> {
+    probe.rows.iter().flat_map(|row| &row.chips).collect()
+}
+
+/// Reads every tab wrapper in one round trip.
+async fn tabs_probe(page: &Page) -> Vec<TabEntry> {
+    page.evaluate(TABS_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the tab wrappers")
+}
+
+/// The wrapper of the surface with this view and entity id.
+async fn tab_entry(page: &Page, view: &str, entity: &str) -> TabEntry {
+    let deadline = Instant::now() + UI_TIMEOUT;
+    loop {
+        if let Some(entry) = tabs_probe(page)
+            .await
+            .into_iter()
+            .find(|entry| entry.view == view && entry.entity == entity)
+        {
+            return entry;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no wrapper renders the {view} surface {entity}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// The path the address bar holds.
+async fn page_path(page: &Page) -> String {
+    page.evaluate(PATH_PROBE, None::<&()>)
+        .await
+        .expect("the page should report its path")
+}
+
+/// Dispatches one synthetic `keydown` on the window and reports whether the app claimed it.
+async fn press_chord(page: &Page, key: &str, meta: bool, ctrl: bool, shift: bool) -> bool {
+    page.evaluate(KEYDOWN_PROBE, Some(&(key, meta, ctrl, shift)))
+        .await
+        .expect("the page should accept a synthetic keydown")
+}
+
+/// A session holding both stub projects, the second one active.
+///
+/// The first project therefore restores unmounted, which is the state a close has to activate without
+/// blanking the content area.
+fn two_project_session() -> String {
+    format!(
+        "{{\"version\":1,\"tabs\":[{{\"key\":{{\"kind\":\"project\",\"id\":\"{PROJECT_ID}\"}},\"title\":\"{PROJECT_TITLE}\",\"parent\":null}},{{\"key\":{{\"kind\":\"project\",\"id\":\"{SECOND_PROJECT_ID}\"}},\"title\":\"{SECOND_PROJECT_TITLE}\",\"parent\":null}}],\"active\":{{\"kind\":\"project\",\"id\":\"{SECOND_PROJECT_ID}\"}}}}"
+    )
 }
 
 fn repo_root() -> PathBuf {

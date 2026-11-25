@@ -12,8 +12,8 @@ use crate::components::{ThemeSwitcher, UpdateBadge, UpdateBanner};
 use crate::models::{UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
 use crate::tabs::{
-    TabContainer, TabKey, TabRegistry, TabTitles, boot_surface, resolve_titles, restore_or_boot,
-    start_session_persistence, surface_url, write_owned_url,
+    TabContainer, TabKey, TabRegistry, TabStrip, TabTitles, boot_surface, resolve_titles,
+    restore_or_boot, start_keyboard, start_session_persistence, surface_url, write_owned_url,
 };
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection, use_websocket_updates};
@@ -151,6 +151,11 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
         write_owned_url(&url_writer, &mut owned, &url);
     });
 
+    // The one keyboard transport (decisions 9, 10, 16, 17): installed once for the window, so the
+    // ring, the tab close, and the chrome shortcut all read the same registry as the strip.
+    let keyboard = start_keyboard(tabs, use_navigate());
+    on_cleanup(move || keyboard.remove());
+
     // Determine active tab based on current path
     let is_active = move |path: &str| {
         let current = location.pathname.get();
@@ -249,6 +254,10 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
             </nav>
 
             <div class="flex-1">
+                // The strip sits above the surfaces it names. It hides itself while no tab is open,
+                // so the chrome views below render unchanged on chrome home.
+                <TabStrip registry=tabs titles=titles/>
+
                 // Tab surfaces render through the container, so every tab keeps one stable in-tree
                 // wrapper. Only chrome renders through the routes below: a tab URL has no detail
                 // route, so the fallback renders nothing and no leftover chrome sits under a tab.

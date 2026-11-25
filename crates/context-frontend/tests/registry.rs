@@ -850,3 +850,68 @@ fn write_active_url_writes_once_with_replace() {
         "every write replaces its entry, so a tab switch grows no history"
     );
 }
+
+#[test]
+fn closing_the_active_restored_tab_mounts_the_survivor_it_activates() {
+    let mut tabs = Tabs::default();
+    let first = tabs.restore(TabKey::project("p1"), None);
+    let second = tabs.restore(TabKey::project("p2"), None);
+    assert!(
+        !tabs.is_mounted(first),
+        "a restored tab mounts on its first activation"
+    );
+
+    tabs.activate(second);
+    assert_eq!(
+        tabs.close(second),
+        CloseOutcome::Closed {
+            ids: vec![second],
+            active: Some(first)
+        }
+    );
+
+    assert!(
+        tabs.is_mounted(first),
+        "the survivor a close activates must mount, or the content area blanks"
+    );
+    assert!(
+        tabs.strip_rows().contains(first),
+        "the survivor renders in a row, so the strip never names a hidden tab"
+    );
+}
+
+#[test]
+fn every_close_leaves_the_active_tab_mounted_and_rendered() {
+    let mut tabs = Tabs::default();
+    tabs.restore(TabKey::project("p1"), None);
+    tabs.restore(TabKey::project("p2"), None);
+    tabs.restore(TabKey::note("n-free"), None);
+    tabs.restore(TabKey::task_list("t1"), Some("p1".to_string()));
+    let second = tabs.restore(TabKey::project("p2-again"), None);
+    tabs.activate(second);
+
+    let mut closed = Vec::new();
+    while let Some(id) = tabs.active() {
+        tabs.close(id);
+        closed.push(id);
+
+        let rows = tabs.strip_rows();
+        match tabs.active() {
+            Some(active) => {
+                assert_ne!(active, id, "a close never keeps the tab it removed");
+                assert!(
+                    tabs.is_mounted(active),
+                    "the close activated an unmounted tab: {active:?}"
+                );
+                assert!(
+                    rows.contains(active),
+                    "the close activated a tab no row renders: {active:?}"
+                );
+            }
+            None => assert!(tabs.is_empty(), "no active tab means chrome home"),
+        }
+    }
+
+    assert_eq!(closed.len(), 5, "every restored tab closed exactly once");
+    assert!(tabs.is_empty());
+}
