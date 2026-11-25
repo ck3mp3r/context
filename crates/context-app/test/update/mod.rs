@@ -6,9 +6,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{
-    CheckDecision, CheckGate, check_gate, check_target, claim, dev_build_refusal, read_state,
-    release, restart_gate, restart_sequence, restart_target, settled_after_install, should_check,
-    state_available, state_with, transition,
+    CheckDecision, CheckGate, check_gate, check_target, claim, current_build_id, current_version,
+    dev_build_refusal, read_state, release, restart_gate, restart_sequence, restart_target,
+    settled_after_install, should_check, state_available, state_with, transition,
 };
 use crate::update::releases::{Candidate, manifest_url};
 use context_core::settings::Settings;
@@ -603,5 +603,34 @@ fn a_restart_without_a_staged_bundle_runs_nothing() {
     assert!(
         log.lock().expect("log lock").is_empty(),
         "a refused restart must not spawn, respawn or exit anything"
+    );
+}
+
+#[test]
+fn the_running_version_stays_the_numeric_core() {
+    let running = Version::parse(&current_version()).expect("the running version parses");
+
+    assert!(
+        running.pre.is_empty() && running.build.is_empty(),
+        "the state and the DTO report the numeric core, got: {running}"
+    );
+}
+
+#[test]
+fn the_build_id_is_the_short_sha_or_empty_without_a_checkout() {
+    let build_id = current_build_id();
+    let checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.git/HEAD");
+
+    if !checkout.exists() {
+        assert!(
+            build_id.is_empty(),
+            "a build with no git checkout reports an empty id, got: {build_id:?}"
+        );
+        return;
+    }
+
+    assert!(
+        (7..=40).contains(&build_id.len()) && build_id.chars().all(|it| it.is_ascii_hexdigit()),
+        "a git build embeds the short sha, got: {build_id:?}"
     );
 }

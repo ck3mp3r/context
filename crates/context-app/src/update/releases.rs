@@ -2,12 +2,12 @@
 //!
 //! The updater plugin has no channel logic: it fetches a manifest from whatever
 //! endpoint it is handed. So the app picks the release itself — filter the
-//! release list by channel, take the highest semver tag, and hand the caller that
-//! tag's `latest.json` asset URL.
+//! release list by channel, order what remains by version core and publication
+//! time, and hand the caller the winning tag's `latest.json` asset URL.
 
 use std::str::FromStr;
 
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use semver::Version;
 use serde::Deserialize;
 
@@ -53,6 +53,8 @@ pub(crate) struct GitHubRelease {
     pub(crate) prerelease: bool,
     /// Whether the release is still a draft.
     pub(crate) draft: bool,
+    /// Publication time, as GitHub spells it; drafts carry none.
+    pub(crate) published_at: Option<String>,
     /// Release body, carried into the candidate as notes.
     pub(crate) body: Option<String>,
 }
@@ -122,33 +124,70 @@ pub(crate) async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<GitHu
         .map_err(|error| format!("Failed to parse the GitHub release list: {error}"))
 }
 
-/// Pick the release `channel` should install, given the running `current_version`.
+/// Pick the release `channel` should install, given the running identity.
 ///
 /// Drafts, releases the channel excludes, and tags that are not a version are
-/// ignored. The highest version wins; a winner that is not newer than the running
-/// version yields no candidate, so the updater is never offered a downgrade or a
-/// reinstall.
+/// ignored. What remains is ordered by numeric core, then by publication time.
+/// The tag's build id never orders anything: it is a short sha, and shas compare
+/// as text, not as time.
+///
+/// The winner is offered only when it is newer than the running build:
+///
+/// - a lower core is never offered, so a channel cannot downgrade the app
+/// - an equal core with a different build id is a newer build of the same version
+/// - an equal core with the same build id is this build, so nothing is offered
+/// - an empty `current_build_id` cannot be told apart from another build of the
+///   same core, so an equal core is treated as this build; offering the same
+///   release on every check would loop forever
 pub(crate) fn select_candidate(
     releases: &[GitHubRelease],
     channel: &str,
     current_version: &str,
+    current_build_id: &str,
 ) -> Option<Candidate> {
     let current = parse_version(current_version)?;
+    let current_core = core(&current);
+    let mut winner: Option<(Version, &GitHubRelease, Option<DateTime<Utc>>)> = None;
 
-    releases
-        .iter()
-        .filter(|release| !release.draft)
-        .filter(|release| channel != STABLE_CHANNEL || !release.prerelease)
-        .filter_map(|release| Some((parse_version(&release.tag_name)?, release)))
-        .max_by(|(left, _), (right, _)| left.cmp(right))
-        .filter(|(version, _)| version > &current)
-        .map(|(version, release)| Candidate {
-            version,
-            tag: release.tag_name.clone(),
-            manifest_url: manifest_url(&release.tag_name),
-            is_prerelease: release.prerelease,
-            notes: release.body.clone(),
-        })
+    for release in releases {
+        if release.draft || (channel == STABLE_CHANNEL && release.prerelease) {
+            continue;
+        }
+        let Some(version) = parse_version(&release.tag_name) else {
+            continue;
+        };
+        let at = publication_time(release);
+
+        // A tie keeps the release seen first, so the result never depends on how
+        // the comparison breaks ties.
+        let better = match &winner {
+            None => true,
+            Some((best, _, best_at)) => (core(&version), at) > (core(best), *best_at),
+        };
+        if better {
+            winner = Some((version, release, at));
+        }
+    }
+
+    let (version, release, _) = winner?;
+    let winner_core = core(&version);
+
+    if winner_core < current_core {
+        return None;
+    }
+    if winner_core == current_core
+        && (current_build_id.is_empty() || version.pre.as_str() == current_build_id)
+    {
+        return None;
+    }
+
+    Some(Candidate {
+        version,
+        tag: release.tag_name.clone(),
+        manifest_url: manifest_url(&release.tag_name),
+        is_prerelease: release.prerelease,
+        notes: release.body.clone(),
+    })
 }
 
 /// Updater manifest asset of the release tagged `tag`.
@@ -162,6 +201,22 @@ pub fn manifest_url(tag: &str) -> String {
 /// Parse a tag or version, ignoring a single leading `v`.
 fn parse_version(raw: &str) -> Option<Version> {
     Version::from_str(raw.strip_prefix('v').unwrap_or(raw)).ok()
+}
+
+/// Numeric core of `version`, the only part of it that orders one version above
+/// another.
+fn core(version: &Version) -> (u64, u64, u64) {
+    (version.major, version.minor, version.patch)
+}
+
+/// Publication time of `release`, or None when the field is absent or is not an
+/// RFC 3339 timestamp; an undated release sorts below every dated one.
+fn publication_time(release: &GitHubRelease) -> Option<DateTime<Utc>> {
+    let raw = release.published_at.as_deref()?;
+
+    DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|at| at.with_timezone(&Utc))
 }
 
 /// Why `content_type` rules the body out as a release list, or None when the body

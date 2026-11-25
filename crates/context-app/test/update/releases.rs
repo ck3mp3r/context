@@ -35,13 +35,22 @@ fn head(body: &str) -> String {
     body.chars().take(120).collect()
 }
 
-/// One release with the given flags.
+/// One release with the given flags and no publication time.
 fn release(tag: &str, prerelease: bool, draft: bool) -> GitHubRelease {
     GitHubRelease {
         tag_name: tag.to_string(),
         prerelease,
         draft,
+        published_at: None,
         body: None,
+    }
+}
+
+/// One published release with the given flags and RFC 3339 publication time.
+fn published(tag: &str, prerelease: bool, published_at: &str) -> GitHubRelease {
+    GitHubRelease {
+        published_at: Some(published_at.to_string()),
+        ..release(tag, prerelease, false)
     }
 }
 
@@ -50,18 +59,26 @@ fn version(raw: &str) -> semver::Version {
 }
 
 #[test]
-fn the_fixture_parses_as_a_release_list() {
-    let releases = fixture();
+fn the_fixture_is_the_real_release_list() {
+    let tags: Vec<String> = fixture().into_iter().map(|it| it.tag_name).collect();
 
-    assert!(
-        releases.len() >= 4,
-        "the fixture must cover stable, pre-release, unparseable, and draft entries"
+    assert_eq!(
+        tags,
+        [
+            "v0.8.0-4610dfd",
+            "v0.8.0-a478046",
+            "v0.8.0-8959cbd",
+            "v0.8.0-83f33f6",
+            "v0.7.10",
+        ],
+        "the fixture must stay the release list the live repository reports, newest first"
     );
 }
 
 #[test]
 fn the_stable_channel_ignores_prereleases() {
-    let candidate = select_candidate(&fixture(), "stable", "0.7.0").expect("a stable release wins");
+    let candidate =
+        select_candidate(&fixture(), "stable", "0.7.0", "").expect("a stable release wins");
 
     assert_eq!(
         candidate.tag, "v0.7.10",
@@ -69,19 +86,26 @@ fn the_stable_channel_ignores_prereleases() {
     );
     assert_eq!(candidate.version, version("0.7.10"));
     assert!(!candidate.is_prerelease);
-    assert_eq!(
-        candidate.notes.as_deref(),
-        Some("Bug fixes for the 0.7 line.")
+    assert!(
+        candidate
+            .notes
+            .as_deref()
+            .is_some_and(|notes| notes.starts_with("## Features")),
+        "the release body is carried into the candidate, got: {:?}",
+        candidate.notes
     );
 }
 
 #[test]
 fn the_pre_release_channel_considers_every_release() {
-    let candidate = select_candidate(&fixture(), "pre-release", "0.7.0")
+    let candidate = select_candidate(&fixture(), "pre-release", "0.7.0", "")
         .expect("the pre-release build wins over the stable releases");
 
-    assert_eq!(candidate.tag, "v0.8.0-b118f3a");
-    assert_eq!(candidate.version, version("0.8.0-b118f3a"));
+    assert_eq!(
+        candidate.tag, "v0.8.0-4610dfd",
+        "the newest by publication time wins, though its sha sorts lower as text"
+    );
+    assert_eq!(candidate.version, version("0.8.0-4610dfd"));
     assert!(candidate.is_prerelease);
 }
 
@@ -93,7 +117,7 @@ fn the_greatest_version_wins() {
         release("v0.7.9", false, false),
     ];
 
-    let candidate = select_candidate(&releases, "stable", "0.7.0").expect("a release wins");
+    let candidate = select_candidate(&releases, "stable", "0.7.0", "").expect("a release wins");
 
     assert_eq!(
         candidate.tag, "v0.7.10",
@@ -109,7 +133,7 @@ fn an_unparseable_tag_is_ignored_without_failing() {
     ];
 
     let candidate =
-        select_candidate(&releases, "stable", "0.7.0").expect("the tagged release wins");
+        select_candidate(&releases, "stable", "0.7.0", "").expect("the tagged release wins");
 
     assert_eq!(candidate.tag, "v0.7.10");
 }
@@ -119,7 +143,7 @@ fn a_list_of_unparseable_tags_yields_no_candidate() {
     let releases = vec![release("nightly", false, false)];
 
     assert!(
-        select_candidate(&releases, "pre-release", "0.7.0").is_none(),
+        select_candidate(&releases, "pre-release", "0.7.0", "").is_none(),
         "a tag that is not a version is not a candidate"
     );
 }
@@ -128,28 +152,96 @@ fn a_list_of_unparseable_tags_yields_no_candidate() {
 fn a_candidate_that_is_not_newer_is_rejected() {
     for current in ["0.7.10", "v0.7.10", "0.8.0", "1.0.0"] {
         assert!(
-            select_candidate(&fixture(), "stable", current).is_none(),
+            select_candidate(&fixture(), "stable", current, "").is_none(),
             "current version {current} must not be offered an update"
         );
     }
 }
 
 #[test]
-fn a_pre_release_build_of_the_running_version_is_not_newer() {
-    // The live repo's newest release is a pre-release build of the running
-    // version. Semver sorts a pre-release below its base version (spec 11), so
-    // the pre-release channel must not offer it as an update.
-    let prerelease_build = version("0.8.0-b118f3a");
-    let running = version("0.8.0");
+fn the_running_build_is_not_offered_as_an_update() {
     assert!(
-        prerelease_build < running,
-        "the fixture must model the live case: a pre-release below its base version"
+        select_candidate(&fixture(), "pre-release", "0.8.0", "4610dfd").is_none(),
+        "the release this build runs must not be offered to itself"
     );
+}
 
-    assert!(
-        select_candidate(&fixture(), "pre-release", "0.8.0").is_none(),
-        "a pre-release build of the running version must not be offered"
+#[test]
+fn a_newer_build_of_the_running_core_is_offered() {
+    let candidate = select_candidate(&fixture(), "pre-release", "0.8.0", "a478046")
+        .expect("another build of the running version is an update");
+
+    assert_eq!(
+        candidate.tag, "v0.8.0-4610dfd",
+        "the newest by publication time wins, though its sha sorts lower as text"
     );
+}
+
+#[test]
+fn the_stable_channel_offers_nothing_newer_than_the_running_core() {
+    for build_id in ["4610dfd", "a478046", ""] {
+        assert!(
+            select_candidate(&fixture(), "stable", "0.8.0", build_id).is_none(),
+            "the only stable release, 0.7.10, is older than the running 0.8.0"
+        );
+    }
+}
+
+#[test]
+fn an_empty_build_id_treats_an_equal_core_as_the_running_build() {
+    assert!(
+        select_candidate(&fixture(), "pre-release", "0.8.0", "").is_none(),
+        "without an id the builds of one version cannot be told apart, so offering one would loop"
+    );
+}
+
+#[test]
+fn an_empty_build_id_still_accepts_a_higher_core() {
+    let candidate = select_candidate(&fixture(), "pre-release", "0.7.0", "")
+        .expect("a higher core is an update whatever the build id is");
+
+    assert_eq!(candidate.tag, "v0.8.0-4610dfd");
+}
+
+#[test]
+fn the_newest_by_publication_time_wins_whatever_the_list_order() {
+    let mut releases = fixture();
+    releases.reverse();
+
+    let candidate =
+        select_candidate(&releases, "pre-release", "0.7.0", "").expect("a release wins");
+
+    assert_eq!(
+        candidate.tag, "v0.8.0-4610dfd",
+        "selection reads publication time, not list position"
+    );
+}
+
+#[test]
+fn an_undated_release_sorts_below_a_dated_one() {
+    let releases = vec![
+        release("v0.9.0-aaaaaaa", true, false),
+        published("v0.9.0-bbbbbbb", true, "2026-11-25T20:59:43Z"),
+    ];
+
+    let candidate =
+        select_candidate(&releases, "pre-release", "0.8.0", "4610dfd").expect("a release wins");
+
+    assert_eq!(
+        candidate.tag, "v0.9.0-bbbbbbb",
+        "a release with no publication time cannot outrank a dated one"
+    );
+}
+
+#[test]
+fn a_stable_release_of_the_running_core_is_offered_to_a_prerelease_build() {
+    let releases = vec![published("v0.8.0", false, "2026-11-26T10:00:00Z")];
+
+    let candidate = select_candidate(&releases, "stable", "0.8.0", "4610dfd")
+        .expect("the stable release of the running version is an update to it");
+
+    assert_eq!(candidate.tag, "v0.8.0");
+    assert_eq!(candidate.version, version("0.8.0"));
 }
 
 #[test]
@@ -157,7 +249,7 @@ fn a_draft_only_list_yields_no_candidate() {
     let releases = vec![release("v9.9.9", false, true)];
 
     assert!(
-        select_candidate(&releases, "pre-release", "0.7.0").is_none(),
+        select_candidate(&releases, "pre-release", "0.7.0", "").is_none(),
         "a draft release is not published yet"
     );
 }
