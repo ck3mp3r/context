@@ -663,6 +663,88 @@ fn the_registry_attaches_a_note_to_its_project() {
 }
 
 #[test]
+fn deactivating_the_strip_keeps_every_tab_open() {
+    let mut state = fixture();
+    let before = state.tabs.clone();
+
+    assert!(
+        state.tabs.deactivate(),
+        "a strip with an active tab changes"
+    );
+
+    assert_eq!(
+        state.tabs.active(),
+        None,
+        "chrome navigation leaves no active tab"
+    );
+    assert_eq!(
+        state.tabs.len(),
+        before.len(),
+        "chrome navigation closes no tab"
+    );
+    assert_eq!(
+        state.tabs.tabs(),
+        before.tabs(),
+        "the strip order and every attachment survive"
+    );
+    assert!(
+        state.tabs.strip_rows().projects == before.strip_rows().projects,
+        "row one keeps the opened project tabs"
+    );
+    assert!(
+        state.tabs.strip_rows().children.is_empty(),
+        "row two follows the active project, so no active tab leaves it empty"
+    );
+}
+
+#[test]
+fn deactivating_a_deactivated_strip_changes_nothing() {
+    let mut state = fixture();
+    state.tabs.deactivate();
+    let before = state.tabs.clone();
+
+    assert!(
+        !state.tabs.deactivate(),
+        "a strip that is already deactivated reports no change"
+    );
+    assert_eq!(state.tabs, before, "a repeated deactivation is a no-op");
+}
+
+#[test]
+fn activating_a_tab_after_a_deactivation_takes_focus_back() {
+    let mut state = fixture();
+    state.tabs.deactivate();
+
+    assert!(state.tabs.activate(state.p1));
+    assert_eq!(state.tabs.active(), Some(state.p1));
+    assert_eq!(
+        state.tabs.strip_rows().active_project.as_deref(),
+        Some("p1"),
+        "the returned tab brings its own child row back"
+    );
+}
+
+#[test]
+fn the_registry_deactivate_keeps_every_tab_open() {
+    let registry = TabRegistry::new();
+    let project = registry.open(TabKey::project("p1"));
+    registry.open_in(TabKey::task_list("t1"), "p1");
+
+    assert!(registry.deactivate());
+
+    assert_eq!(registry.active(), None, "chrome navigation clears focus");
+    assert_eq!(registry.len(), 2, "chrome navigation closes no tab");
+    assert!(
+        registry.mounted(project),
+        "a deactivated tab stays mounted, so returning to it costs no fetch"
+    );
+    assert!(
+        !registry.deactivate(),
+        "a second chrome navigation changes nothing"
+    );
+}
+
+#[test]
 fn the_registry_last_close_clears_active() {
     let registry = TabRegistry::new();
     let only = registry.open(TabKey::note("n1"));

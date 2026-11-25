@@ -2476,6 +2476,19 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
     );
 
     // Pin (decision 17): Cmd+Shift+W stays the window's accelerator, so the SPA does not claim it.
+    // It is a tab-surface pin: the projects overview activates no tab, and the witness below needs
+    // one to survive the chord. The chip focuses its own tab and writes its URL.
+    page.locator(format!("[data-tab-activate=\"{project_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the project chip should return to its tab surface");
+    wait_for_container(
+        &page,
+        "the project tab focused before the window chord",
+        |probe| probe.active_entity == PROJECT_ID && probe.active_view == "project",
+    )
+    .await;
+
     let tabs_before_shift = tabs_probe(&page).await.len();
     assert!(
         !press_chord(&page, "w", true, false, true).await,
@@ -2493,15 +2506,14 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "a tab is still active after Cmd+Shift+W"
     );
 
-    // Pin (Cmd+,): the settings view is chrome, so the chord opens no tab and leaves the strip
-    // alone. From a tab surface first: the one writer replaces the tab URL, so the strip keeps its
-    // count and its focus.
+    // Pin (Cmd+,): the settings view is chrome, so the chord opens no tab and deactivates the ones
+    // that are open. From a tab surface first: the one writer leaves the strip's count alone and the
+    // deactivation hides every wrapper, so settings is the only surface.
     let tabs_before_cmd_comma = tabs_probe(&page).await;
-    let active_before_cmd_comma = tabs_before_cmd_comma
-        .iter()
-        .find(|tab| tab.active)
-        .map(|tab| tab.id.clone())
-        .expect("a tab is active before Cmd+,");
+    assert!(
+        tabs_before_cmd_comma.iter().any(|tab| tab.active),
+        "a tab is active before Cmd+,"
+    );
     assert!(
         press_chord(&page, ",", true, false, false).await,
         "the app claims Cmd+,"
@@ -2516,19 +2528,21 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "/settings",
         "Cmd+, writes the settings URL"
     );
-    let after_cmd_comma = tabs_probe(&page).await;
+    let after_cmd_comma = wait_for_container(&page, "no active tab on settings", |probe| {
+        probe.active == 0
+    })
+    .await;
     assert_eq!(
-        after_cmd_comma.len(),
+        after_cmd_comma.wrappers,
         tabs_before_cmd_comma.len(),
-        "Cmd+, opens no tab from a tab surface"
+        "Cmd+, opens no tab and closes no tab from a tab surface"
     );
-    assert_eq!(
-        after_cmd_comma
+    assert!(
+        tabs_probe(&page)
+            .await
             .iter()
-            .find(|tab| tab.active)
-            .map(|tab| tab.id.clone()),
-        Some(active_before_cmd_comma),
-        "Cmd+, leaves the active tab unchanged"
+            .all(|tab| tab.display == "none"),
+        "settings is chrome, so no tab wrapper may paint under it"
     );
 
     // Pin (Cmd+, from chrome): it names settings from the same start point Cmd+T names home from.
@@ -2598,6 +2612,227 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         page_path(&page).await,
         "/settings",
         "Ctrl+, navigates nowhere"
+    );
+
+    // === Chrome navigation deactivates the strip (decisions 5 and 6) ===
+    //
+    // Exactly one surface renders: chrome XOR one tab surface. Selecting a chrome view deactivates
+    // the tab set without closing it, so no wrapper paints under that view. The projects overview
+    // shows the opened project tabs in row one only, with no active chip and no second row.
+
+    let connections = socket.connections();
+    clear_session(&page).await;
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load for the chrome navigation pins");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render before the chrome navigation pins");
+    socket.wait_for_connection_after(connections);
+
+    let chrome_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(chrome_project.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card");
+    chrome_project
+        .click(None)
+        .await
+        .expect("the project card should open its tab");
+    let chrome_tab =
+        wait_for_container(&page, "the project tab open for the chrome pins", |probe| {
+            probe.wrappers == 1 && probe.active_view == "project"
+        })
+        .await;
+
+    let chrome_task_list = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(chrome_task_list.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the project dashboard should list the fixture task list");
+    chrome_task_list
+        .click(None)
+        .await
+        .expect("the task list card should open its child tab");
+    wait_for_container(&page, "the task list child tab open", |probe| {
+        probe.wrappers == 2 && probe.active_view == "task-list"
+    })
+    .await;
+
+    // Pin (a chrome-global view deactivates): every chrome list hides the strip, paints no tab, and
+    // keeps the tab set open. Its own view is the only surface in the routed area.
+    for href in ["/notes", "/repos", "/skills", "/settings"] {
+        page.locator(format!("nav a[href=\"{href}\"]"))
+            .first()
+            .click(None)
+            .await
+            .unwrap_or_else(|error| panic!("the {href} nav link should be clickable: {error}"));
+        assert_eq!(
+            page_path(&page).await,
+            href,
+            "the {href} nav link should reach {href}"
+        );
+
+        let hidden = wait_for_strip(&page, "the strip hidden on a chrome list", |probe| {
+            !probe.visible
+        })
+        .await;
+        assert!(!hidden.visible, "{href} hides the strip: {hidden:?}");
+
+        let chrome = wait_for_container(&page, "no active tab on a chrome list", |probe| {
+            probe.active == 0
+        })
+        .await;
+        assert_eq!(
+            chrome.wrappers, 2,
+            "{href} keeps every open tab: {chrome:?}"
+        );
+        assert_eq!(chrome.active, 0, "{href} activates no tab: {chrome:?}");
+
+        let entries = tabs_probe(&page).await;
+        assert!(
+            entries.iter().all(|tab| tab.display == "none"),
+            "{href} must paint no tab: {entries:?}"
+        );
+
+        let routes: RoutesProbe = page
+            .evaluate(ROUTES_PROBE, None::<&()>)
+            .await
+            .expect("the page should report the routed area");
+        assert!(
+            routes.present && routes.children > 0,
+            "{href} renders its own view in the routed area: {routes:?}"
+        );
+
+        if href == "/notes" {
+            expect(page.locator(format!("[data-routes-area] [data-note-card=\"{NOTE_ID}\"]",)))
+                .with_timeout(UI_TIMEOUT)
+                .to_be_visible()
+                .await
+                .expect("the notes overview renders while every tab hides");
+        }
+    }
+
+    // Pin (the projects overview): row one only. The opened project tabs render with no active chip,
+    // no second row, and no parentless row, and the overview is the only surface.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to the overview");
+    assert_eq!(
+        page_path(&page).await,
+        "/",
+        "the Projects nav link writes the overview URL"
+    );
+
+    let home = wait_for_strip(&page, "the projects row on the overview", |probe| {
+        probe.visible && has_strip_row(probe, "projects")
+    })
+    .await;
+    assert_eq!(
+        strip_row(&home, "projects").len(),
+        1,
+        "row one holds the opened project tab: {home:?}"
+    );
+    assert!(
+        strip_row(&home, "projects")[0].id == chrome_tab.active_id,
+        "row one names the tab the card opened: {home:?}"
+    );
+    assert!(
+        !has_strip_row(&home, "children"),
+        "the overview renders no second row: {home:?}"
+    );
+    assert!(
+        !has_strip_row(&home, "parentless"),
+        "the overview renders no parentless row: {home:?}"
+    );
+    assert!(
+        strip_chips(&home).iter().all(|chip| !chip.active),
+        "no chip is active on the overview: {home:?}"
+    );
+
+    let overview = container_probe(&page).await;
+    assert_eq!(
+        overview.wrappers, 2,
+        "the overview keeps both open tabs: {overview:?}"
+    );
+    assert_eq!(
+        overview.active, 0,
+        "the overview activates no tab: {overview:?}"
+    );
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the overview is the only surface on the projects home");
+
+    // Pin (a project chip returns): selecting the project tab from the overview paints its overview
+    // and brings its task-list row back.
+    let project_chip = strip_row(&home, "projects")[0].id.clone();
+    page.locator(format!("[data-tab-activate=\"{project_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the project chip should focus its tab");
+    let back_on_project = wait_for_container(
+        &page,
+        "the project tab painted from the overview",
+        |probe| probe.active_view == "project" && probe.active_entity == PROJECT_ID,
+    )
+    .await;
+    assert_eq!(
+        back_on_project.active, 1,
+        "exactly one surface paints: {back_on_project:?}"
+    );
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}"),
+        "the one writer names the tab the chip focused"
+    );
+
+    let with_children = wait_for_strip(&page, "the project's task-list row", |probe| {
+        has_strip_row(probe, "children")
+    })
+    .await;
+    assert_eq!(
+        strip_row(&with_children, "children").len(),
+        1,
+        "row two holds the project's task list: {with_children:?}"
+    );
+    assert!(
+        strip_row(&with_children, "projects")[0].active,
+        "the project chip is the active chip again: {with_children:?}"
+    );
+
+    // Pin (a task-list chip shows the kanban): selecting the child chip paints that tab alone.
+    let child_chip = strip_row(&with_children, "children")[0].id.clone();
+    page.locator(format!("[data-tab-activate=\"{child_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the task-list chip should focus its tab");
+    let kanban = wait_for_container(&page, "the task-list tab painted", |probe| {
+        probe.active_view == "task-list" && probe.active_entity == TASK_LIST_ID
+    })
+    .await;
+    assert_eq!(kanban.active, 1, "exactly one surface paints: {kanban:?}");
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}/task-lists/{TASK_LIST_ID}"),
+        "the one writer names the kanban surface"
+    );
+    let routes_under_tab: RoutesProbe = page
+        .evaluate(ROUTES_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the routed area");
+    assert_eq!(
+        routes_under_tab.children, 0,
+        "a tab surface renders nothing in the routed area: {routes_under_tab:?}"
     );
 
     // === Update pill (one surface, app level, bottom right) ===

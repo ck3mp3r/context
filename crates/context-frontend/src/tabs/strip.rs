@@ -1,6 +1,10 @@
 //! The two-level strip: level one holds the project tabs and the parentless row; level two holds
 //! the children of the active project only (decisions 2, 5, and 19).
 //!
+//! The strip is route-aware. A chrome-global view (`/notes`, `/repos`, `/skills`, `/settings`) hides
+//! it entirely. The projects overview (`/`) renders row one only: the opened project tabs, with no
+//! active chip and no row two, because no tab is active there. A tab surface renders both rows.
+//!
 //! A tab chip holds two siblings: the activate control that fills the chip, and the `×` close control
 //! beside it. The close control is never a descendant of the activate control, so a close click
 //! cannot also activate the tab it removes — the mechanism that blanked the content area of the first
@@ -11,11 +15,12 @@
 //! is decision 16's route to the Projects chrome view.
 
 use leptos::prelude::*;
-use leptos_router::hooks::use_navigate;
+use leptos_router::hooks::{use_location, use_navigate};
 
 use super::open::write_active_url;
 use super::pure::{Tab, TabId, TabKey, TabRouteKind};
 use super::registry::TabRegistry;
+use super::route::{RouteKind, route_kind};
 use super::session::TabTitles;
 
 /// The `MouseEvent::button` value of a middle click (decision 9).
@@ -23,13 +28,25 @@ const MIDDLE_BUTTON: i16 = 1;
 
 // region:    --- Components
 
-/// The tab strip. It hides itself while no tab is open, so chrome home renders unchanged.
+/// The tab strip. Its route decides whether it shows, and which rows it shows.
 #[component]
 pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
+    let location = use_location();
+    let kind = Signal::derive(move || route_kind(&location.pathname.get()));
+
     let rows = Signal::derive(move || registry.strip_rows());
     let projects = Signal::derive(move || rows.get().projects);
     let parentless = Signal::derive(move || rows.get().parentless);
     let children = Signal::derive(move || rows.get().children);
+
+    // Row two belongs to the active project, and the projects overview has no active tab, so it
+    // renders row one alone. Every chrome-global view hides the strip, and keeps every tab open.
+    let second_row = Signal::derive(move || kind.get() != RouteKind::ProjectsHome);
+    let shown = Signal::derive(move || match kind.get() {
+        RouteKind::ChromeGlobal => false,
+        RouteKind::ProjectsHome => !projects.get().is_empty(),
+        RouteKind::TabSurface | RouteKind::Unknown => !registry.is_empty(),
+    });
 
     let navigate = use_navigate();
     let open_projects = move |_| write_active_url(&navigate, "/");
@@ -38,7 +55,7 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
         <div
             data-strip=""
             class="flex flex-col gap-1 border-b border-ctp-surface1 bg-ctp-mantle px-4 py-2"
-            style=move || strip_style(!registry.is_empty())
+            style=move || strip_style(shown.get())
         >
             <div data-strip-level="1" class="flex items-center gap-2 overflow-x-auto">
                 <Show when=move || !projects.get().is_empty()>
@@ -50,7 +67,7 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
                         />
                     </div>
                 </Show>
-                <Show when=move || !parentless.get().is_empty()>
+                <Show when=move || second_row.get() && !parentless.get().is_empty()>
                     <div data-strip-row="parentless" class="flex items-center gap-1">
                         <For
                             each=move || parentless.get()
@@ -60,7 +77,7 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
                     </div>
                 </Show>
             </div>
-            <Show when=move || !children.get().is_empty()>
+            <Show when=move || second_row.get() && !children.get().is_empty()>
                 <div data-strip-level="2" class="flex items-center gap-2 overflow-x-auto">
                     <div data-strip-row="children" class="flex items-center gap-1 pl-4">
                         <For
@@ -204,9 +221,13 @@ fn chip_class(active: bool) -> &'static str {
     }
 }
 
-/// The strip's `display`: an empty strip is chrome home, and chrome renders no strip.
-fn strip_style(open: bool) -> &'static str {
-    if open { "display:flex" } else { "display:none" }
+/// The strip's `display`: a hidden strip paints nothing, and every tab stays open behind it.
+fn strip_style(shown: bool) -> &'static str {
+    if shown {
+        "display:flex"
+    } else {
+        "display:none"
+    }
 }
 
 // endregion: --- Support

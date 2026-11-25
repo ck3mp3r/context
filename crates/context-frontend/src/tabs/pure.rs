@@ -192,7 +192,7 @@ impl StripRows {
 pub struct Tabs {
     /// Open tabs in strip order: the order they were opened in.
     tabs: Vec<Tab>,
-    /// The focused tab, or `None` on chrome home.
+    /// The focused tab, or `None` on a chrome route.
     active: Option<TabId>,
     /// Source of the next [`TabId`]. It only ever grows, so ids never repeat.
     next_id: u64,
@@ -214,7 +214,7 @@ impl Tabs {
         self.tabs.is_empty()
     }
 
-    /// The focused tab id, or `None` on chrome home.
+    /// The focused tab id, or `None` on a chrome route.
     pub fn active(&self) -> Option<TabId> {
         self.active
     }
@@ -331,6 +331,19 @@ impl Tabs {
             return false;
         }
         self.focus(Some(id));
+        true
+    }
+
+    /// Clear focus and keep every tab open.
+    ///
+    /// Chrome navigation deactivates the strip: the tab set survives, no tab paints, and the chrome
+    /// view renders alone, so exactly one surface shows. It returns whether it changed anything, so
+    /// a strip that is already deactivated costs no update.
+    pub fn deactivate(&mut self) -> bool {
+        if self.active.is_none() {
+            return false;
+        }
+        self.focus(None);
         true
     }
 

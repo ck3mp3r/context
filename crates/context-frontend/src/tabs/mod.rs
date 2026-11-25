@@ -13,6 +13,7 @@ mod liveness;
 mod open;
 mod pure;
 mod registry;
+mod route;
 mod session;
 mod strip;
 mod title;
@@ -24,9 +25,10 @@ pub use liveness::should_refetch;
 pub use open::{focus_or_open, open_surface, surface_url, write_active_url};
 pub use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs};
 pub use registry::TabRegistry;
+pub use route::{RouteKind, route_kind};
 pub use session::{
     BootPlan, BootSurface, SESSION_VERSION, StoredKey, StoredKind, StoredSession, StoredTab,
-    TabTitles, boot_surface, storage_key, write_owned_url,
+    TabTitles, adopt_owned_url, boot_surface, storage_key, write_owned_url,
 };
 pub use strip::TabStrip;
 pub use title::start_window_title;

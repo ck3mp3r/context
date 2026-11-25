@@ -18,14 +18,15 @@ mod session;
 
 use std::cell::RefCell;
 
+use leptos::prelude::{GetUntracked, RwSignal};
 use leptos_router::NavigateOptions;
 
 use pure::TabKey;
 use registry::TabRegistry;
 use session::{
     BootPlan, BootSurface, SESSION_VERSION, StoredKey, StoredKind, StoredSession, StoredTab,
-    TabTitles, boot_surface, decode, encode, install_restored, plan_boot, snapshot, storage_key,
-    write_owned_url,
+    TabTitles, adopt_owned_url, boot_surface, decode, encode, install_restored, plan_boot,
+    snapshot, storage_key, write_owned_url,
 };
 
 /// The environment this test binary runs in: a debug build, so the dev key.
@@ -560,21 +561,51 @@ fn write_owned_url_writes_only_when_the_url_differs() {
         seen.borrow_mut().push(url.to_string());
     };
 
-    let mut owned = "/projects/p1".to_string();
-    write_owned_url(&writer, &mut owned, "/projects/p1");
+    let owned = RwSignal::new("/projects/p1".to_string());
+    write_owned_url(&writer, &owned, "/projects/p1");
     assert!(
         seen.borrow().is_empty(),
         "boot restore writes nothing: the URL already names the surface"
     );
 
-    write_owned_url(&writer, &mut owned, "/notes/n1");
-    assert_eq!(owned, "/notes/n1", "the app owns the URL it wrote");
+    write_owned_url(&writer, &owned, "/notes/n1");
+    assert_eq!(
+        owned.get_untracked(),
+        "/notes/n1",
+        "the app owns the URL it wrote"
+    );
 
-    write_owned_url(&writer, &mut owned, "/notes/n1");
+    write_owned_url(&writer, &owned, "/notes/n1");
     assert_eq!(
         seen.into_inner(),
         vec!["/notes/n1".to_string()],
         "one write per change, so a deep link survives a restore and no write repeats"
+    );
+}
+
+#[test]
+fn adopt_owned_url_takes_the_url_a_chrome_navigation_landed_on() {
+    let seen: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    let writer = |url: &str, _: NavigateOptions| seen.borrow_mut().push(url.to_string());
+
+    let owned = RwSignal::new("/projects/p1".to_string());
+    adopt_owned_url(&owned, "/notes");
+
+    assert_eq!(
+        owned.get_untracked(),
+        "/notes",
+        "chrome navigation adopts the URL it landed on, and writes nothing"
+    );
+    assert!(
+        seen.borrow().is_empty(),
+        "an adoption is not a navigation: the deactivation writes no URL"
+    );
+
+    write_owned_url(&writer, &owned, "/projects/p1");
+    assert_eq!(
+        seen.into_inner(),
+        vec!["/projects/p1".to_string()],
+        "returning to a tab writes its URL again, because the app no longer owned it"
     );
 }
 

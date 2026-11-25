@@ -1,6 +1,6 @@
 //! The reactive tab registry: the pure model behind one `RwSignal`.
 
-use leptos::prelude::{Get, RwSignal, Update};
+use leptos::prelude::{Get, RwSignal, Update, WithUntracked};
 
 use super::pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, Tabs};
 
@@ -87,6 +87,21 @@ impl TabRegistry {
         let mut activated = false;
         self.state.update(|tabs| activated = tabs.activate(id));
         activated
+    }
+
+    /// Clear focus and keep every tab open, which is what chrome navigation does.
+    ///
+    /// A strip that is already deactivated is left untouched, so a repeated chrome navigation
+    /// notifies no reader. The signal update is the one place the registry learns "no active tab"
+    /// without closing a tab.
+    pub fn deactivate(&self) -> bool {
+        if self.state.with_untracked(|tabs| tabs.active().is_none()) {
+            return false;
+        }
+        self.state.update(|tabs| {
+            tabs.deactivate();
+        });
+        true
     }
 
     /// Open a stored surface without focusing or mounting it (decision 14).

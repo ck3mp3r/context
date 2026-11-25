@@ -12,9 +12,9 @@ use crate::components::{ThemeSwitcher, UpdatePill};
 use crate::models::{UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
 use crate::tabs::{
-    TabContainer, TabKey, TabRegistry, TabStrip, TabTitles, boot_surface, resolve_titles,
-    restore_or_boot, start_keyboard, start_session_persistence, start_window_title, surface_url,
-    write_owned_url,
+    TabContainer, TabKey, TabRegistry, TabStrip, TabTitles, adopt_owned_url, boot_surface,
+    resolve_titles, restore_or_boot, route_kind, start_keyboard, start_session_persistence,
+    start_window_title, surface_url, write_owned_url,
 };
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection, use_websocket_updates};
@@ -130,30 +130,55 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
         });
     });
 
+    // Chrome navigation deactivates the strip: the tab set stays open in the registry, no tab
+    // paints, and the chrome view below renders alone, so exactly one surface shows (decisions 5 and
+    // 6). Only a known chrome route deactivates, so a URL the app did not write — `pushState`, Back —
+    // moves no active tab. The first run is the boot mount, and it is skipped, so a session-restored
+    // active tab survives the boot URL (decision 14).
+    //
+    // Clearing focus writes no URL here. The writer below sees no active tab and a strip that is not
+    // empty, and leaves the address bar on the chrome view the user asked for. The app adopts that
+    // chrome URL instead, so returning to a tab writes the tab's URL again.
+    let owned = RwSignal::new(location.pathname.get_untracked());
+    let mut booted = false;
+    Effect::new(move |_| {
+        let path = location.pathname.get();
+        if !booted {
+            booted = true;
+            return;
+        }
+        if !route_kind(&path).is_chrome() {
+            return;
+        }
+        tabs.deactivate();
+        adopt_owned_url(&owned, &path);
+    });
+
     // The one URL writer: the active tab names the URL, written once with `replace` (decisions 11
     // and 21). Nothing here reads the address bar, so a mutation the app did not make cannot move
     // the active tab.
     //
-    // An empty strip names no surface, so the last close writes chrome home. The write follows the
-    // transition to an empty strip, not every empty read: a route the app opened no tab for (a
-    // deep link, a chrome list) keeps the URL it already has.
+    // An empty strip names no surface, so the last close writes chrome home. A strip that is merely
+    // deactivated names no surface either, but it is not empty: chrome navigation keeps every tab, so
+    // that transition writes nothing and the user stays on the chrome view they chose.
     //
     // The URL the app owns starts as the boot URL, read once (decision 11), so a restore writes no
     // navigation and cannot overwrite a deep link (decision 14).
     let url_writer = use_navigate();
-    let mut owned = location.pathname.get_untracked();
     let mut had_active = false;
     Effect::new(move |_| {
         let Some(key) = tabs.active_key() else {
             if had_active {
                 had_active = false;
-                write_owned_url(&url_writer, &mut owned, "/");
+                if tabs.is_empty() {
+                    write_owned_url(&url_writer, &owned, "/");
+                }
             }
             return;
         };
         had_active = true;
         let url = surface_url(&key, tabs.active_project().as_deref());
-        write_owned_url(&url_writer, &mut owned, &url);
+        write_owned_url(&url_writer, &owned, &url);
     });
 
     // The one keyboard transport (decisions 9, 10, 16, 17): installed once for the window, so the
@@ -258,13 +283,15 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
             </nav>
 
             <div class="flex-1">
-                // The strip sits above the surfaces it names. It hides itself while no tab is open,
-                // so the chrome views below render unchanged on chrome home.
+                // The strip sits above the surfaces it names. Its route decides what it shows:
+                // nothing on a chrome list, row one on the projects overview, both rows on a tab
+                // surface.
                 <TabStrip registry=tabs titles=titles/>
 
                 // Tab surfaces render through the container, so every tab keeps one stable in-tree
-                // wrapper. Only chrome renders through the routes below: a tab URL has no detail
-                // route, so the fallback renders nothing and no leftover chrome sits under a tab.
+                // wrapper. Exactly one surface paints: chrome navigation deactivates every wrapper,
+                // and a tab URL matches no detail route, so the fallback below renders nothing under
+                // a tab.
                 <TabContainer registry=tabs/>
 
                 <div data-routes-area="">

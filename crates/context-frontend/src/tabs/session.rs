@@ -8,7 +8,7 @@
 //! it directly and pins the decode, plan, and restore rules without a browser. Storage access and the
 //! boot sequence live in `boot.rs`.
 
-use leptos::prelude::{Get, RwSignal, Update};
+use leptos::prelude::{Get, GetUntracked, RwSignal, Update, UpdateUntracked};
 use leptos_router::NavigateOptions;
 use serde::{Deserialize, Serialize};
 
@@ -342,16 +342,31 @@ fn find_id(tabs: TabRegistry, key: &TabKey) -> Option<TabId> {
 
 /// The one URL writer, gated by the URL the app already owns.
 ///
-/// `owned` is the URL the address bar held at boot, read once (decision 11). A write happens only
-/// when the target differs, so a restore repeats no navigation and never overwrites a deep link
-/// (decision 14).
-pub fn write_owned_url(writer: &impl Fn(&str, NavigateOptions), owned: &mut String, url: &str) {
-    if owned == url {
+/// `owned` is the URL the address bar holds: the boot URL, adopted once (decision 11), and then
+/// every URL the app wrote or the user navigated to. A write happens only when the target differs,
+/// so a restore repeats no navigation and never overwrites a deep link (decision 14).
+pub fn write_owned_url(
+    writer: &impl Fn(&str, NavigateOptions),
+    owned: &RwSignal<String>,
+    url: &str,
+) {
+    if owned.get_untracked() == url {
         return;
     }
     write_active_url(writer, url);
-    owned.clear();
-    owned.push_str(url);
+    adopt_owned_url(owned, url);
+}
+
+/// Adopt a URL the app did not write, so the next activation writes again.
+///
+/// Chrome navigation moves the address bar through the router, not through the one writer. Without
+/// this adoption the next write of the tab the user returns to would compare equal to a URL the app
+/// is no longer on, and that tab would paint with the chrome URL still in the bar.
+pub fn adopt_owned_url(owned: &RwSignal<String>, url: &str) {
+    owned.update_untracked(|owned| {
+        owned.clear();
+        owned.push_str(url);
+    });
 }
 
 // endregion: --- URL ownership
