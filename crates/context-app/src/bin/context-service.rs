@@ -22,8 +22,8 @@ fn main() -> tauri::Result<()> {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_menu_event(|app, event| tray::handle_menu_event(app, event.id().as_ref()))
         .setup(|app| {
-            // A legacy XDG config file reaches the native root before the port
-            // decision reads it.
+            // A legacy platform-native config file reaches the `~/.config` root
+            // before the port decision reads it.
             context_core::settings::migrate_legacy_config();
 
             #[cfg(target_os = "macos")]

@@ -40,8 +40,8 @@ pub async fn run(
         set_base_path(home_path);
     }
 
-    // A legacy XDG config file reaches the root this run reads before the
-    // settings are used.
+    // A legacy platform-native config file reaches the root this run reads
+    // before the settings are used.
     settings::migrate_legacy_config();
 
     // Use the singleton to get db path

@@ -155,12 +155,14 @@ Stored settings live in `config.toml` under the profile configuration directory:
 
 | Build | File |
 |-------|------|
-| Debug | `~/Library/Application Support/c5t-dev/config.toml` |
-| Release | `~/Library/Application Support/c5t/config.toml` |
+| Debug | `~/.config/c5t-dev/config.toml` |
+| Release | `~/.config/c5t/config.toml` |
 
-`XDG_CONFIG_HOME` does not move the configuration root. The root is the platform location: `~/Library/Application Support` on macOS, `%APPDATA%` on Windows and `~/.config` elsewhere. The app and `context-service` start without the shell's environment while a terminal CLI inherits it, so honoring the variable would give one profile two `config.toml` files. `c5t api --home` replaces the root for one run.
+`XDG_CONFIG_HOME` does not move the configuration root. The root is `~/.config` on every platform: macOS, Windows and Linux alike. Resolution is identical whether the variable is unset, set to `~/.config`, or set to a bespoke path. The app and `context-service` start without the shell's environment while a terminal CLI inherits it, so honoring the variable would give one profile two `config.toml` files. On Windows the root is `%USERPROFILE%\.config\{profile}` when `HOME` is set — the MSYS2/Git Bash convention the data root already uses — and the temp-directory fallback when `HOME` is unset. `c5t api --home` replaces the root for one run.
 
-Older builds did read `XDG_CONFIG_HOME`, so a legacy `$XDG_CONFIG_HOME/c5t/config.toml` (debug: `c5t-dev`) is copied into the platform root when no native file exists. The copy runs once: an existing native file wins and is never overwritten.
+No supported override moves the root. To add one, read `XDG_CONFIG_HOME` in `default_config_home` in `crates/context-core/src/paths.rs`, before the `$HOME/.config` fallback: that is a one-line change.
+
+Older builds wrote the platform-native root: `~/Library/Application Support` on macOS, `%APPDATA%` on Windows, `~/.config` elsewhere. A legacy `config.toml` there (debug: `c5t-dev`) is copied into `~/.config` when no `~/.config` file exists. The copy runs once: an existing `~/.config` file wins and is never overwritten. A missing legacy file, an unreadable one, or a failed write is silent, so startup never fails on migration.
 
 The file holds any of `host`, `port`, `verbosity`, `enable_docs`, `skills_dir`, and `start_at_login`. An absent key means "use the built-in default"; the service resolves the file over the defaults at startup.
 
@@ -354,8 +356,8 @@ The app updates itself from GitHub releases. The service owns the flow, so an up
 
    | Build | State file |
    |-------|------------|
-   | Debug | `~/Library/Application Support/c5t-dev/update.json` |
-   | Release | `~/Library/Application Support/c5t/update.json` |
+   | Debug | `~/.config/c5t-dev/update.json` |
+   | Release | `~/.config/c5t/update.json` |
 
 ### Settings
 

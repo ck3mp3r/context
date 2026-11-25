@@ -318,7 +318,7 @@ fn missing_config_root() -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ErrorResponse {
-            error: "cannot locate the settings file: neither APPDATA nor HOME is set".to_string(),
+            error: "cannot locate the settings file: HOME is not set".to_string(),
         }),
     )
 }

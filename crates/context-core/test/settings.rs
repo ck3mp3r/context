@@ -43,6 +43,28 @@ impl Drop for EnvGuard {
     }
 }
 
+/// Directory where older builds kept `config.toml` for this platform, under `root`.
+fn legacy_config_dir(root: &std::path::Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    let dir = root.join(PROFILE_DIR);
+    #[cfg(target_os = "macos")]
+    let dir = root.join("Library/Application Support").join(PROFILE_DIR);
+    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+    let dir = root.join(".config").join(PROFILE_DIR);
+    dir
+}
+
+/// Point the platform variable that names the old config root at `root`.
+///
+/// The guard restores the variable when it drops.
+fn point_legacy_root_at(root: &std::path::Path) -> EnvGuard {
+    #[cfg(target_os = "windows")]
+    let guard = EnvGuard::set("APPDATA", root.as_os_str());
+    #[cfg(not(target_os = "windows"))]
+    let guard = EnvGuard::set("HOME", root.as_os_str());
+    guard
+}
+
 /// Stored settings with every field set.
 fn full_stored() -> StoredSettings {
     StoredSettings {
@@ -103,25 +125,31 @@ fn base_path_override_replaces_the_config_root() {
 #[serial]
 fn xdg_config_home_does_not_move_the_config_root() {
     clear_base_path();
-    let xdg = TempDir::new().expect("xdg temp dir");
-    let _xdg = EnvGuard::set("XDG_CONFIG_HOME", xdg.path().as_os_str());
+    let home = TempDir::new().expect("home temp dir");
+    let _home = EnvGuard::set("HOME", home.path().as_os_str());
+    let expected = home.path().join(".config").join(PROFILE_DIR);
 
-    let config_dir = get_config_dir();
-    let home = PathBuf::from(env::var("HOME").expect("HOME is set"));
+    let _unset = EnvGuard::remove("XDG_CONFIG_HOME");
+    let with_unset = get_config_dir();
 
-    #[cfg(target_os = "macos")]
-    let expected = home.join("Library/Application Support").join(PROFILE_DIR);
-    #[cfg(not(target_os = "macos"))]
-    let expected = home.join(".config").join(PROFILE_DIR);
+    let xdg_default = home.path().join(".config");
+    let _at_default = EnvGuard::set("XDG_CONFIG_HOME", xdg_default.as_os_str());
+    let set_to_default = get_config_dir();
 
-    assert!(
-        !config_dir.starts_with(xdg.path()),
-        "XDG_CONFIG_HOME must not move the config root, got {config_dir:?}"
-    );
-    assert_eq!(
-        config_dir, expected,
-        "a set XDG_CONFIG_HOME should leave the native config root in place"
-    );
+    let bespoke = TempDir::new().expect("bespoke temp dir");
+    let _at_bespoke = EnvGuard::set("XDG_CONFIG_HOME", bespoke.path().as_os_str());
+    let set_to_bespoke = get_config_dir();
+
+    for (context, config_dir) in [
+        ("unset", with_unset),
+        ("set to ~/.config", set_to_default),
+        ("set to a bespoke path", set_to_bespoke),
+    ] {
+        assert_eq!(
+            config_dir, expected,
+            "XDG_CONFIG_HOME {context} must leave the root at {expected:?}"
+        );
+    }
 }
 
 #[test]
@@ -154,21 +182,18 @@ fn config_resolution_does_not_panic_without_home() {
 
 #[test]
 #[serial]
-fn config_root_falls_back_to_the_platform_default() {
+fn config_root_defaults_to_dot_config_under_home() {
     clear_base_path();
-    unsafe { env::remove_var("XDG_CONFIG_HOME") };
+    let home = TempDir::new().expect("home temp dir");
+    let _home = EnvGuard::set("HOME", home.path().as_os_str());
+    let _xdg = EnvGuard::remove("XDG_CONFIG_HOME");
 
     let config_dir = get_config_dir();
-    let home = PathBuf::from(env::var("HOME").expect("HOME is set"));
-
-    #[cfg(target_os = "macos")]
-    let expected = home.join("Library/Application Support").join(PROFILE_DIR);
-    #[cfg(not(target_os = "macos"))]
-    let expected = home.join(".config").join(PROFILE_DIR);
 
     assert_eq!(
-        config_dir, expected,
-        "unset XDG_CONFIG_HOME should fall back to the platform config root"
+        config_dir,
+        home.path().join(".config").join(PROFILE_DIR),
+        "the config root should be $HOME/.config on every platform"
     );
 }
 
@@ -176,11 +201,11 @@ fn config_root_falls_back_to_the_platform_default() {
 #[serial]
 fn migration_copies_a_legacy_config_once() {
     let native_base = TempDir::new().expect("native temp dir");
-    let legacy_home = TempDir::new().expect("legacy temp dir");
-    let _xdg = EnvGuard::set("XDG_CONFIG_HOME", legacy_home.path().as_os_str());
+    let legacy_root = TempDir::new().expect("legacy temp dir");
+    let _legacy = point_legacy_root_at(legacy_root.path());
     set_base_path(native_base.path().to_path_buf());
 
-    let legacy_dir = legacy_home.path().join(PROFILE_DIR);
+    let legacy_dir = legacy_config_dir(legacy_root.path());
     std::fs::create_dir_all(&legacy_dir).expect("legacy config dir creates");
     std::fs::write(legacy_dir.join("config.toml"), "port = 4040\n").expect("legacy file writes");
 
@@ -210,8 +235,8 @@ fn migration_copies_a_legacy_config_once() {
 #[serial]
 fn migration_keeps_the_native_file_when_both_exist() {
     let native_base = TempDir::new().expect("native temp dir");
-    let legacy_home = TempDir::new().expect("legacy temp dir");
-    let _xdg = EnvGuard::set("XDG_CONFIG_HOME", legacy_home.path().as_os_str());
+    let legacy_root = TempDir::new().expect("legacy temp dir");
+    let _legacy = point_legacy_root_at(legacy_root.path());
     set_base_path(native_base.path().to_path_buf());
 
     let native = get_config_path();
@@ -219,7 +244,7 @@ fn migration_keeps_the_native_file_when_both_exist() {
         .expect("native dir creates");
     std::fs::write(&native, "port = 5050\n").expect("native file writes");
 
-    let legacy_dir = legacy_home.path().join(PROFILE_DIR);
+    let legacy_dir = legacy_config_dir(legacy_root.path());
     std::fs::create_dir_all(&legacy_dir).expect("legacy config dir creates");
     std::fs::write(legacy_dir.join("config.toml"), "port = 4040\n").expect("legacy file writes");
 

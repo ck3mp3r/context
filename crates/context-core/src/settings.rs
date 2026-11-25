@@ -167,12 +167,13 @@ pub fn write(path: &Path, stored: &StoredSettings) -> SettingsResult<()> {
     })
 }
 
-/// Copy a legacy config file into the native config directory, once.
+/// Copy a legacy config file into the `~/.config` root, once.
 ///
-/// Older builds honored `XDG_CONFIG_HOME`, so a user who set it kept
-/// `config.toml` in `$XDG_CONFIG_HOME/c5t[-dev]/`. The native root is the one
-/// the app, the service and the CLI read. This copies the legacy file when the
-/// native file is absent and the legacy one exists.
+/// Builds before the `~/.config` move wrote to the platform-native config root:
+/// `~/Library/Application Support` on macOS, `%APPDATA%` on Windows, and
+/// `~/.config` on other platforms. The native root is the one the app, the
+/// service and the CLI read. This copies the legacy file when the native file is
+/// absent and the legacy one exists.
 ///
 /// The copy is one-time and non-destructive: an existing native file wins, and
 /// a second call finds it and does nothing. A missing environment root, an
