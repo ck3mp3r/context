@@ -1145,7 +1145,11 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         .expect("the skill card should reopen the skill detail surface");
     wait_for_open_surface(&page, "skill-detail").await;
 
-    click_through(&page, "[data-tab-active=\"true\"] [data-panel=\"task-lists\"]").await;
+    click_through(
+        &page,
+        "[data-tab-active=\"true\"] [data-panel=\"task-lists\"]",
+    )
+    .await;
     click_through(
         &page,
         &format!("[data-tab-id=\"1\"] [data-task-list-card=\"{TASK_LIST_ID}\"]"),
@@ -1697,9 +1701,11 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         .click(None)
         .await
         .expect("the project card should open its tab");
-    wait_for_container(&page, "the project tab open for the liveness pins", |probe| {
-        probe.wrappers == 1 && probe.active_view == "project"
-    })
+    wait_for_container(
+        &page,
+        "the project tab open for the liveness pins",
+        |probe| probe.wrappers == 1 && probe.active_view == "project",
+    )
     .await;
 
     // The visible panel loads once; the three panels the user has not opened fetch nothing.
@@ -2535,7 +2541,10 @@ async fn click_through(page: &Page, selector: &str) {
         .evaluate(CLICK_THROUGH_PROBE, Some(&selector))
         .await
         .expect("the page should run the control's click handler");
-    assert!(clicked, "{selector} should be reachable through its handler");
+    assert!(
+        clicked,
+        "{selector} should be reachable through its handler"
+    );
 }
 
 /// Reads the strip in one round trip.
@@ -3234,9 +3243,10 @@ fn project_by_path(path: &str) -> Option<String> {
     match id {
         PROJECT_ID => Some(project_record(PROJECT_ID, PROJECT_TITLE)),
         SECOND_PROJECT_ID => Some(project_record(SECOND_PROJECT_ID, SECOND_PROJECT_TITLE)),
-        NOTE_PARENT_PROJECT_ID => {
-            Some(project_record(NOTE_PARENT_PROJECT_ID, NOTE_PARENT_PROJECT_TITLE))
-        }
+        NOTE_PARENT_PROJECT_ID => Some(project_record(
+            NOTE_PARENT_PROJECT_ID,
+            NOTE_PARENT_PROJECT_TITLE,
+        )),
         _ => None,
     }
 }

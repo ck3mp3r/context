@@ -284,13 +284,12 @@ impl Tabs {
             None => {
                 self.next_id += 1;
                 let id = TabId(self.next_id);
-                self.tabs
-                    .push(Tab {
-                        id,
-                        key,
-                        parent,
-                        mounted: true,
-                    });
+                self.tabs.push(Tab {
+                    id,
+                    key,
+                    parent,
+                    mounted: true,
+                });
                 id
             }
         };

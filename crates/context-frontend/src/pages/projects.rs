@@ -2,9 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, QueryBuilder};
-use crate::components::{
-    CopyableId, ExternalRefLink, Pagination, SearchInput, SortControls,
-};
+use crate::components::{CopyableId, ExternalRefLink, Pagination, SearchInput, SortControls};
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Paginated, Project, UpdateMessage};
 use crate::tabs::{TabKey, TabRegistry, TabTitles, open_from_card};

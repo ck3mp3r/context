@@ -2,9 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, QueryBuilder};
-use crate::components::{
-    Pagination, SearchInput, SkillCard, SkillDetailModal, SortControls,
-};
+use crate::components::{Pagination, SearchInput, SkillCard, SkillDetailModal, SortControls};
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Paginated, Skill, UpdateMessage};
 use crate::websocket::use_websocket_updates;

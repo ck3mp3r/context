@@ -102,9 +102,7 @@ impl TabRegistry {
 
     /// Whether this tab's surface is mounted.
     pub fn mounted(&self, id: TabId) -> bool {
-        self.state
-            .try_get()
-            .is_some_and(|tabs| tabs.is_mounted(id))
+        self.state.try_get().is_some_and(|tabs| tabs.is_mounted(id))
     }
 
     /// Close a tab, cascade a project's children, and move `active` in one update.

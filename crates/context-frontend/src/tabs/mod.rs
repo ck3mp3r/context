@@ -25,8 +25,8 @@ pub use open::{focus_or_open, open_surface, surface_url, write_active_url};
 pub use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs};
 pub use registry::TabRegistry;
 pub use session::{
-    BootPlan, BootSurface, SESSION_VERSION, StoredKey, StoredKind, StoredSession, StoredTab, TabTitles,
-    boot_surface, storage_key, write_owned_url,
+    BootPlan, BootSurface, SESSION_VERSION, StoredKey, StoredKind, StoredSession, StoredTab,
+    TabTitles, boot_surface, storage_key, write_owned_url,
 };
 pub use strip::TabStrip;
 pub use title::start_window_title;

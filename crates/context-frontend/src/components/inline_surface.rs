@@ -66,7 +66,8 @@ pub fn InlineSurface(
     /// Where the panel sits in the viewport.
     layout: SurfaceLayout,
     /// The surface's own panel classes, which carry a size the layout does not.
-    #[prop(optional)] panel_class: Option<&'static str>,
+    #[prop(optional)]
+    panel_class: Option<&'static str>,
     /// Open state. Escape and a backdrop click set it to `false`.
     open: RwSignal<bool>,
     children: Children,

@@ -19,6 +19,15 @@ pass_filenames = false
 stages = ["pre-commit"]
 
 [[repos.hooks]]
+id = "rustfmt-frontend"
+name = "cargo fmt (frontend)"
+language = "system"
+entry = "cargo fmt --check --manifest-path crates/context-frontend/Cargo.toml"
+files = "crates/context-frontend/.*\\.rs$"
+pass_filenames = false
+stages = ["pre-commit"]
+
+[[repos.hooks]]
 id = "clippy"
 name = "cargo clippy"
 language = "system"

@@ -29,7 +29,11 @@ pub fn storage_key(environment: &str) -> String {
 
 /// The environment this build stores under: `dev` for a debug build, `release` otherwise.
 pub fn environment() -> &'static str {
-    if cfg!(debug_assertions) { "dev" } else { "release" }
+    if cfg!(debug_assertions) {
+        "dev"
+    } else {
+        "release"
+    }
 }
 
 /// The surface kind of a stored tab, as the token the session writes.
@@ -226,9 +230,11 @@ pub fn boot_surface(pathname: &str) -> Option<BootSurface> {
 
     match segments.as_slice() {
         ["projects", project_id] => Some(surface(StoredKind::Project, project_id, None)),
-        ["projects", project_id, "task-lists", task_list_id] => {
-            Some(surface(StoredKind::TaskList, task_list_id, Some(project_id)))
-        }
+        ["projects", project_id, "task-lists", task_list_id] => Some(surface(
+            StoredKind::TaskList,
+            task_list_id,
+            Some(project_id),
+        )),
         ["projects", project_id, "notes", note_id] => {
             Some(surface(StoredKind::Note, note_id, Some(project_id)))
         }
@@ -266,7 +272,9 @@ pub fn install_restored(
         let key = stored.key.key();
         let parent = match key.kind() {
             TabRouteKind::Project => None,
-            TabRouteKind::TaskList | TabRouteKind::Note | TabRouteKind::Repo => stored.parent.clone(),
+            TabRouteKind::TaskList | TabRouteKind::Note | TabRouteKind::Repo => {
+                stored.parent.clone()
+            }
         };
         tabs.restore(key.clone(), parent);
         installed.push(key);
@@ -389,11 +397,12 @@ impl TabTitles {
 
     /// Label an identity, replacing an earlier label.
     pub fn set(&self, key: TabKey, title: String) {
-        self.entries
-            .update(|entries| match entries.iter_mut().find(|(labelled, _)| *labelled == key) {
+        self.entries.update(|entries| {
+            match entries.iter_mut().find(|(labelled, _)| *labelled == key) {
                 Some((_, labelled)) => *labelled = title,
                 None => entries.push((key, title)),
-            });
+            }
+        });
     }
 }
 

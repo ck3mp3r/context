@@ -102,11 +102,7 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
             UpdateMessage::NoteCreated { .. }
             | UpdateMessage::NoteUpdated { .. }
             | UpdateMessage::NoteDeleted { .. } => {
-                if should_refetch(
-                    notes_opened.get_untracked(),
-                    panel == "notes",
-                    true,
-                ) {
+                if should_refetch(notes_opened.get_untracked(), panel == "notes", true) {
                     web_sys::console::log_1(
                         &"Note updated via WebSocket, refetching project notes...".into(),
                     );

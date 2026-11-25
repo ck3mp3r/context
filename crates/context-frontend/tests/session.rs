@@ -23,8 +23,9 @@ use leptos_router::NavigateOptions;
 use pure::TabKey;
 use registry::TabRegistry;
 use session::{
-    BootPlan, BootSurface, SESSION_VERSION, StoredKey, StoredKind, StoredSession, StoredTab, TabTitles,
-    boot_surface, decode, encode, install_restored, plan_boot, snapshot, storage_key, write_owned_url,
+    BootPlan, BootSurface, SESSION_VERSION, StoredKey, StoredKind, StoredSession, StoredTab,
+    TabTitles, boot_surface, decode, encode, install_restored, plan_boot, snapshot, storage_key,
+    write_owned_url,
 };
 
 /// The environment this test binary runs in: a debug build, so the dev key.
@@ -317,11 +318,7 @@ fn install_restored_reproduces_the_attachment_without_a_fetch() {
         Some(stored_key(StoredKind::Note, "n1")),
     );
 
-    install_restored(
-        registry,
-        &stored,
-        Some(&stored_key(StoredKind::Note, "n1")),
-    );
+    install_restored(registry, &stored, Some(&stored_key(StoredKind::Note, "n1")));
 
     let parent = |key: &TabKey| {
         registry
@@ -428,7 +425,10 @@ fn activating_a_restored_tab_mounts_it_for_good() {
     assert!(!registry.mounted(hidden), "a restored tab starts unmounted");
 
     assert!(registry.activate(hidden));
-    assert!(registry.mounted(hidden), "the first activation mounts the tab");
+    assert!(
+        registry.mounted(hidden),
+        "the first activation mounts the tab"
+    );
 
     registry.activate(
         registry
@@ -507,16 +507,8 @@ fn snapshot_stores_the_strip_order_the_active_surface_and_the_labels() {
             .map(|tab| (tab.key.clone(), tab.title.as_str(), tab.parent.as_deref()))
             .collect::<Vec<_>>(),
         vec![
-            (
-                stored_key(StoredKind::Project, "p1"),
-                "Project One",
-                None
-            ),
-            (
-                stored_key(StoredKind::Note, "n1"),
-                "Note One",
-                Some("p1")
-            ),
+            (stored_key(StoredKind::Project, "p1"), "Project One", None),
+            (stored_key(StoredKind::Note, "n1"), "Note One", Some("p1")),
         ],
         "every open tab stores its identity, its label, and its attachment in strip order"
     );

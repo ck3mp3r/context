@@ -14,10 +14,7 @@ extern "C" {
 }
 
 #[component]
-pub fn RepoCard(
-    repo: Repo,
-    #[prop(optional)] project_id: Option<String>,
-) -> impl IntoView {
+pub fn RepoCard(repo: Repo, #[prop(optional)] project_id: Option<String>) -> impl IntoView {
     let display_name = extract_repo_name(&repo.remote);
     let remote_url = repo.remote.clone();
     let tabs = use_context::<TabRegistry>();

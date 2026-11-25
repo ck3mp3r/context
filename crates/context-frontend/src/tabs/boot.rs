@@ -169,7 +169,11 @@ async fn fetch_label(key: &TabKey) -> LabelOutcome {
 /// The label a payload holds: a project, task list, and note carry a title, a repo carries its remote.
 async fn label_payload(key: &TabKey, response: gloo_net::http::Response) -> Option<String> {
     match key {
-        TabKey::Repo { .. } => response.json::<RepoPayload>().await.ok().map(|repo| repo.remote),
+        TabKey::Repo { .. } => response
+            .json::<RepoPayload>()
+            .await
+            .ok()
+            .map(|repo| repo.remote),
         TabKey::Project { .. } | TabKey::TaskList { .. } | TabKey::Note { .. } => response
             .json::<TitledPayload>()
             .await
@@ -190,11 +194,7 @@ fn label_path(key: &TabKey) -> String {
 
 /// Close the tab of a surface the server no longer has. A cascade follows the model's close rule.
 fn drop_tab(tabs: TabRegistry, key: &TabKey) {
-    if let Some((id, _)) = tabs
-        .descriptors()
-        .into_iter()
-        .find(|(_, open)| open == key)
-    {
+    if let Some((id, _)) = tabs.descriptors().into_iter().find(|(_, open)| open == key) {
         tabs.close(id);
     }
 }
