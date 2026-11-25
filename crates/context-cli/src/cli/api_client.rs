@@ -4,6 +4,8 @@ use serde::de::DeserializeOwned;
 use std::env;
 use std::sync::Arc;
 
+use context_core::{get_config_path, settings};
+
 use crate::cli::error::CliResult;
 
 #[cfg(debug_assertions)]
@@ -55,11 +57,12 @@ impl ApiClient {
     /// Priority for base URL:
     /// 1. Explicit `api_url` parameter
     /// 2. C5T_API_URL environment variable
-    /// 3. Default: http://localhost:3737
+    /// 3. Stored settings port, dialed through `localhost`
+    /// 4. Default: http://localhost:3737 (release) or http://localhost:3738 (debug)
     pub fn new(api_url: Option<String>) -> Self {
         let base_url = api_url
             .or_else(|| env::var("C5T_API_URL").ok())
-            .unwrap_or_else(|| DEFAULT_API_URL.to_string());
+            .unwrap_or_else(stored_base_url);
 
         Self {
             base_url,
@@ -120,4 +123,24 @@ impl ApiClient {
             })
         }
     }
+}
+
+/// Base URL for the stored settings port, or the profile default.
+///
+/// The stored host is ignored: the server may bind `0.0.0.0`, which no client
+/// can dial, so the port is always reached through `localhost`. A missing,
+/// unreadable, unparsable, or invalid settings file yields the profile default.
+fn stored_base_url() -> String {
+    let Ok(stored) = settings::load(&get_config_path()) else {
+        return DEFAULT_API_URL.to_string();
+    };
+
+    if settings::validate_stored(&stored).is_err() {
+        return DEFAULT_API_URL.to_string();
+    }
+
+    stored
+        .port
+        .map(|port| format!("http://localhost:{port}"))
+        .unwrap_or_else(|| DEFAULT_API_URL.to_string())
 }
