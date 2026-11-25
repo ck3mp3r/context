@@ -71,6 +71,17 @@ impl TabRegistry {
         opened
     }
 
+    /// Open a surface inside `project_id` and focus it, or focus it when it is already open.
+    ///
+    /// The tab becomes a child of that project: row 2 lists it while the project is active and a
+    /// close of the project removes it (ruling L, decision 9).
+    pub fn open_in(&self, key: TabKey, project_id: &str) -> TabId {
+        let mut opened = TabId::default();
+        self.state
+            .update(|tabs| opened = tabs.open_in(key, project_id));
+        opened
+    }
+
     /// Focus an open tab. An id that names no open tab changes nothing.
     pub fn activate(&self, id: TabId) -> bool {
         let mut activated = false;

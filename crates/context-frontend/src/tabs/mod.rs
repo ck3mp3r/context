@@ -7,5 +7,5 @@
 mod pure;
 mod registry;
 
-pub use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs, parent_project};
+pub use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs};
 pub use registry::TabRegistry;

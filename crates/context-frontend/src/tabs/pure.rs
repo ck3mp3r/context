@@ -4,7 +4,9 @@
 //! compiles it directly and pins every rule without a browser. The reactive holder lives in
 //! `registry.rs`.
 //!
-//! The rules are decisions 2, 5, 6, 9, 10, and 19 of the tabs rebuild design (note `5b3f7b47`).
+//! The rules are decisions 2, 5, 6, 8, 9, 10, and 19 of the tabs rebuild design (note `5b3f7b47`),
+//! plus predecessor ruling L: identity is the surface kind plus its entity id, and the owning
+//! project travels beside the identity as per-tab linkage, never inside it.
 
 /// The surface a tab shows.
 ///
@@ -18,26 +20,17 @@ pub enum TabRouteKind {
     Repo,
 }
 
-/// Tab identity: the surface kind plus its entity ids (decision 6).
+/// Tab identity: the surface kind plus its entity id (decision 6).
 ///
 /// Two tabs share an identity exactly when their keys are equal, so the registry cannot hold a
-/// duplicate surface. A task list key carries its owning project because the strip groups children
-/// by project; the project id is part of the identity, not a lookup performed afterwards.
+/// duplicate surface. The owning project is not part of the identity: a note that belongs to two
+/// projects is still one tab. That linkage lives beside the key, on [`Tab`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TabKey {
-    Project {
-        project_id: String,
-    },
-    TaskList {
-        project_id: String,
-        task_list_id: String,
-    },
-    Note {
-        note_id: String,
-    },
-    Repo {
-        repo_id: String,
-    },
+    Project { project_id: String },
+    TaskList { task_list_id: String },
+    Note { note_id: String },
+    Repo { repo_id: String },
 }
 
 impl TabKey {
@@ -48,10 +41,9 @@ impl TabKey {
         }
     }
 
-    /// Key of a task list, together with the project that owns it.
-    pub fn task_list(project_id: impl Into<String>, task_list_id: impl Into<String>) -> Self {
+    /// Key of a task list.
+    pub fn task_list(task_list_id: impl Into<String>) -> Self {
         Self::TaskList {
-            project_id: project_id.into(),
             task_list_id: task_list_id.into(),
         }
     }
@@ -80,26 +72,14 @@ impl TabKey {
         }
     }
 
-    /// The id of the surface itself, without its owning project.
+    /// The id of the surface itself.
     pub fn entity_id(&self) -> &str {
         match self {
             Self::Project { project_id } => project_id,
-            Self::TaskList { task_list_id, .. } => task_list_id,
+            Self::TaskList { task_list_id } => task_list_id,
             Self::Note { note_id } => note_id,
             Self::Repo { repo_id } => repo_id,
         }
-    }
-}
-
-/// The project a tab belongs to for row 2 and for the cycle ring, or `None` when it has no project.
-///
-/// A project tab's parent project is the project it shows, so row 2 lists that project's children
-/// while the project itself is active (decision 19). A note and a repo are parentless (decision 5).
-pub fn parent_project(key: &TabKey) -> Option<&str> {
-    match key {
-        TabKey::Project { project_id } => Some(project_id),
-        TabKey::TaskList { project_id, .. } => Some(project_id),
-        TabKey::Note { .. } | TabKey::Repo { .. } => None,
     }
 }
 
@@ -118,11 +98,13 @@ impl Default for TabId {
     }
 }
 
-/// One open tab: its id and its identity.
+/// One open tab: its id, its identity, and the project it is attached to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tab {
     id: TabId,
     key: TabKey,
+    /// The project whose child row holds this tab, when the surface names one (ruling L).
+    parent: Option<String>,
 }
 
 impl Tab {
@@ -131,9 +113,25 @@ impl Tab {
         self.id
     }
 
-    /// The tab's identity: kind plus entity ids.
+    /// The tab's identity: kind plus entity id.
     pub fn key(&self) -> &TabKey {
         &self.key
+    }
+
+    /// The project whose child row and cycle group hold this tab, or `None` when it has no
+    /// project.
+    ///
+    /// A project tab's parent project is the project it shows, so row 2 lists its children while
+    /// the project itself is active (decision 19). A task list, note, or repo attaches to a project
+    /// when its data names one (decision 8, ruling L); a surface that names no project has no
+    /// parent and sits in the parentless row (decision 5).
+    pub fn parent_project(&self) -> Option<&str> {
+        match self.key() {
+            TabKey::Project { project_id } => Some(project_id),
+            TabKey::TaskList { .. } | TabKey::Note { .. } | TabKey::Repo { .. } => {
+                self.parent.as_deref()
+            }
+        }
     }
 }
 
@@ -151,17 +149,18 @@ pub enum CloseOutcome {
 
 /// The two-level strip of decision 2, plus the derived active project of decision 19.
 ///
-/// Row 1 is `projects` followed by `parentless`; row 2 is `children`. A project tab and a child tab
-/// can never share a row, because each row is filled from a disjoint set of surface kinds.
+/// Row 1 is `projects` followed by `parentless`; row 2 is `children`. The rows are disjoint: a tab
+/// attached to a project is only ever in a child row, and a tab that names no project is only ever
+/// in the parentless row.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StripRows {
     /// Level 1: open project tabs, in strip order.
     pub projects: Vec<TabId>,
-    /// Level 1: the one parentless row, meaning the open notes and repos in strip order.
+    /// Level 1: the one parentless row, meaning the open tabs that name no project, in strip order.
     pub parentless: Vec<TabId>,
     /// The project the active tab belongs to, or `None` when the active tab has no project.
     pub active_project: Option<String>,
-    /// Level 2: the children of `active_project`, in strip order.
+    /// Level 2: the tabs attached to `active_project`, in strip order.
     pub children: Vec<TabId>,
 }
 
@@ -226,20 +225,50 @@ impl Tabs {
 
     /// The project the active tab belongs to (decision 19). Derived on every call, never stored.
     pub fn active_project(&self) -> Option<&str> {
-        self.active_key().and_then(parent_project)
+        self.active
+            .and_then(|id| self.tab(id))
+            .and_then(Tab::parent_project)
     }
 
-    /// Open a surface and focus it.
+    /// Open a surface that names no project, and focus it.
+    ///
+    /// The caller reads the surface's data: an empty project list means the tab is parentless and
+    /// opens here, while a named project means [`Tabs::open_in`].
     ///
     /// A surface that is already open is focused, not duplicated (decision 6). The returned id is
     /// the existing tab's id in that case.
     pub fn open(&mut self, key: TabKey) -> TabId {
+        self.insert(key, None)
+    }
+
+    /// Open a surface inside `project_id`, and focus it.
+    ///
+    /// The tab becomes a child of that project (ruling L): row 2 lists it while the project is
+    /// active, the cycle ring groups it with that project's children, and closing the project
+    /// removes it (decision 9).
+    ///
+    /// Attachment is set once. Opening an already open surface focuses it and keeps its first
+    /// attachment, so a note that belongs to two projects stays one tab (decision 6) and closes
+    /// with the project it was opened from.
+    pub fn open_in(&mut self, key: TabKey, project_id: &str) -> TabId {
+        self.insert(key, Some(project_id.to_string()))
+    }
+
+    /// Insert or focus a tab, attaching it when it has no attachment yet.
+    fn insert(&mut self, key: TabKey, parent: Option<String>) -> TabId {
         let id = match self.find(&key) {
-            Some(id) => id,
+            Some(id) => {
+                if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id)
+                    && tab.parent.is_none()
+                {
+                    tab.parent = parent;
+                }
+                id
+            }
             None => {
                 self.next_id += 1;
                 let id = TabId(self.next_id);
-                self.tabs.push(Tab { id, key });
+                self.tabs.push(Tab { id, key, parent });
                 id
             }
         };
@@ -259,8 +288,12 @@ impl Tabs {
         true
     }
 
-    /// The tabs a close of `id` removes: the tab itself, and for a project every child of it
-    /// (decision 9). Empty when `id` names no open tab.
+    /// The tabs a close of `id` removes: the tab itself, and for a project every tab attached to
+    /// it — task lists, notes, and repos (ruling L, decision 9).
+    ///
+    /// Attachment is one link per tab, so a note that belongs to two projects closes with the
+    /// project it was opened from and survives the close of the other one. Empty when `id` names no
+    /// open tab.
     pub fn closing_set(&self, id: TabId) -> Vec<TabId> {
         let Some(tab) = self.tab(id) else {
             return Vec::new();
@@ -272,8 +305,7 @@ impl Tabs {
         self.tabs
             .iter()
             .filter(|candidate| {
-                candidate.id == id
-                    || cascade.is_some_and(|project| is_child_of(candidate.key(), project))
+                candidate.id == id || cascade.is_some_and(|project| is_child_of(candidate, project))
             })
             .map(Tab::id)
             .collect()
@@ -302,10 +334,10 @@ impl Tabs {
 
     /// The fixed cycle ring of decision 10.
     ///
-    /// Level 1 comes first in strip order: the project tabs, then the parentless row. Then each
-    /// project's children follow, grouped by project order. The order never depends on the active
-    /// tab, so stepping the ring cannot oscillate. A child whose project tab is not open is
-    /// appended in strip order, so every open tab appears exactly once.
+    /// Level 1 comes first in strip order: the project tabs, then the tabs that name no project.
+    /// Then each project's attached tabs follow, grouped by project order. The order never depends
+    /// on the active tab, so stepping the ring cannot oscillate. A tab whose project tab is not
+    /// open is appended in strip order, so every open tab appears exactly once.
     pub fn cycle_sequence(&self) -> Vec<TabId> {
         let projects: Vec<TabId> = self
             .tabs
@@ -318,18 +350,17 @@ impl Tabs {
         ring.extend(
             self.tabs
                 .iter()
-                .filter(|tab| parent_project(tab.key()).is_none())
+                .filter(|tab| tab.parent_project().is_none())
                 .map(Tab::id),
         );
         for project in &projects {
-            let Some(project_id) = self.tab(*project).and_then(|tab| parent_project(tab.key()))
-            else {
+            let Some(project_id) = self.tab(*project).and_then(Tab::parent_project) else {
                 continue;
             };
             ring.extend(
                 self.tabs
                     .iter()
-                    .filter(|tab| is_child_of(tab.key(), project_id))
+                    .filter(|tab| is_child_of(tab, project_id))
                     .map(Tab::id),
             );
         }
@@ -337,7 +368,7 @@ impl Tabs {
             self.tabs
                 .iter()
                 .filter(|tab| {
-                    parent_project(tab.key())
+                    tab.parent_project()
                         .is_some_and(|project| self.project_tab(project).is_none())
                 })
                 .map(Tab::id),
@@ -394,14 +425,14 @@ impl Tabs {
             parentless: self
                 .tabs
                 .iter()
-                .filter(|tab| parent_project(tab.key()).is_none())
+                .filter(|tab| tab.parent_project().is_none())
                 .map(Tab::id)
                 .collect(),
             children: match active_project.as_deref() {
                 Some(project) => self
                     .tabs
                     .iter()
-                    .filter(|tab| is_child_of(tab.key(), project))
+                    .filter(|tab| is_child_of(tab, project))
                     .map(Tab::id)
                     .collect(),
                 None => Vec::new(),
@@ -444,7 +475,9 @@ impl Tabs {
     }
 }
 
-/// Whether `key` is a child tab of `project_id`, which is what row 2 holds.
-fn is_child_of(key: &TabKey, project_id: &str) -> bool {
-    key.kind() == TabRouteKind::TaskList && parent_project(key) == Some(project_id)
+/// Whether `tab` is attached to `project_id`, which is what row 2 holds.
+///
+/// A project tab is not its own child, so the kind check keeps it out of its own child row.
+fn is_child_of(tab: &Tab, project_id: &str) -> bool {
+    tab.key().kind() != TabRouteKind::Project && tab.parent_project() == Some(project_id)
 }
