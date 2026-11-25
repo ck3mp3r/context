@@ -89,12 +89,12 @@ impl TabRegistry {
         activated
     }
 
-    /// Focus the surface a project chip names: the task list the project last showed, or its
-    /// overview.
+    /// Focus the surface a project chip names: the last selected surface of that project — its own
+    /// tab or the task list it last showed.
     ///
-    /// The whole rule runs inside one update, so no reader sees the remembered child and the focus
+    /// The whole rule runs inside one update, so no reader sees the remembered surface and the focus
     /// move apart. The returned id is the tab the update focused, or `None` when the project has no
-    /// open tab and no remembered child.
+    /// open tab and no remembered surface.
     pub fn activate_project(&self, project_id: &str) -> Option<TabId> {
         let mut activated = None;
         self.state

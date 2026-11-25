@@ -198,13 +198,13 @@ pub struct Tabs {
     active: Option<TabId>,
     /// Source of the next [`TabId`]. It only ever grows, so ids never repeat.
     next_id: u64,
-    /// The task list each project last showed, keyed by project id.
+    /// The last selected surface of each project, keyed by project id.
     ///
     /// `active` names one surface, so it cannot answer "what was this project showing before?".
-    /// This map holds that answer for the one remembered surface, the task list (decision 1):
-    /// notes and repos move focus without recording. It lives here, beside the tabs, so a close
-    /// drops the entry of every tab it removes, and it is RAM-only: it never reaches the session.
-    remembered_task_lists: HashMap<String, TabId>,
+    /// This map holds that answer: the project's own tab or one of its task-list children. Notes
+    /// and repos move focus without recording. It lives here, beside the tabs, so a close drops
+    /// the entry of every tab it removes, and it is RAM-only: it never reaches the session.
+    remembered_surface: HashMap<String, TabId>,
 }
 
 impl Tabs {
@@ -356,18 +356,17 @@ impl Tabs {
         true
     }
 
-    /// Focus the surface a project chip names: the task list the project last showed, or its
-    /// overview.
+    /// Focus the surface a project chip names: the last selected surface of that project.
     ///
-    /// The three-way rule of the breadcrumb. A project whose own tab is already focused stays
+    /// The four-way rule of the breadcrumb. A project whose own tab is already focused stays
     /// there, so a second click never restores the child behind the user's back. A project whose
     /// task-list child is focused collapses to the overview, so the chip toggles between the two.
-    /// Every other state restores the task list that project last showed, and falls back to the
-    /// overview when that task list is not open.
+    /// Every other state restores the surface that project last selected, and falls back to the
+    /// overview when that surface is not open.
     ///
-    /// Only the task list is remembered (decision 1), so a chip for a project whose open tab is a
-    /// note or a repo restores the task list that project showed before it. A project id no open
-    /// tab names focuses nothing, which is what an absent chip asks for.
+    /// Only the project's own tab and its task lists are remembered, so a chip for a project whose
+    /// open tab is a note or a repo restores the surface that project selected before it. A
+    /// project id no open tab names focuses nothing, which is what an absent chip asks for.
     pub fn activate_project(&mut self, project_id: &str) -> Option<TabId> {
         let project = self.project_tab(project_id);
         if project.is_some() && self.active == project {
@@ -377,7 +376,7 @@ impl Tabs {
             tab.key().kind() == TabRouteKind::TaskList && tab.parent_project() == Some(project_id)
         });
         let remembered = self
-            .remembered_task_lists
+            .remembered_surface
             .get(project_id)
             .copied()
             .filter(|id| self.contains(*id));
@@ -397,20 +396,22 @@ impl Tabs {
     ///
     /// Every path that moves focus goes through here, so a tab the user reaches is never left
     /// unmounted and hidden: a restored tab mounts the moment it takes focus (decision 14). The
-    /// one remembered surface is recorded here too, so opening, activating, and cycling all hand
-    /// their project its task list.
+    /// last selected surface is recorded here too, so opening, activating, and cycling all hand
+    /// their project the surface they just focused.
     fn focus(&mut self, id: Option<TabId>) {
         let mut remembered = None;
         if let Some(tab) = id.and_then(|id| self.tabs.iter_mut().find(|tab| tab.id == id)) {
             tab.mounted = true;
-            if let TabKey::TaskList { .. } = tab.key()
-                && let Some(project) = tab.parent_project()
+            if matches!(
+                tab.key().kind(),
+                TabRouteKind::Project | TabRouteKind::TaskList
+            ) && let Some(project) = tab.parent_project()
             {
                 remembered = Some((project.to_string(), tab.id));
             }
         }
-        if let Some((project, child)) = remembered {
-            self.remembered_task_lists.insert(project, child);
+        if let Some((project, surface)) = remembered {
+            self.remembered_surface.insert(project, surface);
         }
         self.active = id;
     }
@@ -452,8 +453,8 @@ impl Tabs {
             active => active,
         };
         self.tabs.retain(|tab| !closing.contains(&tab.id));
-        self.remembered_task_lists
-            .retain(|_, child| !closing.contains(child));
+        self.remembered_surface
+            .retain(|_, surface| !closing.contains(surface));
         self.focus(active);
         CloseOutcome::Closed {
             ids: closing,

@@ -1078,6 +1078,35 @@ fn every_close_leaves_the_active_tab_mounted_and_rendered() {
 }
 
 #[test]
+fn the_owner_sequence_restores_the_project_itself() {
+    let mut tabs = Tabs::default();
+    let p1 = tabs.open(TabKey::project("p1"));
+    let t1 = tabs.open_in(TabKey::task_list("t1"), "p1");
+
+    assert_eq!(
+        tabs.activate_project("p1"),
+        Some(p1),
+        "the chip of the project that owns the active child names the overview"
+    );
+    assert_eq!(tabs.active(), Some(p1));
+
+    let p2 = tabs.open(TabKey::project("p2"));
+    assert_eq!(tabs.active(), Some(p2), "the other project takes focus");
+
+    assert_eq!(tabs.activate_project("p1"), Some(p1));
+    assert_eq!(
+        tabs.active(),
+        Some(p1),
+        "the project tab selected last comes back, not the task list it showed before"
+    );
+    assert_ne!(
+        tabs.active(),
+        Some(t1),
+        "the task list the project showed before the overview must not return"
+    );
+}
+
+#[test]
 fn a_project_restores_the_task_list_it_showed() {
     let mut tabs = Tabs::default();
     let p1 = tabs.open(TabKey::project("p1"));
@@ -1119,10 +1148,14 @@ fn a_recorded_task_list_survives_a_visit_to_another_project() {
         vec![t1],
         "the restored child renders in its project's row"
     );
+    assert!(
+        tabs.contains(p1),
+        "the project tab stays open beside the task list it restored"
+    );
 }
 
 #[test]
-fn a_project_with_no_remembered_task_list_focuses_its_overview() {
+fn a_project_with_no_child_restores_its_own_tab() {
     let mut tabs = Tabs::default();
     let p1 = tabs.open(TabKey::project("p1"));
     let p2 = tabs.open(TabKey::project("p2"));
@@ -1132,7 +1165,7 @@ fn a_project_with_no_remembered_task_list_focuses_its_overview() {
     assert_eq!(
         tabs.active(),
         Some(p1),
-        "with nothing remembered the project chip names the overview"
+        "a project that selected only its own tab comes back on that tab"
     );
 }
 
@@ -1153,6 +1186,15 @@ fn a_project_whose_task_list_is_focused_shows_its_overview() {
         tabs.contains(t1),
         "the overview keeps the task list open, it only deselects it"
     );
+
+    let p2 = tabs.open(TabKey::project("p2"));
+    assert_eq!(tabs.active(), Some(p2));
+    assert_eq!(
+        tabs.activate_project("p1"),
+        Some(p1),
+        "the collapse recorded the overview, so the next visit restores it"
+    );
+    assert_eq!(tabs.active(), Some(p1));
 }
 
 #[test]
@@ -1177,13 +1219,43 @@ fn a_project_already_on_its_overview_stays_there() {
 }
 
 #[test]
+fn a_note_and_a_repo_do_not_change_the_remembered_surface() {
+    let mut tabs = Tabs::default();
+    let p1 = tabs.open(TabKey::project("p1"));
+    let t1 = tabs.open_in(TabKey::task_list("t1"), "p1");
+    assert!(tabs.activate(t1));
+
+    let note = tabs.open_in(TabKey::note("n1"), "p1");
+    assert!(tabs.activate(note));
+    let repo = tabs.open_in(TabKey::repo("r1"), "p1");
+    assert!(tabs.activate(repo));
+
+    let p2 = tabs.open(TabKey::project("p2"));
+    assert_eq!(tabs.active(), Some(p2));
+
+    assert_eq!(
+        tabs.activate_project("p1"),
+        Some(t1),
+        "a note and a repo move focus without becoming the remembered surface"
+    );
+    assert_eq!(tabs.active(), Some(t1));
+    assert!(tabs.contains(p1));
+}
+
+#[test]
 fn closing_a_task_list_forgets_it() {
     let mut tabs = Tabs::default();
     let p1 = tabs.open(TabKey::project("p1"));
     let t1 = tabs.open_in(TabKey::task_list("t1"), "p1");
-    assert!(matches!(tabs.close(t1), CloseOutcome::Closed { .. }));
     let p2 = tabs.open(TabKey::project("p2"));
-    assert_eq!(tabs.active(), Some(p2));
+    assert_eq!(tabs.active(), Some(p2), "the other project is the location");
+
+    assert!(matches!(tabs.close(t1), CloseOutcome::Closed { .. }));
+    assert_eq!(
+        tabs.active(),
+        Some(p2),
+        "closing an inactive child keeps the location"
+    );
 
     assert_eq!(tabs.activate_project("p1"), Some(p1));
     assert_eq!(

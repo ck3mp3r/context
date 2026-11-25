@@ -2856,12 +2856,12 @@ async fn spa_body() {
         "a tab surface renders nothing in the routed area: {routes_under_tab:?}"
     );
 
-    // === The breadcrumb: a project chip restores its last task list ===
+    // === The breadcrumb: a project chip restores the project's last selected surface ===
     //
     // Row one reads as projects and row two as the children of the active one. The chip of the
     // project that owns the active task-list child carries `data-tab-ancestor`, a marker of its
     // own, so the location and its parent never share one attribute. Clicking a project chip names
-    // that project: the task list it last showed, or its overview.
+    // the last surface selected in that project: its own tab, or the task list it last showed.
 
     // Pin (the ancestor marker): the child is the location and its project the parent.
     let strip = wait_for_strip(&page, "the kanban's child chip", |probe| {
@@ -2946,8 +2946,9 @@ async fn spa_body() {
     // The base surface of a child chip, read while the chip is inactive.
     let child_base = strip_row(&strip, "children")[0].background.clone();
 
-    // Pin (the last task list): leaving a project and coming back restores the task list that
-    // project last showed.
+    // Pin (the owner's sequence): project → task list → project → other project → back restores
+    // the project's own tab. The overview was the last surface selected in that project, so the
+    // task list it showed before stays unselected and no chip carries the ancestor marker.
     page.locator("nav a[href=\"/\"]")
         .first()
         .click(None)
@@ -2994,14 +2995,94 @@ async fn spa_body() {
         project_base, child_base,
         "a project chip and a child chip never share one base surface"
     );
+    let second_chip = strip_row(&strip, "projects")
+        .iter()
+        .find(|chip| chip.id != fixture_chip)
+        .expect("the second project chip sits in row one")
+        .id
+        .clone();
 
     page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
         .click(None)
         .await
         .expect("the fixture project chip should be clickable from the second project");
+    let restored_project =
+        wait_for_container(&page, "the project chip restored its own tab", |probe| {
+            probe.wrappers == two_projects.wrappers
+                && probe.active_view == "project"
+                && probe.active_entity == PROJECT_ID
+        })
+        .await;
+    assert_eq!(
+        restored_project.wrappers,
+        kanban_wrappers + 1,
+        "restoring the project's own tab opens no tab, got {} wrappers",
+        restored_project.wrappers
+    );
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}"),
+        "the one writer names the overview the chip restored"
+    );
+
+    park_pointer(&page).await;
+    let strip = wait_for_strip(&page, "the restored project chip active", |probe| {
+        strip_row(probe, "projects")
+            .iter()
+            .any(|chip| chip.id == fixture_chip && chip.active)
+    })
+    .await;
+    assert!(
+        ancestor_chips(&strip).is_empty(),
+        "the project tab itself is the location, so no ancestor marker: {strip:?}"
+    );
+    assert_eq!(
+        active_chips(&strip).len(),
+        1,
+        "exactly one chip is the current location: {strip:?}"
+    );
+
+    // Pin (a task list selected last): project → task list → other project → back restores the
+    // task list, and the chip of the project that owns it is the ancestor.
+    page.locator(format!("[data-tab-activate=\"{fixture_child_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture task list chip should focus its tab again");
+    let kanban_again = wait_for_container(&page, "the fixture task list focused again", |probe| {
+        probe.wrappers == restored_project.wrappers
+            && probe.active_view == "task-list"
+            && probe.active_entity == TASK_LIST_ID
+    })
+    .await;
+    assert_eq!(
+        kanban_again.wrappers, restored_project.wrappers,
+        "selecting an open child opens no tab, got {} wrappers",
+        kanban_again.wrappers
+    );
+
+    page.locator(format!("[data-tab-activate=\"{second_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the second project chip should be clickable from the fixture task list");
+    let away_again = wait_for_container(&page, "the second project's overview", |probe| {
+        probe.wrappers == restored_project.wrappers
+            && probe.active_view == "project"
+            && probe.active_entity == SECOND_PROJECT_ID
+    })
+    .await;
+    assert_eq!(
+        away_again.wrappers, restored_project.wrappers,
+        "the other project's chip opens and closes no tab, got {} wrappers",
+        away_again.wrappers
+    );
+
+    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture project chip should restore its task list");
     let restored_child =
         wait_for_container(&page, "the project chip restored its task list", |probe| {
-            probe.wrappers == two_projects.wrappers
+            probe.wrappers == restored_project.wrappers
                 && probe.active_view == "task-list"
                 && probe.active_entity == TASK_LIST_ID
         })
@@ -3057,10 +3138,110 @@ async fn spa_body() {
         "the ancestor chip paints a different background from an inactive non-ancestor chip"
     );
 
-    // === Update pill (one surface, app level, bottom right) ===
+    // Pin (a closed child is forgotten): project → task list → close it → other project → back
+    // names the project's own tab, because the close drops the surface that project remembered.
+    page.locator(format!("[data-tab-close=\"{fixture_child_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture task list should close from its own chip");
+    let closed_child = wait_for_container(&page, "the fixture task list closed", |probe| {
+        probe.wrappers == restored_child.wrappers - 1
+    })
+    .await;
+    assert_eq!(
+        closed_child.active_view, "project",
+        "the close hands focus to the fixture project's own tab: {closed_child:?}"
+    );
+    assert_eq!(closed_child.active_entity, PROJECT_ID);
+
+    page.locator(format!("[data-tab-activate=\"{second_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the second project chip should be clickable after the close");
+    let away_after_close = wait_for_container(&page, "the second project's overview", |probe| {
+        probe.wrappers == closed_child.wrappers
+            && probe.active_view == "project"
+            && probe.active_entity == SECOND_PROJECT_ID
+    })
+    .await;
+    assert_eq!(
+        away_after_close.wrappers, closed_child.wrappers,
+        "the other project's chip opens and closes no tab, got {} wrappers",
+        away_after_close.wrappers
+    );
+
+    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture project chip should be clickable after the close");
+    let forgotten = wait_for_container(&page, "the project chip named its own tab", |probe| {
+        probe.wrappers == closed_child.wrappers
+            && probe.active_view == "project"
+            && probe.active_entity == PROJECT_ID
+    })
+    .await;
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}"),
+        "a project whose task list closed writes its overview"
+    );
+    assert_eq!(
+        forgotten.active, 1,
+        "exactly one surface paints: {forgotten:?}"
+    );
+
+    // Pin (a project that selected only its own tab): project only → other project → back names
+    // the overview, and the strip keeps exactly one active chip and no ancestor marker.
+    page.locator(format!("[data-tab-activate=\"{second_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the second project chip should be clickable from the fixture overview");
+    let second_project_again =
+        wait_for_container(&page, "the second project's overview again", |probe| {
+            probe.wrappers == forgotten.wrappers
+                && probe.active_view == "project"
+                && probe.active_entity == SECOND_PROJECT_ID
+        })
+        .await;
+
+    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture project chip should name its own tab");
+    let only_project = wait_for_container(&page, "the fixture project's own tab", |probe| {
+        probe.wrappers == second_project_again.wrappers
+            && probe.active_view == "project"
+            && probe.active_entity == PROJECT_ID
+    })
+    .await;
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}"),
+        "a project with no child writes its overview"
+    );
+    assert_eq!(
+        only_project.active, 1,
+        "exactly one surface paints: {only_project:?}"
+    );
+
+    park_pointer(&page).await;
+    let strip = wait_for_strip(&page, "the fixture project chip active", |probe| {
+        strip_row(probe, "projects")
+            .iter()
+            .any(|chip| chip.id == fixture_chip && chip.active)
+    })
+    .await;
+    assert!(
+        ancestor_chips(&strip).is_empty(),
+        "the project tab itself is the location, so no ancestor marker: {strip:?}"
+    );
+    assert_eq!(
+        active_chips(&strip).len(),
+        1,
+        "exactly one chip is the current location: {strip:?}"
+    );
 
     // Pin (the marker follows the location): a child of the other project moves the marker there.
-    let second_chip = inactive_project.id.clone();
     page.locator(format!("[data-tab-activate=\"{second_chip}\"]"))
         .click(None)
         .await
@@ -3070,7 +3251,7 @@ async fn spa_body() {
     })
     .await;
     assert_eq!(
-        second_project.wrappers, restored_child.wrappers,
+        second_project.wrappers, only_project.wrappers,
         "the other project's chip opens and closes no tab, got {} wrappers",
         second_project.wrappers
     );
@@ -3130,66 +3311,7 @@ async fn spa_body() {
         "the location is the second project's task list: {strip:?}"
     );
 
-    // Pin (a closed child is forgotten): the close drops the project's memory, so its chip names
-    // the overview instead of a tab that is gone.
-    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
-        .click(None)
-        .await
-        .expect("the fixture project chip should restore its task list once more");
-    wait_for_container(&page, "the fixture task list focused again", |probe| {
-        probe.active_entity == TASK_LIST_ID && probe.active_view == "task-list"
-    })
-    .await;
-
-    page.locator(format!("[data-tab-close=\"{fixture_child_chip}\"]"))
-        .click(None)
-        .await
-        .expect("the fixture task list should close from its own chip");
-    let closed_child = wait_for_container(&page, "the fixture task list closed", |probe| {
-        probe.wrappers == second_child_tab.wrappers - 1
-    })
-    .await;
-    assert_eq!(
-        closed_child.active_entity, SECOND_TASK_LIST_ID,
-        "the close hands focus to the next ring survivor, the other project's task list"
-    );
-
-    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
-        .click(None)
-        .await
-        .expect("the fixture project chip should be clickable after the close");
-    let forgotten = wait_for_container(&page, "the project chip named its overview", |probe| {
-        probe.wrappers == closed_child.wrappers
-            && probe.active_view == "project"
-            && probe.active_entity == PROJECT_ID
-    })
-    .await;
-    assert_eq!(
-        page_path(&page).await,
-        format!("/projects/{PROJECT_ID}"),
-        "a project with no remembered task list writes its overview"
-    );
-    assert_eq!(
-        forgotten.active, 1,
-        "exactly one surface paints: {forgotten:?}"
-    );
-
-    park_pointer(&page).await;
-    let strip = wait_for_strip(&page, "the project chip active again", |probe| {
-        strip_row(probe, "projects")
-            .iter()
-            .any(|chip| chip.id == fixture_chip && chip.active)
-    })
-    .await;
-    assert!(
-        ancestor_chips(&strip).is_empty(),
-        "the project tab itself is the location, so no ancestor marker: {strip:?}"
-    );
-    assert_eq!(
-        active_chips(&strip).len(),
-        1,
-        "exactly one chip is the current location: {strip:?}"
-    );
+    // === Update pill (one surface, app level, bottom right) ===
 
     // Pin (idle): nothing is announced, so nothing shows. The mount fetch has long landed.
     let idle = pill_probe(&page).await;
