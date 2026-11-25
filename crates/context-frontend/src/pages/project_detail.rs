@@ -4,8 +4,8 @@ use thaw::*;
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
-    ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput, SkillCard, SkillDetailModal,
-    SortControls, TaskListCard,
+    EntityHeader, ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput, SkillCard,
+    SkillDetailModal, SortControls, TaskListCard,
 };
 use crate::hooks::{use_pagination_in_memory, use_search_in_memory, use_sort_in_memory};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
@@ -338,6 +338,8 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
                 Some(Ok(project)) => {
                     view! {
                         <div>
+                            <EntityHeader id=project.id.clone() title=project.title.clone()/>
+
                             // Project metadata (description, tags, external refs if present)
                             {(project.description.is_some() || !project.tags.is_empty() || !project.external_refs.is_empty()).then(|| {
                                 view! {

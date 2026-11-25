@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, QueryBuilder, notes};
-use crate::components::{CopyableId, MarkdownContent, NoteStackSidebar};
+use crate::components::{EntityHeader, MarkdownContent, NoteStackSidebar};
 use crate::models::{Note, UpdateMessage};
 use crate::tabs::{TabScope, should_refetch};
 use crate::websocket::use_websocket_updates;
@@ -277,10 +277,7 @@ pub fn NoteDetail(scope: TabScope) -> impl IntoView {
                                                                                 // Header: title, tags, metadata
                                                                                 <div class="flex-shrink-0 pb-4 border-b border-ctp-surface1">
                                                                                     <div class="flex items-center gap-3 mb-4">
-                                                                                        <CopyableId id=selected_note.id.clone()/>
-                                                                                        <h2 class="text-2xl font-bold text-ctp-text">
-                                                                                            {selected_note.title.clone()}
-                                                                                        </h2>
+                                                                                        <EntityHeader id=selected_note.id.clone() title=selected_note.title.clone()/>
                                                                                         <div class="ml-auto">
                                                             <button
                                                                 class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"
@@ -382,10 +379,7 @@ pub fn NoteDetail(scope: TabScope) -> impl IntoView {
                 // Header: title, tags, metadata
                 <div class="flex-shrink-0 pb-4 border-b border-ctp-surface1">
                     <div class="flex items-center gap-3 mb-4">
-                        <CopyableId id=note.id.clone()/>
-                        <h2 class="text-2xl font-bold text-ctp-text">
-                            {note.title.clone()}
-                        </h2>
+                        <EntityHeader id=note.id.clone() title=note.title.clone()/>
                         <div class="ml-auto">
                             <button
                                 class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"

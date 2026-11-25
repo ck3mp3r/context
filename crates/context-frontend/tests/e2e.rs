@@ -55,11 +55,17 @@ const SECOND_TASK_LIST_TITLE: &str = "E2E Second Task List";
 /// The note the stubbed API serves. It names a project whose tab is not open, so a global-list row
 /// must open that parent project tab first (decision 8).
 const NOTE_ID: &str = "e2e00004";
+const NOTE_TITLE: &str = "E2E Fixture Note";
 const NOTE_PARENT_PROJECT_ID: &str = "e2e00009";
 const NOTE_PARENT_PROJECT_TITLE: &str = "E2E Note Parent Project";
 
 /// The note that names no project, so its tab is parentless and its close is the last close.
 const PARENTLESS_NOTE_ID: &str = "e2e00007";
+
+/// The repo the stubbed API serves, so a repo card exists to open the repo detail surface. Its
+/// remote yields the header title, because a repo carries no title field.
+const REPO_ID: &str = "e2e00008";
+const REPO_DISPLAY_NAME: &str = "e2e/fixture-repo";
 
 /// The path the debug bundle dials for updates (`WS_PATH` in `src/websocket.rs`). The bundle derives
 /// host and port from the page's own location, so the static server answers this path on the same
@@ -547,6 +553,22 @@ async fn spa_body() {
         .await
         .expect("the project dashboard should render inside the active tab wrapper");
 
+    // The project detail surface carries the shared entity header: one id copy button and the
+    // project title, inside the active tab wrapper.
+    let project_header = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-entity-header=\"{PROJECT_ID}\"]",
+    ));
+    expect(project_header.clone().locator("h2"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_text(PROJECT_TITLE)
+        .await
+        .expect("the project detail header should show the fixture project title");
+    expect(project_header.locator("button[title=\"Copy to clipboard\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .expect("the project detail header should show one id copy button");
+
     // Pin 1 (container): the card opened exactly one tab wrapper, and it is the active one.
     let wrappers = page.locator("[data-tab-id]");
     expect(wrappers.clone())
@@ -858,7 +880,7 @@ async fn spa_body() {
 
     // The task list detail view carries its own header: the list title and an id copy button.
     let list_header = page.locator(format!(
-        "[data-tab-active=\"true\"] [data-task-list-header=\"{TASK_LIST_ID}\"]",
+        "[data-tab-active=\"true\"] [data-entity-header=\"{TASK_LIST_ID}\"]",
     ));
     expect(list_header.clone().locator("h2"))
         .with_timeout(UI_TIMEOUT)
@@ -1421,6 +1443,22 @@ async fn spa_body() {
         .await;
     let note_tab = open_note.active_id.clone();
 
+    // The note detail surface carries the shared entity header: one id copy button and the note
+    // title, inside the active tab wrapper.
+    let note_header = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-entity-header=\"{NOTE_ID}\"]",
+    ));
+    expect(note_header.clone().locator("h2"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_text(NOTE_TITLE)
+        .await
+        .expect("the note detail header should show the fixture note title");
+    expect(note_header.locator("button[title=\"Copy to clipboard\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .expect("the note detail header should show one id copy button");
+
     // A non-delete update keeps the tabs: each tab's own refetch arm stays the owner of those.
     socket.send(&format!(
         "{{\"type\":\"NoteUpdated\",\"data\":{{\"note_id\":\"{NOTE_ID}\"}}}}"
@@ -1583,6 +1621,42 @@ async fn spa_body() {
         "the last close writes chrome home, got {}",
         page.url()
     );
+
+    // The repo detail surface carries the same shared header. Its title is the name derived from
+    // the remote, because a repo carries no title field.
+    page.locator("nav a[href=\"/repos\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Repos nav link should reach the chrome repos list");
+    let repo_card = page.locator(format!("[data-repo-card=\"{REPO_ID}\"]"));
+    expect(repo_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome repos list should render the fixture repo card");
+    repo_card
+        .click(None)
+        .await
+        .expect("the repo card should open its tab");
+
+    wait_for_container(&page, "the repo's tab alone", |probe| {
+        probe.wrappers == 1 && probe.active_view == "repo"
+    })
+    .await;
+    let repo_header = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-entity-header=\"{REPO_ID}\"]",
+    ));
+    expect(repo_header.clone().locator("h2"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_text(REPO_DISPLAY_NAME)
+        .await
+        .expect("the repo detail header should show the name derived from the remote");
+    expect(repo_header.locator("button[title=\"Copy to clipboard\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .expect("the repo detail header should show one id copy button");
 
     // Decision 14, corrupt: one garbage value under the namespaced key drops to chrome, with no
     // error, no toast, and no tab. The last close left the URL on chrome home.
@@ -4612,7 +4686,7 @@ fn api_response(path: &str, query: &str, update: &UpdateStub) -> Response {
         "projects" => Response::json(200, &project_page()),
         "task-lists" => Response::json(200, &task_list_page(project_filter(query))),
         "notes" => Response::json(200, &note_page()),
-        "repos" => Response::json(200, &empty_page()),
+        "repos" => Response::json(200, &repo_page()),
         "skills" => Response::json(200, &skill_page()),
         "update/status" => Response::json(200, &update.status_body()),
         "update/check" => Response::json(200, "{}"),
@@ -4675,6 +4749,9 @@ fn record_by_path(path: &str) -> Option<String> {
     }
     if path == format!("notes/{PARENTLESS_NOTE_ID}") {
         return Some(parentless_note_record());
+    }
+    if path == format!("repos/{REPO_ID}") {
+        return Some(repo_record());
     }
     None
 }
@@ -4787,7 +4864,7 @@ fn skill_page() -> String {
 /// project's tab first (decision 8).
 fn note_record() -> String {
     format!(
-        "{{\"id\":\"{NOTE_ID}\",\"title\":\"E2E Fixture Note\",\"content\":\"Fixture note served by the e2e harness.\",\"tags\":[\"e2e\"],\"project_ids\":[\"{NOTE_PARENT_PROJECT_ID}\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+        "{{\"id\":\"{NOTE_ID}\",\"title\":\"{NOTE_TITLE}\",\"content\":\"Fixture note served by the e2e harness.\",\"tags\":[\"e2e\"],\"project_ids\":[\"{NOTE_PARENT_PROJECT_ID}\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
     )
 }
 
@@ -4803,6 +4880,21 @@ fn note_page() -> String {
 fn parentless_note_record() -> String {
     format!(
         "{{\"id\":\"{PARENTLESS_NOTE_ID}\",\"title\":\"E2E Parentless Note\",\"content\":\"Parentless note served by the e2e harness.\",\"tags\":[],\"project_ids\":[],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+    )
+}
+
+/// The fixture repo names no project, so its tab is parentless like the parentless note's, and its
+/// header title is the name the remote yields.
+fn repo_record() -> String {
+    format!(
+        "{{\"id\":\"{REPO_ID}\",\"remote\":\"https://github.com/e2e/fixture-repo.git\",\"path\":\"/tmp/e2e-fixture-repo\",\"tags\":[\"e2e\"],\"project_ids\":[],\"created_at\":\"2026-01-01 00:00:00\"}}"
+    )
+}
+
+fn repo_page() -> String {
+    format!(
+        "{{\"items\":[{}],\"total\":1,\"limit\":12,\"offset\":0}}",
+        repo_record()
     )
 }
 

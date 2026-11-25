@@ -3,7 +3,7 @@ use leptos::task::spawn_local;
 use thaw::*;
 
 use crate::api::{ApiClientError, task_lists, tasks};
-use crate::components::{CopyableId, InlineSurface, SurfaceLayout};
+use crate::components::{CopyableId, EntityHeader, InlineSurface, SurfaceLayout};
 use crate::models::{Task, TaskList, TaskStats};
 use crate::tabs::{TabKey, TabRegistry, TabTitles, open_from_card, should_refetch, surface_url};
 
@@ -1273,11 +1273,8 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
                         view! {
                             <div class="flex flex-col h-full">
                                 // Header: the id copy button beside the task list title
-                                <div class="mb-4 flex-shrink-0 flex items-start gap-3" data-task-list-header=tl.id.clone()>
-                                    <div class="flex-shrink-0">
-                                        <CopyableId id=tl.id.clone()/>
-                                    </div>
-                                    <h2 class="flex-1 min-w-0 break-words text-2xl font-bold text-ctp-text">{tl.title.clone()}</h2>
+                                <div class="mb-4 flex-shrink-0">
+                                    <EntityHeader id=tl.id.clone() title=tl.title.clone()/>
                                 </div>
 
                                 // Description, tags, and external refs (if present)

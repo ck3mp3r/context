@@ -1,3 +1,4 @@
+pub mod entity_header;
 pub mod inline_surface;
 pub mod note_components;
 pub mod repo_components;
@@ -9,6 +10,7 @@ pub mod theme_switcher;
 pub mod ui_components;
 pub mod update_pill;
 
+pub use entity_header::EntityHeader;
 pub use inline_surface::{InlineSurface, SurfaceLayout};
 pub use note_components::{MarkdownContent, NoteCard, NoteStackSidebar};
 pub use repo_components::RepoCard;
