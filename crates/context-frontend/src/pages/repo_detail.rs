@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use crate::api::{ApiClientError, repos};
 use crate::components::CopyableId;
 use crate::models::{Repo, UpdateMessage};
-use crate::tabs::TabScope;
+use crate::tabs::{TabScope, should_refetch};
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
 
@@ -27,30 +27,38 @@ pub fn RepoDetail(scope: TabScope) -> impl IntoView {
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
     let ws_updates = use_websocket_updates();
 
-    // Watch for WebSocket repo updates
+    // Watch for WebSocket repo updates for THIS repo. A mounted surface runs its fetch once, so
+    // loaded data is the gate: a hidden tab keeps its own repo live, and another repo's message
+    // refetches nothing (decision 15).
     Effect::new(move || {
-        if let Some(msg) = ws_updates.get() {
-            let current_id = repo_id.get_value();
-            if !current_id.is_empty() {
-                match &msg {
-                    UpdateMessage::RepoUpdated {
-                        repo_id: updated_id,
-                    } if *updated_id == current_id => {
-                        set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                    }
-                    UpdateMessage::RepoDeleted {
-                        repo_id: deleted_id,
-                    } if *deleted_id == current_id => {
-                        // No route exists for this surface any more, and closing the tab is the
-                        // deletion reaction's job: this handler writes nothing.
-                        web_sys::console::log_1(
-                            &format!("Repo {} deleted via WebSocket, tab stays open", deleted_id)
-                                .into(),
-                        );
-                    }
-                    _ => {}
-                }
+        let Some(msg) = ws_updates.get() else {
+            return;
+        };
+        let current_id = repo_id.get_value();
+        if current_id.is_empty() {
+            return;
+        }
+        match &msg {
+            UpdateMessage::RepoUpdated {
+                repo_id: updated_id,
+            } if should_refetch(
+                repo_data.get_untracked().is_some(),
+                false,
+                *updated_id == current_id,
+            ) =>
+            {
+                set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
             }
+            UpdateMessage::RepoDeleted {
+                repo_id: deleted_id,
+            } if *deleted_id == current_id => {
+                // No route exists for this surface any more, and closing the tab is the
+                // deletion reaction's job: this handler writes nothing.
+                web_sys::console::log_1(
+                    &format!("Repo {} deleted via WebSocket, tab stays open", deleted_id).into(),
+                );
+            }
+            _ => {}
         }
     });
 

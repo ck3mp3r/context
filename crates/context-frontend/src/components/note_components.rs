@@ -1,7 +1,7 @@
 use crate::api::QueryBuilder;
 use crate::components::CopyableId;
 use crate::models::{Note, UpdateMessage};
-use crate::tabs::{TabKey, TabRegistry, open_surface, surface_url};
+use crate::tabs::{TabKey, TabRegistry, open_surface, should_refetch, surface_url};
 use crate::websocket::use_websocket_updates;
 use leptos::prelude::*;
 use pulldown_cmark::{Options, Parser, html};
@@ -164,20 +164,35 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
 
     let parent_id = parent_note.id.clone();
     let parent_id_for_fetch = parent_note.id.clone();
+    // The stack's root id, for the message match below.
+    let stack_root = parent_note.id.clone();
 
     // WebSocket updates - refetch trigger
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+    let (loaded, set_loaded) = signal(false);
     let ws_updates = use_websocket_updates();
 
-    // Watch for WebSocket note updates - refetch if any note in this stack changes
+    // Watch for WebSocket note updates and refetch only when the message names a note this stack
+    // holds: the parent, or a subnote it already lists. A created note names no parent, so the stack
+    // cannot attribute it and stays as it is (decision 15).
     Effect::new(move || {
-        if let Some(
-            UpdateMessage::NoteUpdated { note_id: _ }
-            | UpdateMessage::NoteDeleted { note_id: _ }
-            | UpdateMessage::NoteCreated { note_id: _ },
-        ) = ws_updates.get()
-        {
-            // Refetch the entire sidebar to catch any changes to subnotes
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let stack_ids: Vec<String> = subnotes
+            .get_untracked()
+            .iter()
+            .map(|note| note.id.clone())
+            .collect();
+        let names_this_stack = match &update {
+            UpdateMessage::NoteUpdated { note_id }
+            | UpdateMessage::NoteDeleted { note_id }
+            | UpdateMessage::NoteCreated { note_id } => {
+                *note_id == stack_root || stack_ids.contains(note_id)
+            }
+            _ => false,
+        };
+        if should_refetch(loaded.get_untracked(), false, names_this_stack) {
             web_sys::console::log_1(&"Note updated via WebSocket, refetching sidebar...".into());
             set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
@@ -201,6 +216,7 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
                 set_subnotes.set(paginated.items);
                 set_total_count.set(paginated.total);
             }
+            set_loaded.set(true);
         });
     });
 

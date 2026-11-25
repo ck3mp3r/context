@@ -5,7 +5,7 @@ use thaw::*;
 use crate::api::{ApiClientError, task_lists, tasks};
 use crate::components::{CopyableId, InlineSurface, SurfaceLayout};
 use crate::models::{Task, TaskList, TaskStats};
-use crate::tabs::{TabKey, TabRegistry, open_surface, surface_url};
+use crate::tabs::{TabKey, TabRegistry, open_surface, should_refetch, surface_url};
 
 // Helper functions for badge colors and labels (DRY)
 fn priority_border_color(priority: Option<i32>) -> &'static str {
@@ -116,27 +116,32 @@ pub fn KanbanColumn(
 
     // WebSocket updates - refetch trigger
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+    let (loaded, set_loaded) = signal(false);
     let ws_updates = crate::websocket::use_websocket_updates();
 
-    // Watch for WebSocket task updates and trigger refetch
+    // Watch for WebSocket task updates and trigger refetch. A task message names a task id, not its
+    // list, so the message matches this column by the kind of data it carries; the loaded flag is
+    // the other half of the gate (decision 15).
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            use crate::models::UpdateMessage;
-            match update {
-                UpdateMessage::TaskCreated { .. }
+        use crate::models::UpdateMessage;
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let matches = matches!(
+            update,
+            UpdateMessage::TaskCreated { .. }
                 | UpdateMessage::TaskUpdated { .. }
-                | UpdateMessage::TaskDeleted { .. } => {
-                    web_sys::console::log_1(
-                        &format!(
-                            "Task updated via WebSocket for status {}, refetching...",
-                            status
-                        )
-                        .into(),
-                    );
-                    set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                }
-                _ => {} // Ignore non-task updates
-            }
+                | UpdateMessage::TaskDeleted { .. }
+        );
+        if should_refetch(loaded.get_untracked(), false, matches) {
+            web_sys::console::log_1(
+                &format!(
+                    "Task updated via WebSocket for status {}, refetching...",
+                    status
+                )
+                .into(),
+            );
+            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
     });
 
@@ -169,6 +174,7 @@ pub fn KanbanColumn(
             if let Ok(paginated) = result {
                 set_tasks.set(paginated.items);
             }
+            set_loaded.set(true);
         });
     });
 
@@ -1214,21 +1220,23 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
     let (stats_refetch_trigger, set_stats_refetch_trigger) = signal(0u32);
     let ws_updates = crate::websocket::use_websocket_updates();
 
-    // Watch for WebSocket task updates and trigger stats refetch
+    // Watch for WebSocket task updates and trigger stats refetch. The stats cover one task list, and
+    // a task message names no list, so the message matches by kind; loaded data is the other half of
+    // the gate (decision 15).
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            use crate::models::UpdateMessage;
-            match update {
-                UpdateMessage::TaskCreated { .. }
+        use crate::models::UpdateMessage;
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let matches = matches!(
+            update,
+            UpdateMessage::TaskCreated { .. }
                 | UpdateMessage::TaskUpdated { .. }
-                | UpdateMessage::TaskDeleted { .. } => {
-                    web_sys::console::log_1(
-                        &"Task updated via WebSocket, refetching stats...".into(),
-                    );
-                    set_stats_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                }
-                _ => {} // Ignore non-task updates
-            }
+                | UpdateMessage::TaskDeleted { .. }
+        );
+        if should_refetch(stats_data.get_untracked().is_some(), false, matches) {
+            web_sys::console::log_1(&"Task updated via WebSocket, refetching stats...".into());
+            set_stats_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
     });
 

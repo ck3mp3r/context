@@ -4,7 +4,7 @@ use leptos::task::spawn_local;
 use crate::api::{ApiClientError, task_lists};
 use crate::components::TaskListContent;
 use crate::models::{TaskList, UpdateMessage};
-use crate::tabs::TabScope;
+use crate::tabs::{TabScope, should_refetch};
 use crate::websocket::use_websocket_updates;
 
 #[component]
@@ -18,13 +18,21 @@ pub fn TaskListDetail(scope: TabScope) -> impl IntoView {
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
     let ws_updates = use_websocket_updates();
 
-    // Watch for WebSocket task list updates
+    // Watch for WebSocket task list updates for THIS task list. A mounted surface runs its fetch
+    // once, so loaded data is the gate: a hidden tab keeps its own entity live, and a message naming
+    // another entity refetches nothing (decision 15).
     Effect::new(move || {
-        if let Some(UpdateMessage::TaskListUpdated {
+        let Some(UpdateMessage::TaskListUpdated {
             task_list_id: updated_id,
         }) = ws_updates.get()
-            && updated_id == task_list_id.get_value()
-        {
+        else {
+            return;
+        };
+        if should_refetch(
+            task_list_data.get_untracked().is_some(),
+            false,
+            updated_id == task_list_id.get_value(),
+        ) {
             web_sys::console::log_1(&"TaskList updated via WebSocket, refetching...".into());
             set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }

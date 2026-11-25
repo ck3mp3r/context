@@ -4,7 +4,7 @@ use leptos::task::spawn_local;
 use crate::api::{ApiClientError, QueryBuilder, notes};
 use crate::components::{CopyableId, MarkdownContent, NoteStackSidebar};
 use crate::models::{Note, UpdateMessage};
-use crate::tabs::TabScope;
+use crate::tabs::{TabScope, should_refetch};
 use crate::websocket::use_websocket_updates;
 
 #[component]
@@ -22,34 +22,41 @@ pub fn NoteDetail(scope: TabScope) -> impl IntoView {
     // WebSocket updates
     let ws_updates = use_websocket_updates();
 
-    // Watch for WebSocket updates for THIS note
+    // Watch for WebSocket updates for THIS note. The tab's own fetch runs at mount, so loaded data
+    // is the gate: a hidden tab keeps its own note live, and another note's message refetches
+    // nothing (decision 15).
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            let current_note_id = note_id.get_value();
-            if !current_note_id.is_empty() {
-                match update {
-                    UpdateMessage::NoteUpdated {
-                        note_id: updated_id,
-                    } if updated_id == current_note_id => {
-                        web_sys::console::log_1(
-                            &format!("Note {} updated via WebSocket, refetching...", updated_id)
-                                .into(),
-                        );
-                        set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                    }
-                    UpdateMessage::NoteDeleted {
-                        note_id: updated_id,
-                    } if updated_id == current_note_id => {
-                        // No route exists for this surface any more, and closing the tab is the
-                        // deletion reaction's job: this handler writes nothing.
-                        web_sys::console::log_1(
-                            &format!("Note {} deleted via WebSocket, tab stays open", updated_id)
-                                .into(),
-                        );
-                    }
-                    _ => {}
-                }
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let current_note_id = note_id.get_value();
+        if current_note_id.is_empty() {
+            return;
+        }
+        match update {
+            UpdateMessage::NoteUpdated {
+                note_id: updated_id,
+            } if should_refetch(
+                note_data.get_untracked().is_some(),
+                false,
+                updated_id == current_note_id,
+            ) =>
+            {
+                web_sys::console::log_1(
+                    &format!("Note {} updated via WebSocket, refetching...", updated_id).into(),
+                );
+                set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
             }
+            UpdateMessage::NoteDeleted {
+                note_id: updated_id,
+            } if updated_id == current_note_id => {
+                // No route exists for this surface any more, and closing the tab is the
+                // deletion reaction's job: this handler writes nothing.
+                web_sys::console::log_1(
+                    &format!("Note {} deleted via WebSocket, tab stays open", updated_id).into(),
+                );
+            }
+            _ => {}
         }
     });
 
@@ -154,51 +161,58 @@ pub fn NoteDetail(scope: TabScope) -> impl IntoView {
 
     let (selected_refetch_trigger, set_selected_refetch_trigger) = signal(0u32);
 
+    // Resource for fetching the selected note (for stack navigation)
+    let (selected_note_data, set_selected_note_data) = signal(None::<Result<Note, ApiClientError>>);
+
     // Callback for note selection from sidebar
     let on_note_select = Callback::new(move |id: String| {
         selected_note_id.set(id);
     });
 
-    // Watch for WebSocket updates for the SELECTED note
+    // Watch for WebSocket updates for the SELECTED note, gated the same way as the note itself.
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            let current_selected = selected_note_id.get();
-            let parent_note_id = note_id.get_value();
-            if !current_selected.is_empty() {
-                match update {
-                    UpdateMessage::NoteUpdated {
-                        note_id: updated_id,
-                    } if updated_id == current_selected => {
-                        web_sys::console::log_1(
-                            &format!(
-                                "Selected note {} updated via WebSocket, refetching...",
-                                updated_id
-                            )
-                            .into(),
-                        );
-                        set_selected_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                    }
-                    UpdateMessage::NoteDeleted {
-                        note_id: updated_id,
-                    } if updated_id == current_selected && current_selected != parent_note_id => {
-                        // Selected subnote was deleted - switch back to parent
-                        web_sys::console::log_1(
-                            &format!(
-                                "Selected note {} deleted via WebSocket, switching to parent...",
-                                updated_id
-                            )
-                            .into(),
-                        );
-                        selected_note_id.set(parent_note_id);
-                    }
-                    _ => {}
-                }
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let current_selected = selected_note_id.get_untracked();
+        let parent_note_id = note_id.get_value();
+        if current_selected.is_empty() {
+            return;
+        }
+        match update {
+            UpdateMessage::NoteUpdated {
+                note_id: updated_id,
+            } if should_refetch(
+                selected_note_data.get_untracked().is_some(),
+                false,
+                updated_id == current_selected,
+            ) =>
+            {
+                web_sys::console::log_1(
+                    &format!(
+                        "Selected note {} updated via WebSocket, refetching...",
+                        updated_id
+                    )
+                    .into(),
+                );
+                set_selected_refetch_trigger.update(|n| *n = n.wrapping_add(1));
             }
+            UpdateMessage::NoteDeleted {
+                note_id: updated_id,
+            } if updated_id == current_selected && current_selected != parent_note_id => {
+                // Selected subnote was deleted - switch back to parent
+                web_sys::console::log_1(
+                    &format!(
+                        "Selected note {} deleted via WebSocket, switching to parent...",
+                        updated_id
+                    )
+                    .into(),
+                );
+                selected_note_id.set(parent_note_id);
+            }
+            _ => {}
         }
     });
-
-    // Resource for fetching the selected note (for stack navigation)
-    let (selected_note_data, set_selected_note_data) = signal(None::<Result<Note, ApiClientError>>);
 
     Effect::new(move || {
         let id = selected_note_id.get();

@@ -81,6 +81,12 @@ const SESSION_KEY: &str = "c5t.tabs.session.dev.v1";
 /// A project id no stub route serves, so a restored tab for it answers 404 (decision 14).
 const BOGUS_ID: &str = "e2e00fff";
 
+/// A task list no tab shows, so its update message names another entity (decision 15).
+const OTHER_TASK_LIST_ID: &str = "e2e00f01";
+
+/// A note no tab shows, so its update message names another entity (decision 15).
+const OTHER_NOTE_ID: &str = "e2e00f02";
+
 // region:    --- Test
 
 /// Reads the container's observable state in one round trip.
@@ -1470,6 +1476,196 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         server.calls("/"),
         document_loads + 1,
         "the dropped tab must not reload the page"
+    );
+
+    // === Decision 15: scoped liveness ===
+    //
+    // A panel the user never opened fetches nothing; a hidden tab keeps the data it loaded live on
+    // its own entity's message; another entity's message refetches nothing; one socket serves every
+    // tab. The counts come from the stub's request log, so each pin is a fetch count and not a
+    // side effect of the UI.
+    let connections = socket.connections();
+    clear_session(&page).await;
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load for the liveness pins");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render before the liveness pins");
+    socket.wait_for_connection_after(connections);
+    let sockets_with_no_tab = socket.connections();
+
+    let task_lists_before = server.api_calls("task-lists");
+    let notes_before = server.api_calls("notes");
+    let repos_before = server.api_calls("repos");
+    let skills_before = server.api_calls("skills");
+    let project_path = format!("projects/{PROJECT_ID}");
+    let project_calls_before = server.api_calls(&project_path);
+
+    let liveness_card = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(liveness_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the fixture project card should render for the liveness pins");
+    liveness_card
+        .click(None)
+        .await
+        .expect("the project card should open its tab");
+    wait_for_container(&page, "the project tab open for the liveness pins", |probe| {
+        probe.wrappers == 1 && probe.active_view == "project"
+    })
+    .await;
+
+    // The visible panel loads once; the three panels the user has not opened fetch nothing.
+    wait_for_api_calls(&server, "task-lists", task_lists_before + 1);
+    settle_frame();
+    assert_eq!(
+        server.api_calls("task-lists"),
+        task_lists_before + 1,
+        "the panel on screen fetches exactly once at mount"
+    );
+    assert_eq!(
+        server.api_calls("notes"),
+        notes_before,
+        "the notes panel was never opened, so it fetches nothing"
+    );
+    assert_eq!(
+        server.api_calls("repos"),
+        repos_before,
+        "the repos panel was never opened, so it fetches nothing"
+    );
+    assert_eq!(
+        server.api_calls("skills"),
+        skills_before,
+        "the skills panel was never opened, so it fetches nothing"
+    );
+    assert_eq!(
+        server.api_calls(&project_path),
+        project_calls_before + 1,
+        "the tab's own entity fetches once, with no extra request for its panels"
+    );
+
+    // Opening the notes panel is what loads it, and only then.
+    page.locator("[data-tab-active=\"true\"] [data-panel=\"notes\"]")
+        .click(None)
+        .await
+        .expect("the Notes pill should be clickable");
+    wait_for_api_calls(&server, "notes", notes_before + 1);
+    expect(page.locator(format!(
+        "[data-tab-active=\"true\"] [data-note-card=\"{NOTE_ID}\"]",
+    )))
+    .with_timeout(UI_TIMEOUT)
+    .to_be_visible()
+    .await
+    .expect("the notes panel should list the fixture note once it is opened");
+
+    // A task-list message refetches the task-list panel, which has loaded, and the notes panel,
+    // which is now hidden, stays as it is: each panel answers only its own kind of message.
+    let task_lists_loaded = server.api_calls("task-lists");
+    let notes_loaded = server.api_calls("notes");
+    socket.send(&format!(
+        "{{\"type\":\"TaskListUpdated\",\"data\":{{\"task_list_id\":\"{OTHER_TASK_LIST_ID}\"}}}}"
+    ));
+    wait_for_api_calls(&server, "task-lists", task_lists_loaded + 1);
+    settle_frame();
+    assert_eq!(
+        server.api_calls("task-lists"),
+        task_lists_loaded + 1,
+        "a hidden panel that already loaded refetches on its own kind of message"
+    );
+    assert_eq!(
+        server.api_calls("notes"),
+        notes_loaded,
+        "a task-list message refetches no notes view"
+    );
+
+    // One socket serves the whole app: opening a second tab opens no second connection.
+    page.locator("nav a[href=\"/notes\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Notes nav link should reach the chrome notes list");
+    let parentless_card = page.locator(format!(
+        "[data-routes-area] [data-note-card=\"{PARENTLESS_NOTE_ID}\"]",
+    ));
+    expect(parentless_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome notes list should render the parentless note card");
+
+    let note_path = format!("notes/{PARENTLESS_NOTE_ID}");
+    let note_calls_before = server.api_calls(&note_path);
+    parentless_card
+        .click(None)
+        .await
+        .expect("the parentless note card should open its tab");
+    wait_for_container(&page, "the note tab active over the project tab", |probe| {
+        probe.wrappers == 2 && probe.active_view == "note"
+    })
+    .await;
+    wait_for_api_calls(&server, &note_path, note_calls_before + 1);
+    assert_eq!(
+        socket.connections(),
+        sockets_with_no_tab,
+        "two tabs share the one websocket: no per-tab connection"
+    );
+
+    // The note surface loads its body and then its selected-note view, so both requests land before
+    // the counts below are read.
+    settle_frame();
+
+    // Another entity's message refetches nothing: neither the hidden project tab nor the visible
+    // note tab answers a message that names an entity it does not show.
+    let note_calls_loaded = server.api_calls(&note_path);
+    let project_calls_loaded = server.api_calls(&project_path);
+    socket.send(&format!(
+        "{{\"type\":\"ProjectUpdated\",\"data\":{{\"project_id\":\"{SECOND_PROJECT_ID}\"}}}}"
+    ));
+    settle_frame();
+    assert_eq!(
+        server.api_calls(&project_path),
+        project_calls_loaded,
+        "a message naming another project refetches no hidden project tab"
+    );
+    assert_eq!(
+        server.api_calls(&note_path),
+        note_calls_loaded,
+        "a project message refetches no note tab"
+    );
+
+    // The hidden tab's own message still refreshes the data it already loaded (decision 15).
+    socket.send(&format!(
+        "{{\"type\":\"ProjectUpdated\",\"data\":{{\"project_id\":\"{PROJECT_ID}\"}}}}"
+    ));
+    wait_for_api_calls(&server, &project_path, project_calls_loaded + 1);
+    assert_eq!(
+        server.api_calls(&note_path),
+        note_calls_loaded,
+        "the hidden tab's own refresh costs the visible tab nothing"
+    );
+
+    // The visible note tab answers its own note's message and no other note's.
+    socket.send(&format!(
+        "{{\"type\":\"NoteUpdated\",\"data\":{{\"note_id\":\"{OTHER_NOTE_ID}\"}}}}"
+    ));
+    settle_frame();
+    assert_eq!(
+        server.api_calls(&note_path),
+        note_calls_loaded,
+        "a note message naming another note refetches no note tab"
+    );
+    socket.send(&format!(
+        "{{\"type\":\"NoteUpdated\",\"data\":{{\"note_id\":\"{PARENTLESS_NOTE_ID}\"}}}}"
+    ));
+    wait_for_api_calls(&server, &note_path, note_calls_loaded + 1);
+    assert_eq!(
+        socket.connections(),
+        sockets_with_no_tab,
+        "a refetch opens no second websocket"
     );
 
     browser.close().await.expect("the browser should close");

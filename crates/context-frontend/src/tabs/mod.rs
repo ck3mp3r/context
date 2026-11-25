@@ -7,6 +7,7 @@
 
 mod boot;
 mod container;
+mod liveness;
 mod open;
 mod pure;
 mod registry;
@@ -14,6 +15,7 @@ mod session;
 
 pub use boot::{resolve_titles, restore_or_boot, start_session_persistence};
 pub use container::{TabContainer, TabScope, use_tab_scope};
+pub use liveness::should_refetch;
 pub use open::{focus_or_open, open_surface, surface_url, write_active_url};
 pub use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs};
 pub use registry::TabRegistry;
