@@ -157,6 +157,134 @@ fn reload_on_recovery_fires_only_on_the_down_to_up_transition() {
     );
 }
 
+/// Every input the first-load watchdog weighs for one due poll.
+fn state(
+    committed: bool,
+    url_names_origin: bool,
+    painted: bool,
+    origin_up: bool,
+    reloads: usize,
+) -> WatchdogState {
+    WatchdogState {
+        committed,
+        url_names_origin,
+        painted,
+        origin_up,
+        reloads,
+        elapsed: RECOVERY_LOAD_BOUND,
+    }
+}
+
+#[test]
+fn a_committed_but_blank_spa_reloads() {
+    // The owner's regression: `index.html` commits and the window url names the
+    // origin, yet the SPA never paints. Commit and url are not a paint, so the
+    // watchdog must reload instead of leaving a blank window.
+    let decided = watchdog_verdict(&state(true, true, false, true, 0));
+
+    assert_eq!(
+        decided,
+        WatchdogVerdict::Reload,
+        "a committed but never painted SPA must reload"
+    );
+}
+
+#[test]
+fn a_painted_spa_stays_quiet() {
+    let decided = watchdog_verdict(&state(true, true, true, true, 0));
+
+    assert_eq!(
+        decided,
+        WatchdogVerdict::Idle,
+        "a confirmed paint must not reload"
+    );
+}
+
+#[test]
+fn an_unconfirmed_paint_reloads() {
+    // The probe never answered (`eval_with_callback` returned `Err`, or the
+    // webview dropped the callback): the watchdog fails toward reloading.
+    let decided = watchdog_verdict(&state(false, false, false, true, 0));
+
+    assert_eq!(
+        decided,
+        WatchdogVerdict::Reload,
+        "a failed first navigation must still reload"
+    );
+}
+
+#[test]
+fn the_watchdog_waits_for_the_load_bound() {
+    let mut early = state(true, true, false, true, 0);
+    early.elapsed = RECOVERY_LOAD_BOUND - Duration::from_millis(1);
+
+    assert_eq!(
+        watchdog_verdict(&early),
+        WatchdogVerdict::Idle,
+        "an unelapsed bound must not reload"
+    );
+}
+
+#[test]
+fn the_watchdog_stops_at_the_reload_limit() {
+    let spent = state(true, true, false, true, RECOVERY_RELOAD_LIMIT);
+
+    assert_eq!(
+        watchdog_verdict(&spent),
+        WatchdogVerdict::Idle,
+        "the reload budget is finite"
+    );
+}
+
+#[test]
+fn a_down_origin_leaves_the_reload_to_the_origin_watcher() {
+    let down = state(true, true, false, false, 0);
+
+    assert_eq!(
+        watchdog_verdict(&down),
+        WatchdogVerdict::Idle,
+        "the origin watcher owns the recovered origin reload"
+    );
+}
+
+#[test]
+fn the_probe_asks_only_a_committed_page_on_the_origin() {
+    assert!(
+        probe_due(&state(true, true, false, true, 0)),
+        "a committed page on the origin is the only page that can confirm a paint"
+    );
+    assert!(
+        !probe_due(&state(false, false, false, true, 0)),
+        "nothing committed: there is no page to ask"
+    );
+    assert!(
+        !probe_due(&state(true, true, true, true, 0)),
+        "a confirmed paint needs no second question"
+    );
+    assert!(
+        !probe_due(&state(true, false, false, true, 0)),
+        "a window off the origin has nothing of ours to probe"
+    );
+}
+
+#[test]
+fn only_an_explicit_true_confirms_the_paint() {
+    assert_eq!(paint_answer("true"), PaintProbe::Painted);
+    assert_eq!(paint_answer("true\n"), PaintProbe::Painted);
+    assert_eq!(paint_answer("\"true\""), PaintProbe::Painted);
+    assert_eq!(paint_answer("false"), PaintProbe::Blank);
+    assert_eq!(
+        paint_answer(""),
+        PaintProbe::Unanswered,
+        "an empty answer is a miss, never a confirmation"
+    );
+    assert_eq!(
+        paint_answer("null"),
+        PaintProbe::Unanswered,
+        "any other answer is a miss, never a confirmation"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn origin_ready_reports_a_200_origin() {
     let (listener, url) = origin_url();

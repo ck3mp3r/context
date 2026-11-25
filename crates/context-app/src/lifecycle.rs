@@ -50,15 +50,33 @@ const RECOVERY_POLL_INTERVAL: Duration = Duration::from_secs(2);
 const RECOVERY_LOAD_BOUND: Duration = Duration::from_secs(15);
 /// How many reloads the first-load watchdog may schedule for one window.
 const RECOVERY_RELOAD_LIMIT: usize = 3;
+/// How long the paint probe may take before the watchdog calls it a miss.
+///
+/// A live webview answers in milliseconds. A webview that is still pending drops
+/// the eval callback instead of answering, so the wait has to end on its own.
+const PAINT_PROBE_TIMEOUT: Duration = Duration::from_secs(1);
+/// JavaScript the watchdog evaluates to read the SPA's painted marker.
+///
+/// `<main>` is the SPA's root element: the shell renders it, so its presence
+/// means the WebAssembly booted. The answer comes back through the eval
+/// callback, so no bridge, no capability, and no SPA change are involved.
+const PAINT_PROBE: &str = "!!document.querySelector('main')";
 
 /// Last external URL handed to the OS, with the moment it happened.
 static LAST_OPENED: Mutex<Option<(String, Instant)>> = Mutex::new(None);
 
 /// Whether the main window ever reported a committed navigation.
 ///
-/// Latched: once a page commits, the first-load watchdog stays quiet for the
-/// rest of the process.
+/// A commit is not a paint: `index.html` commits as soon as it is served, so this
+/// latch says nothing about whether the SPA rendered. It only tells the watchdog
+/// that a paint probe is worth sending; it never suppresses the reload.
 static COMMIT_SEEN: AtomicBool = AtomicBool::new(false);
+
+/// Whether the SPA confirmed it painted its root element.
+///
+/// Latched: once a probe answers, the watchdog stops probing and stays quiet for
+/// the rest of the process.
+static PAINT_CONFIRMED: AtomicBool = AtomicBool::new(false);
 
 /// Whether a reload is scheduled and has not run yet.
 ///
@@ -262,15 +280,128 @@ pub(crate) fn reload_on_recovery(previous_up: bool, now_up: bool) -> bool {
     !previous_up && now_up
 }
 
+/// What the first-load watchdog knows about the main window at one poll.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WatchdogState {
+    /// Whether the window ever reported a committed navigation. It decides
+    /// whether a paint probe is worth sending, not whether to reload.
+    pub(crate) committed: bool,
+    /// Whether the window url names the origin this build serves the SPA from.
+    pub(crate) url_names_origin: bool,
+    /// Whether the SPA confirmed it painted its root element.
+    pub(crate) painted: bool,
+    /// Whether the SPA origin answers.
+    pub(crate) origin_up: bool,
+    /// Reloads this watchdog already scheduled for the window.
+    pub(crate) reloads: usize,
+    /// Time since the window was created.
+    pub(crate) elapsed: Duration,
+}
+
+/// What the first-load watchdog decided for one poll of the main window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WatchdogVerdict {
+    /// Leave the window alone.
+    Idle,
+    /// The first load never finished: reload the window.
+    Reload,
+}
+
+/// Decide whether the first-load watchdog reloads the window on this poll.
+///
+/// A committed navigation is not a painted one: `index.html` answers 200 and
+/// commits long before the SPA's WebAssembly renders, and the window url already
+/// names the origin by then. Commit and url therefore take no part in the
+/// decision — only `painted` does. An unconfirmed paint, including a probe that
+/// never answers, reloads, so the watchdog fails toward a reload and never
+/// toward a blank window.
+pub(crate) fn watchdog_verdict(state: &WatchdogState) -> WatchdogVerdict {
+    let due = state.origin_up
+        && state.reloads < RECOVERY_RELOAD_LIMIT
+        && state.elapsed >= RECOVERY_LOAD_BOUND;
+    if !due || state.painted {
+        return WatchdogVerdict::Idle;
+    }
+
+    WatchdogVerdict::Reload
+}
+
+/// Whether the watchdog should ask the webview to confirm a paint.
+///
+/// Only a page that committed on the origin this build serves can confirm a
+/// paint, and a paint already confirmed needs no second question. Probing any
+/// other window would spend an eval on every poll for no answer.
+pub(crate) fn probe_due(state: &WatchdogState) -> bool {
+    state.committed && state.url_names_origin && !state.painted
+}
+
+/// What the paint probe reported about the SPA root element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PaintProbe {
+    /// The SPA confirmed it painted its root element.
+    Painted,
+    /// The webview answered, and the SPA had not painted its root element.
+    Blank,
+    /// The webview never answered: the eval failed, or the pending webview
+    /// dropped the callback. Counts as not painted.
+    Unanswered,
+    /// The probe was not sent: nothing committed on this origin, so there is no
+    /// page of ours that could confirm a paint.
+    Skipped,
+}
+
+/// Read a paint probe answer.
+///
+/// The eval callback hands back the value serialized as JSON, so a painted page
+/// answers `true` and a blank one `false`. An empty answer means the expression
+/// produced nothing. Only `true` counts as painted; every other answer is a
+/// miss, so the watchdog fails toward reloading.
+pub(crate) fn paint_answer(answer: &str) -> PaintProbe {
+    match answer.trim().trim_matches('"') {
+        "true" => PaintProbe::Painted,
+        "false" => PaintProbe::Blank,
+        _ => PaintProbe::Unanswered,
+    }
+}
+
+/// Ask the webview whether the SPA painted its root element.
+///
+/// `eval_with_callback` is the only read-back: `eval` is fire-and-forget and
+/// cannot report a value. The callback carries the answer, and the wait ends at
+/// [`PAINT_PROBE_TIMEOUT`] whether or not it arrives — a webview that is still
+/// pending drops the callback, and an `Err` means the window is gone. Both count
+/// as not painted.
+async fn confirm_painted(app: &AppHandle) -> PaintProbe {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return PaintProbe::Unanswered;
+    };
+
+    let (answers, mut answer) = tokio::sync::mpsc::unbounded_channel();
+    if window
+        .eval_with_callback(PAINT_PROBE, move |reply| {
+            let _ = answers.send(reply);
+        })
+        .is_err()
+    {
+        return PaintProbe::Unanswered;
+    }
+
+    match tokio::time::timeout(PAINT_PROBE_TIMEOUT, answer.recv()).await {
+        Ok(Some(reply)) => paint_answer(&reply),
+        _ => PaintProbe::Unanswered,
+    }
+}
+
 /// Start the loop that restores the main window after a failed first load or an
 /// origin outage.
 ///
 /// One loop carries two detectors. The origin watcher reloads on the DOWN→UP
 /// transition of the origin this build loads. The first-load watchdog reloads a
-/// window whose navigation never committed while the origin answers, so a
-/// silently dropped first navigation does not leave a blank view; it acts at
-/// most [`RECOVERY_RELOAD_LIMIT`] times and stays quiet once a page commits.
-/// Both detectors share [`schedule_reload`], so one incident reloads once.
+/// window that never confirmed it painted while the origin answers, so neither a
+/// silently dropped first navigation nor a committed-but-blank page leaves a
+/// blank view; it acts at most [`RECOVERY_RELOAD_LIMIT`] times and stays quiet
+/// once the SPA confirms a paint. Both detectors share [`schedule_reload`], so
+/// one incident reloads once.
 pub fn spawn_recovery_watch(app: &AppHandle) {
     let app = app.clone();
 
@@ -294,14 +425,35 @@ pub fn spawn_recovery_watch(app: &AppHandle) {
 
             let watchdog_due = now_up
                 && watchdog_reloads < RECOVERY_RELOAD_LIMIT
-                && !COMMIT_SEEN.load(Ordering::SeqCst)
+                && !PAINT_CONFIRMED.load(Ordering::SeqCst)
                 && created.elapsed() >= RECOVERY_LOAD_BOUND;
             if watchdog_due {
                 let url = main_window_url(&app);
+                let observed = WatchdogState {
+                    committed: COMMIT_SEEN.load(Ordering::SeqCst),
+                    url_names_origin: matches!(&url, Ok(url) if is_spa_origin(url)),
+                    painted: PAINT_CONFIRMED.load(Ordering::SeqCst),
+                    origin_up: now_up,
+                    reloads: watchdog_reloads,
+                    elapsed: created.elapsed(),
+                };
 
-                // A URL that already names the origin is left alone: the
-                // watchdog neither reloads nor reports that miss.
-                if !matches!(&url, Ok(url) if is_spa_origin(url)) {
+                let probe = if probe_due(&observed) {
+                    confirm_painted(&app).await
+                } else {
+                    PaintProbe::Skipped
+                };
+                let painted = probe == PaintProbe::Painted;
+                if painted {
+                    PAINT_CONFIRMED.store(true, Ordering::SeqCst);
+                }
+
+                let state = WatchdogState {
+                    painted,
+                    ..observed
+                };
+
+                if watchdog_verdict(&state) == WatchdogVerdict::Reload {
                     watchdog_reloads += 1;
                     let reported = match &url {
                         Ok(url) => url.to_string(),
@@ -310,7 +462,7 @@ pub fn spawn_recovery_watch(app: &AppHandle) {
                     schedule_reload(
                         &app,
                         format!(
-                            "context: reloaded the main window after the first load did not commit (url={reported:?})"
+                            "context: reloaded the main window after the first load stayed blank (url={reported:?}, paint={probe:?}, attempt={watchdog_reloads}/{RECOVERY_RELOAD_LIMIT})"
                         ),
                     );
                 }
