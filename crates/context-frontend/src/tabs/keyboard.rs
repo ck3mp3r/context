@@ -1,4 +1,4 @@
-//! One window `keydown` listener: the cycle ring, the tab close, and the chrome shortcut.
+//! One window `keydown` listener: the cycle ring, the tab close, and the chrome shortcuts.
 //!
 //! Decision 17: Cmd+W and Cmd+T arrive as a JS `keydown` in the webview. Nothing in this listener
 //! goes through a native menu item or an event bridge: the webview receives the chord and this
@@ -48,7 +48,8 @@ pub fn start_keyboard(
 
 // region:    --- Support
 
-/// Handle a plain Cmd chord: close the active tab, or reach the Projects chrome view.
+/// Handle a plain Cmd chord: close the active tab, or reach a chrome view (Projects home or the
+/// settings page).
 ///
 /// Shift is excluded so Cmd+Shift+W stays the window's own accelerator, and Option is excluded so
 /// the chords match exactly.
@@ -68,6 +69,10 @@ fn on_command(
         "t" => {
             event.prevent_default();
             write_active_url(navigate, "/");
+        }
+        "," => {
+            event.prevent_default();
+            write_active_url(navigate, "/settings");
         }
         _ => {}
     }

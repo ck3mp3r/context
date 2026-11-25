@@ -329,7 +329,7 @@ const PATH_PROBE: &str = r#"() => location.pathname"#;
 /// The return value is `defaultPrevented`: it is true only when the app's own handler ran and claimed
 /// the chord. A plain Chromium claims Cmd+W and Ctrl+Tab before the page sees them, so this probe is
 /// the Tier-1 witness that the handler is wired (decision 17).
-const KEYDOWN_PROBE: &str = r#"([key, meta, ctrl, shift]) => {
+const KEYDOWN_PROBE: &str = r#"([key, meta, ctrl, shift, repeat]) => {
     const event = new KeyboardEvent('keydown', {
         key: key,
         bubbles: true,
@@ -337,6 +337,7 @@ const KEYDOWN_PROBE: &str = r#"([key, meta, ctrl, shift]) => {
         metaKey: meta,
         ctrlKey: ctrl,
         shiftKey: shift,
+        repeat: repeat,
     });
     window.dispatchEvent(event);
     return event.defaultPrevented;
@@ -2492,6 +2493,113 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "a tab is still active after Cmd+Shift+W"
     );
 
+    // Pin (Cmd+,): the settings view is chrome, so the chord opens no tab and leaves the strip
+    // alone. From a tab surface first: the one writer replaces the tab URL, so the strip keeps its
+    // count and its focus.
+    let tabs_before_cmd_comma = tabs_probe(&page).await;
+    let active_before_cmd_comma = tabs_before_cmd_comma
+        .iter()
+        .find(|tab| tab.active)
+        .map(|tab| tab.id.clone())
+        .expect("a tab is active before Cmd+,");
+    assert!(
+        press_chord(&page, ",", true, false, false).await,
+        "the app claims Cmd+,"
+    );
+    expect(page.locator("[data-page=\"settings\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("Cmd+, reaches the settings view");
+    assert_eq!(
+        page_path(&page).await,
+        "/settings",
+        "Cmd+, writes the settings URL"
+    );
+    let after_cmd_comma = tabs_probe(&page).await;
+    assert_eq!(
+        after_cmd_comma.len(),
+        tabs_before_cmd_comma.len(),
+        "Cmd+, opens no tab from a tab surface"
+    );
+    assert_eq!(
+        after_cmd_comma
+            .iter()
+            .find(|tab| tab.active)
+            .map(|tab| tab.id.clone()),
+        Some(active_before_cmd_comma),
+        "Cmd+, leaves the active tab unchanged"
+    );
+
+    // Pin (Cmd+, from chrome): it names settings from the same start point Cmd+T names home from.
+    assert!(
+        press_chord(&page, "t", true, false, false).await,
+        "the app claims Cmd+T"
+    );
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("Cmd+T returns to the Projects chrome view");
+    assert_eq!(page_path(&page).await, "/", "Cmd+T writes chrome home");
+
+    let tabs_before_chrome_comma = tabs_probe(&page).await.len();
+    assert!(
+        press_chord(&page, ",", true, false, false).await,
+        "the app claims Cmd+, from chrome"
+    );
+    expect(page.locator("[data-page=\"settings\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("Cmd+, reaches the settings view from chrome");
+    assert_eq!(
+        page_path(&page).await,
+        "/settings",
+        "Cmd+, writes the settings URL from chrome"
+    );
+    assert_eq!(
+        tabs_probe(&page).await.len(),
+        tabs_before_chrome_comma,
+        "Cmd+, opens no tab from chrome"
+    );
+
+    // Pin (key hold): a repeat is dropped before any chord decides, so it stays unclaimed.
+    assert!(
+        !press_chord_repeat(&page, ",", true, false, false, true).await,
+        "a repeated Cmd+, stays unclaimed"
+    );
+    settle_frame();
+    assert_eq!(
+        page_path(&page).await,
+        "/settings",
+        "a repeated Cmd+, navigates nowhere"
+    );
+
+    // Pin (Cmd+Shift+,): the shifted chord belongs to the window, so the SPA does not claim it.
+    assert!(
+        !press_chord(&page, ",", true, false, true).await,
+        "Cmd+Shift+, stays unclaimed"
+    );
+    settle_frame();
+    assert_eq!(
+        page_path(&page).await,
+        "/settings",
+        "Cmd+Shift+, navigates nowhere"
+    );
+
+    // Pin (Ctrl+,): only plain Cmd chords reach the command arm, so Ctrl+, stays unclaimed.
+    assert!(
+        !press_chord(&page, ",", false, true, false).await,
+        "Ctrl+, stays unclaimed"
+    );
+    settle_frame();
+    assert_eq!(
+        page_path(&page).await,
+        "/settings",
+        "Ctrl+, navigates nowhere"
+    );
+
     // === Update pill (one surface, app level, bottom right) ===
 
     // Pin (idle): nothing is announced, so nothing shows. The mount fetch has long landed.
@@ -3022,7 +3130,19 @@ async fn page_path(page: &Page) -> String {
 
 /// Dispatches one synthetic `keydown` on the window and reports whether the app claimed it.
 async fn press_chord(page: &Page, key: &str, meta: bool, ctrl: bool, shift: bool) -> bool {
-    page.evaluate(KEYDOWN_PROBE, Some(&(key, meta, ctrl, shift)))
+    press_chord_repeat(page, key, meta, ctrl, shift, false).await
+}
+
+/// Dispatches one synthetic `keydown` that reports the key-hold state the webview sets.
+async fn press_chord_repeat(
+    page: &Page,
+    key: &str,
+    meta: bool,
+    ctrl: bool,
+    shift: bool,
+    repeat: bool,
+) -> bool {
+    page.evaluate(KEYDOWN_PROBE, Some(&(key, meta, ctrl, shift, repeat)))
         .await
         .expect("the page should accept a synthetic keydown")
 }

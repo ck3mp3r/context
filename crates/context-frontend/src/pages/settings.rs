@@ -11,7 +11,7 @@ use crate::models::{
 #[component]
 pub fn Settings() -> impl IntoView {
     view! {
-        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
+        <div data-page="settings" class="flex flex-col min-h-[calc(100vh-8rem)]">
             <div class="container mx-auto p-6 flex-1">
                 <SettingsEditor/>
             </div>
