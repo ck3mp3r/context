@@ -11,6 +11,6 @@ mod pure;
 mod registry;
 
 pub use container::{TabContainer, TabScope, use_tab_scope};
-pub use open::{open_surface, use_url_writer, write_active_url};
+pub use open::{focus_or_open, open_surface, surface_url, write_active_url};
 pub use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs};
 pub use registry::TabRegistry;

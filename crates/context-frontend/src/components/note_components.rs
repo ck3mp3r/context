@@ -1,6 +1,7 @@
 use crate::api::QueryBuilder;
 use crate::components::CopyableId;
 use crate::models::{Note, UpdateMessage};
+use crate::tabs::{TabKey, TabRegistry, open_surface, surface_url};
 use crate::websocket::use_websocket_updates;
 use leptos::prelude::*;
 use pulldown_cmark::{Options, Parser, html};
@@ -33,13 +34,16 @@ pub fn NoteCard(
     let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
 
     let note_id = note.id.clone();
-    let href = if on_click.is_some() {
-        "#".to_string()
-    } else if let Some(proj_id) = project_id {
-        format!("/projects/{}/notes/{}", proj_id, note.id)
-    } else {
-        format!("/notes/{}", note.id)
-    };
+    let tabs = use_context::<TabRegistry>();
+    // The project that names this note, so the parent project tab opens first (decision 8). A card
+    // inside a project panel names it explicitly; a global list row reads it from the note.
+    let owner = project_id
+        .clone()
+        .or_else(|| note.project_ids.first().cloned());
+    let key = TabKey::note(note.id.clone());
+    let href = surface_url(&key, owner.as_deref());
+    let note_for_click = key.clone();
+    let owner_for_click = owner.clone();
 
     view! {
         // Wrapper - natural sizing
@@ -59,10 +63,15 @@ pub fn NoteCard(
                  style={if has_subnotes { "z-index: 2; width: calc(100% - 8px); height: calc(100% - 8px);" } else { "z-index: 2; width: 100%; height: 100%;" }}>
             <a
                 href=href
+                data-note-card=note.id.clone()
                 on:click=move |ev| {
+                    ev.prevent_default();
                     if let Some(callback) = on_click {
-                        ev.prevent_default();
                         callback.run(note_id.clone());
+                        return;
+                    }
+                    if let Some(registry) = tabs {
+                        open_surface(registry, note_for_click.clone(), owner_for_click.as_deref());
                     }
                 }
 

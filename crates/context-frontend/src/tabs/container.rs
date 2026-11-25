@@ -11,6 +11,7 @@ use leptos::prelude::*;
 
 use super::pure::{TabId, TabKey, TabRouteKind};
 use super::registry::TabRegistry;
+use crate::pages::{NoteDetail, ProjectDetail, RepoDetail, TaskListDetail};
 
 // region:    --- Types
 
@@ -22,13 +23,19 @@ use super::registry::TabRegistry;
 pub struct TabScope {
     id: TabId,
     key: TabKey,
+    parent: Option<String>,
     active: Signal<bool>,
 }
 
 impl TabScope {
     /// Bundle a tab's identity with the reactive visibility of its wrapper.
-    pub fn new(id: TabId, key: TabKey, active: Signal<bool>) -> Self {
-        Self { id, key, active }
+    pub fn new(id: TabId, key: TabKey, parent: Option<String>, active: Signal<bool>) -> Self {
+        Self {
+            id,
+            key,
+            parent,
+            active,
+        }
     }
 
     /// The tab's id, as it appears in `data-tab-id`.
@@ -49,6 +56,16 @@ impl TabScope {
     /// The id of the entity this tab shows.
     pub fn entity_id(&self) -> &str {
         self.key.entity_id()
+    }
+
+    /// The project whose child row holds this tab, when the surface names one.
+    pub fn parent_project(&self) -> Option<&str> {
+        match self.key.kind() {
+            TabRouteKind::Project => Some(self.key.entity_id()),
+            TabRouteKind::TaskList | TabRouteKind::Note | TabRouteKind::Repo => {
+                self.parent.as_deref()
+            }
+        }
     }
 
     /// Whether this tab is the active one, which is what its wrapper's `display` follows.
@@ -93,7 +110,12 @@ pub fn TabContainer(registry: TabRegistry) -> impl IntoView {
 #[component]
 fn TabWrapper(registry: TabRegistry, id: TabId, tab_key: TabKey) -> impl IntoView {
     let active = Signal::derive(move || registry.active() == Some(id));
-    provide_context(TabScope::new(id, tab_key, active));
+    let parent = registry
+        .tabs()
+        .into_iter()
+        .find(|tab| tab.id() == id)
+        .and_then(|tab| tab.parent_project().map(str::to_string));
+    provide_context(TabScope::new(id, tab_key, parent, active));
 
     view! {
         <div
@@ -108,30 +130,39 @@ fn TabWrapper(registry: TabRegistry, id: TabId, tab_key: TabKey) -> impl IntoVie
 
 /// The mount slot every tab surface renders into.
 ///
-/// The inline surfaces replace the placeholder; the container only has to give every tab one fixed
-/// in-tree mount point.
+/// The surface reads its identity from [`TabScope`], never from route params: one route can mount
+/// several tabs, and a hidden tab has no route of its own.
 #[component]
 fn TabMount() -> impl IntoView {
     let scope = use_tab_scope();
+    let kind = scope
+        .as_ref()
+        .map(|scope| kind_name(scope.kind()))
+        .unwrap_or_default();
+    let entity_id = scope
+        .as_ref()
+        .map(|scope| scope.entity_id().to_string())
+        .unwrap_or_default();
 
     view! {
-        <div class="h-full" data-tab-mount="">
-            {scope.map(|scope| view! { <TabPlaceholder scope=scope/> })}
+        <div
+            class="h-full"
+            data-tab-mount=""
+            data-tab-view=kind
+            data-tab-entity-id=entity_id
+        >
+            {scope.map(surface_view)}
         </div>
     }
 }
 
-/// What a wrapper shows before the real surface lands: the tab's identity, read from its scope.
-#[component]
-fn TabPlaceholder(scope: TabScope) -> impl IntoView {
-    let kind = kind_name(scope.kind());
-    let entity_id = scope.entity_id().to_string();
-    let label = format!("{kind} {entity_id}");
-
-    view! {
-        <div class="p-6 text-ctp-subtext0" data-tab-view=kind data-tab-entity-id=entity_id>
-            {label}
-        </div>
+/// The real surface of one tab, chosen by its kind.
+fn surface_view(scope: TabScope) -> AnyView {
+    match scope.kind() {
+        TabRouteKind::Project => view! { <ProjectDetail scope=scope/> }.into_any(),
+        TabRouteKind::TaskList => view! { <TaskListDetail scope=scope/> }.into_any(),
+        TabRouteKind::Note => view! { <NoteDetail scope=scope/> }.into_any(),
+        TabRouteKind::Repo => view! { <RepoDetail scope=scope/> }.into_any(),
     }
 }
 

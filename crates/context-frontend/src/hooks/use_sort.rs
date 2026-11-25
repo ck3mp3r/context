@@ -105,3 +105,25 @@ pub fn use_sort(
         on_order_change,
     }
 }
+
+/// Hook for sort state held in per-tab memory only.
+///
+/// A tab's list state never enters the URL (decision 20), so this variant reads and writes no
+/// query parameters.
+pub fn use_sort_in_memory(
+    default_field: impl Into<String>,
+    default_order: impl Into<String>,
+) -> UseSortReturn {
+    let (sort_field, set_sort_field) = signal(default_field.into());
+    let (sort_order, set_sort_order) = signal(default_order.into());
+
+    let on_sort_change = Callback::new(move |field: String| set_sort_field.set(field));
+    let on_order_change = Callback::new(move |order: String| set_sort_order.set(order));
+
+    UseSortReturn {
+        sort_field,
+        sort_order,
+        on_sort_change,
+        on_order_change,
+    }
+}

@@ -85,3 +85,22 @@ pub fn use_search() -> UseSearchReturn {
         on_debounced_change,
     }
 }
+
+/// Hook for search state held in per-tab memory only.
+///
+/// A tab's list state never enters the URL (decision 20), so this variant reads and writes no
+/// query parameters.
+pub fn use_search_in_memory() -> UseSearchReturn {
+    let (search_input, set_search_input) = signal(String::new());
+    let (search_query, set_search_query) = signal(String::new());
+
+    let on_immediate_change = Callback::new(move |value: String| set_search_input.set(value));
+    let on_debounced_change = Callback::new(move |value: String| set_search_query.set(value));
+
+    UseSearchReturn {
+        search_input,
+        search_query,
+        on_immediate_change,
+        on_debounced_change,
+    }
+}

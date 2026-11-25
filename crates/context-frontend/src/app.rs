@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::{
     components::{Route, Router, Routes},
-    hooks::use_location,
+    hooks::{use_location, use_navigate},
     path,
 };
 use leptos_use::core::ConnectionReadyState;
@@ -10,10 +10,8 @@ use thaw::*;
 
 use crate::components::{ThemeSwitcher, UpdateBadge, UpdateBanner};
 use crate::models::UpdateStatusPayload;
-use crate::pages::{
-    NoteDetail, Notes, ProjectDetail, Projects, RepoDetail, Repos, Settings, Skills, TaskListDetail,
-};
-use crate::tabs::{TabContainer, TabRegistry};
+use crate::pages::{Notes, Projects, Repos, Settings, Skills};
+use crate::tabs::{TabContainer, TabRegistry, surface_url, write_active_url};
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection};
 
@@ -83,6 +81,18 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     // them, so both read the same state.
     let tabs = TabRegistry::new();
     provide_context(tabs);
+
+    // The one URL writer: the active tab names the URL, written once with `replace` (decisions 11
+    // and 21). Nothing here reads the address bar, so a mutation the app did not make cannot move
+    // the active tab.
+    let url_writer = use_navigate();
+    Effect::new(move |_| {
+        let Some(key) = tabs.active_key() else {
+            return;
+        };
+        let url = surface_url(&key, tabs.active_project().as_deref());
+        write_active_url(&url_writer, &url);
+    });
 
     // Determine active tab based on current path
     let is_active = move |path: &str| {
@@ -183,27 +193,20 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
 
             <div class="flex-1">
                 // Tab surfaces render through the container, so every tab keeps one stable in-tree
-                // wrapper. Chrome views keep rendering through the routes below.
+                // wrapper. Only chrome renders through the routes below: a tab URL has no detail
+                // route, so the fallback renders nothing and no leftover chrome sits under a tab.
                 <TabContainer registry=tabs/>
 
-                <Routes fallback=|| view! { <p>"Page not found"</p> }>
-                    <Route path=path!("/") view=Projects/>
-                    <Route path=path!("/projects/:id") view=ProjectDetail/>
-                    <Route path=path!("/projects/:id/task-lists") view=ProjectDetail/>
-                    <Route path=path!("/projects/:id/notes") view=ProjectDetail/>
-                    <Route path=path!("/projects/:id/skills") view=ProjectDetail/>
-                    <Route path=path!("/projects/:id/repos") view=ProjectDetail/>
-                    <Route path=path!("/projects/:project_id/task-lists/:task_list_id") view=TaskListDetail/>
-                    <Route path=path!("/projects/:project_id/notes/:id") view=NoteDetail/>
-                    <Route path=path!("/projects/:project_id/repos/:id") view=RepoDetail/>
-                    <Route path=path!("/notes") view=Notes/>
-                    <Route path=path!("/notes/:id") view=NoteDetail/>
-                    <Route path=path!("/repos") view=Repos/>
-                    <Route path=path!("/repos/:id") view=RepoDetail/>
-                    <Route path=path!("/skills") view=Skills/>
-                    <Route path=path!("/skills/:id") view=Skills/>
-                    <Route path=path!("/settings") view=Settings/>
-                </Routes>
+                <div data-routes-area="">
+                    <Routes fallback=|| ()>
+                        <Route path=path!("/") view=Projects/>
+                        <Route path=path!("/notes") view=Notes/>
+                        <Route path=path!("/repos") view=Repos/>
+                        <Route path=path!("/skills") view=Skills/>
+                        <Route path=path!("/skills/:id") view=Skills/>
+                        <Route path=path!("/settings") view=Settings/>
+                    </Routes>
+                </div>
             </div>
 
             <footer class="screen-only py-3 px-6 border-t border-ctp-surface1 bg-ctp-surface0">

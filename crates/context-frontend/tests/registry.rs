@@ -4,13 +4,20 @@
 //! and compiled into this binary: no wasm, no browser, and no rendering. The registry is exercised
 //! through the same public API the shell uses, so the signal path is pinned headless too.
 
+#[path = "../src/tabs/open.rs"]
+mod open;
 #[path = "../src/tabs/pure.rs"]
 mod pure;
 #[path = "../src/tabs/registry.rs"]
 mod registry;
 
+use open::{focus_or_open, open_surface, surface_url, write_active_url};
 use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs};
 use registry::TabRegistry;
+
+use std::cell::RefCell;
+
+use leptos_router::NavigateOptions;
 
 /// Two projects with attached and parentless tabs: the smallest state that fills both rows and the
 /// whole ring.
@@ -695,4 +702,148 @@ fn the_registry_cycle_walks_the_ring() {
 
     assert_eq!(registry.cycle_next(), Some(project));
     assert_eq!(registry.cycle_previous(), Some(note));
+}
+
+#[test]
+fn focus_or_open_focuses_an_open_surface_without_duplicating_it() {
+    let registry = TabRegistry::new();
+    let project = registry.open(TabKey::project("p1"));
+    let other = registry.open(TabKey::project("p2"));
+    assert_eq!(registry.active(), Some(other));
+
+    let focused = focus_or_open(registry, TabKey::project("p1"));
+
+    assert_eq!(focused, project, "the open surface keeps its tab id");
+    assert_eq!(registry.len(), 2, "no duplicate tab appears");
+    assert_eq!(registry.active(), Some(project), "the open tab takes focus");
+}
+
+#[test]
+fn focus_or_open_opens_a_surface_that_is_not_open() {
+    let registry = TabRegistry::new();
+    let opened = focus_or_open(registry, TabKey::note("n1"));
+
+    assert_eq!(registry.len(), 1);
+    assert_eq!(registry.active(), Some(opened));
+    assert_eq!(registry.active_key(), Some(TabKey::note("n1")));
+}
+
+#[test]
+fn open_surface_opens_the_parent_project_tab_before_the_child() {
+    let registry = TabRegistry::new();
+    let child = open_surface(registry, TabKey::task_list("t1"), Some("p1"));
+
+    let descriptors = registry.descriptors();
+    assert_eq!(descriptors.len(), 2, "the parent tab opens with the child");
+    let parent = descriptors
+        .iter()
+        .find(|(_, key)| key == &TabKey::project("p1"))
+        .map(|(id, _)| *id)
+        .expect("the parent project tab must be open");
+    assert!(
+        parent < child,
+        "the parent tab opens first, so its id is lower"
+    );
+    assert_eq!(registry.active(), Some(child), "the child tab is active");
+    assert_eq!(
+        registry
+            .tabs()
+            .into_iter()
+            .find(|tab| tab.id() == child)
+            .and_then(|tab| tab.parent_project().map(str::to_string)),
+        Some("p1".to_string()),
+        "the child attaches to the named project"
+    );
+}
+
+#[test]
+fn open_surface_opens_a_parentless_surface_without_a_project_tab() {
+    let registry = TabRegistry::new();
+    let note = open_surface(registry, TabKey::note("n1"), None);
+
+    assert_eq!(
+        registry.len(),
+        1,
+        "no project tab is opened for a parentless note"
+    );
+    assert_eq!(registry.active(), Some(note));
+    assert!(registry.strip_rows().parentless.contains(&note));
+}
+
+#[test]
+fn open_surface_ignores_a_project_for_a_project_surface() {
+    let registry = TabRegistry::new();
+    let project = open_surface(registry, TabKey::project("p1"), Some("p2"));
+
+    assert_eq!(
+        registry.len(),
+        1,
+        "a project surface never opens a second project tab"
+    );
+    assert_eq!(registry.active(), Some(project));
+}
+
+#[test]
+fn open_surface_focuses_an_open_child_instead_of_duplicating_it() {
+    let registry = TabRegistry::new();
+    let first = open_surface(registry, TabKey::task_list("t1"), Some("p1"));
+    registry.open(TabKey::project("p2"));
+
+    let again = open_surface(registry, TabKey::task_list("t1"), Some("p1"));
+
+    assert_eq!(again, first, "the open child keeps its tab id");
+    assert_eq!(registry.len(), 3, "the second open adds no tab");
+    assert_eq!(
+        registry.active(),
+        Some(first),
+        "the open child takes focus back"
+    );
+}
+
+#[test]
+fn surface_url_names_the_surface_and_its_project_only() {
+    assert_eq!(
+        surface_url(&TabKey::project("p1"), Some("p1")),
+        "/projects/p1"
+    );
+    assert_eq!(
+        surface_url(&TabKey::task_list("t1"), Some("p1")),
+        "/projects/p1/task-lists/t1"
+    );
+    assert_eq!(
+        surface_url(&TabKey::note("n1"), Some("p1")),
+        "/projects/p1/notes/n1"
+    );
+    assert_eq!(
+        surface_url(&TabKey::repo("r1"), Some("p1")),
+        "/projects/p1/repos/r1"
+    );
+    assert_eq!(surface_url(&TabKey::note("n1"), None), "/notes/n1");
+    assert_eq!(surface_url(&TabKey::repo("r1"), None), "/repos/r1");
+    assert_eq!(
+        surface_url(&TabKey::task_list("t1"), None),
+        "/task-lists/t1"
+    );
+}
+
+#[test]
+fn write_active_url_writes_once_with_replace() {
+    let seen: RefCell<Vec<(String, bool)>> = RefCell::new(Vec::new());
+
+    {
+        let writer = |url: &str, options: NavigateOptions| {
+            seen.borrow_mut().push((url.to_string(), options.replace));
+        };
+        write_active_url(&writer, "/projects/p1");
+        write_active_url(&writer, "/notes/n1");
+    }
+
+    assert_eq!(
+        seen.into_inner(),
+        vec![
+            ("/projects/p1".to_string(), true),
+            ("/notes/n1".to_string(), true),
+        ],
+        "every write replaces its entry, so a tab switch grows no history"
+    );
 }

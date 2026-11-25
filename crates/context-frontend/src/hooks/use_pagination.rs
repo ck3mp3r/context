@@ -93,3 +93,25 @@ pub fn use_pagination() -> UsePaginationReturn {
         on_next,
     }
 }
+
+/// Hook for pagination state held in per-tab memory only.
+///
+/// A tab's list state never enters the URL (decision 20), so this variant reads and writes no
+/// query parameters.
+pub fn use_pagination_in_memory() -> UsePaginationReturn {
+    let (page, set_page) = signal(0usize);
+
+    let on_prev = Callback::new(move |_| {
+        if page.get() > 0 {
+            set_page.update(|page| *page -= 1);
+        }
+    });
+
+    let on_next = Callback::new(move |_| set_page.update(|page| *page += 1));
+
+    UsePaginationReturn {
+        page,
+        on_prev,
+        on_next,
+    }
+}

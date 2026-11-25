@@ -1,15 +1,16 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, task_lists};
 use crate::components::TaskListContent;
 use crate::models::{TaskList, UpdateMessage};
+use crate::tabs::TabScope;
 use crate::websocket::use_websocket_updates;
 
 #[component]
-pub fn TaskListDetail() -> impl IntoView {
-    let params = use_params_map();
+pub fn TaskListDetail(scope: TabScope) -> impl IntoView {
+    // The tab's entity id never changes for the tab's lifetime.
+    let task_list_id = StoredValue::new_local(scope.entity_id().to_string());
 
     let (task_list_data, set_task_list_data) = signal(None::<Result<TaskList, ApiClientError>>);
 
@@ -19,28 +20,28 @@ pub fn TaskListDetail() -> impl IntoView {
 
     // Watch for WebSocket task list updates
     Effect::new(move || {
-        if let Some(UpdateMessage::TaskListUpdated { task_list_id }) = ws_updates.get() {
-            let params = params.get();
-            if let Some(current_id) = params.get("task_list_id")
-                && current_id == task_list_id
-            {
-                web_sys::console::log_1(&"TaskList updated via WebSocket, refetching...".into());
-                set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-            }
+        if let Some(UpdateMessage::TaskListUpdated {
+            task_list_id: updated_id,
+        }) = ws_updates.get()
+            && updated_id == task_list_id.get_value()
+        {
+            web_sys::console::log_1(&"TaskList updated via WebSocket, refetching...".into());
+            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
     });
 
-    // Fetch task list when params change or refetch trigger fires
+    // Fetch the task list this tab shows
     Effect::new(move || {
-        let params = params.get();
+        let id = task_list_id.get_value();
         let _ = refetch_trigger.get(); // Track refetch trigger
 
-        if let Some(task_list_id) = params.get("task_list_id") {
-            spawn_local(async move {
-                let result = task_lists::get(&task_list_id).await;
-                set_task_list_data.set(Some(result));
-            });
+        if id.is_empty() {
+            return;
         }
+        spawn_local(async move {
+            let result = task_lists::get(&id).await;
+            set_task_list_data.set(Some(result));
+        });
     });
 
     view! {

@@ -5,6 +5,7 @@ use thaw::*;
 use crate::api::{ApiClientError, task_lists, tasks};
 use crate::components::CopyableId;
 use crate::models::{Task, TaskList, TaskStats};
+use crate::tabs::{TabKey, TabRegistry, open_surface, surface_url};
 
 // Helper functions for badge colors and labels (DRY)
 fn priority_border_color(priority: Option<i32>) -> &'static str {
@@ -1038,13 +1039,15 @@ pub fn TaskListCard(
 ) -> impl IntoView {
     let list_id = task_list.id.clone();
     let list_id_for_stats = task_list.id.clone();
-    let href = if on_click.is_some() {
-        "#".to_string()
-    } else if let Some(proj_id) = &project_id {
-        format!("/projects/{}/task-lists/{}", proj_id, task_list.id)
-    } else {
-        format!("/task-lists/{}", task_list.id)
-    };
+    let tabs = use_context::<TabRegistry>();
+    // The project that holds this task list, so the parent project tab opens first (decision 7).
+    let owner = project_id
+        .clone()
+        .or_else(|| Some(task_list.project_id.clone()).filter(|id| !id.is_empty()));
+    let key = TabKey::task_list(task_list.id.clone());
+    let href = surface_url(&key, owner.as_deref());
+    let key_for_click = key.clone();
+    let owner_for_click = owner.clone();
 
     // Fetch stats for this task list
     let (stats, set_stats) = signal(None::<Result<TaskStats, ApiClientError>>);
@@ -1061,10 +1064,15 @@ pub fn TaskListCard(
         <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
             <a
                 href=href
+                data-task-list-card=task_list.id.clone()
                 on:click=move |ev| {
+                    ev.prevent_default();
                     if let Some(callback) = on_click {
-                        ev.prevent_default();
                         callback.run(list_id.clone());
+                        return;
+                    }
+                    if let Some(registry) = tabs {
+                        open_surface(registry, key_for_click.clone(), owner_for_click.as_deref());
                     }
                 }
 

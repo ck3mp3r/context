@@ -7,7 +7,7 @@ use crate::components::{
 };
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Paginated, Project, UpdateMessage};
-use crate::tabs::{TabKey, TabRegistry, open_surface, use_url_writer, write_active_url};
+use crate::tabs::{TabKey, TabRegistry, open_surface};
 use crate::websocket::use_websocket_updates;
 
 #[component]
@@ -19,9 +19,8 @@ pub fn Projects() -> impl IntoView {
     let search = use_search();
     let sort = use_sort("updated_at", "desc");
 
-    // A card click opens the project's tab and writes its URL once with `replace`.
+    // A card click opens the project's tab; the shell writes the URL once from the active tab.
     let tab_registry = use_context::<TabRegistry>();
-    let url_writer = StoredValue::new_local(use_url_writer());
 
     let (projects_data, set_projects_data) =
         signal(None::<Result<Paginated<Project>, ApiClientError>>);
@@ -149,13 +148,8 @@ pub fn Projects() -> impl IntoView {
                                                             open_surface(
                                                                 registry,
                                                                 TabKey::project(card_id.clone()),
+                                                                None,
                                                             );
-                                                            url_writer
-                                                                .with_value(|writer| {
-                                                                    let url =
-                                                                        format!("/projects/{card_id}");
-                                                                    write_active_url(writer, &url)
-                                                                });
                                                         }
                                                     }
                                                 >

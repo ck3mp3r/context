@@ -1,9 +1,9 @@
 use leptos::prelude::*;
-use leptos_router::components::A;
 use wasm_bindgen::prelude::*;
 
 use crate::components::CopyableId;
 use crate::models::Repo;
+use crate::tabs::{TabKey, TabRegistry, open_surface, surface_url};
 use crate::utils::extract_repo_name;
 
 #[wasm_bindgen(
@@ -20,16 +20,27 @@ pub fn RepoCard(
 ) -> impl IntoView {
     let display_name = extract_repo_name(&repo.remote);
     let remote_url = repo.remote.clone();
-    let detail_href = if let Some(ref pid) = project_id {
-        format!("/projects/{}/repos/{}", pid, repo.id)
-    } else {
-        format!("/repos/{}", repo.id)
-    };
+    let tabs = use_context::<TabRegistry>();
+    // The project that names this repo, so the parent project tab opens first (decision 8).
+    let owner = project_id
+        .clone()
+        .or_else(|| repo.project_ids.first().cloned());
+    let key = TabKey::repo(repo.id.clone());
+    let detail_href = surface_url(&key, owner.as_deref());
+    let key_for_click = key.clone();
+    let owner_for_click = owner.clone();
 
     view! {
-        <A
+        <a
             href=detail_href
-            attr:class="block bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors cursor-pointer"
+            data-repo-card=repo.id.clone()
+            class="block bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors cursor-pointer"
+            on:click=move |ev| {
+                ev.prevent_default();
+                if let Some(registry) = tabs {
+                    open_surface(registry, key_for_click.clone(), owner_for_click.as_deref());
+                }
+            }
         >
             <div class="flex items-start gap-3">
                 <CopyableId id=repo.id.clone()/>
@@ -130,6 +141,6 @@ pub fn RepoCard(
                     </div>
                 </div>
             </div>
-        </A>
+        </a>
     }
 }

@@ -1,11 +1,11 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
 use wasm_bindgen::prelude::*;
 
 use crate::api::{ApiClientError, repos};
 use crate::components::CopyableId;
 use crate::models::{Repo, UpdateMessage};
+use crate::tabs::TabScope;
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
 
@@ -17,10 +17,11 @@ extern "C" {
 }
 
 #[component]
-pub fn RepoDetail() -> impl IntoView {
-    let params = use_params_map();
-    let repo_id = move || params.read().get("id").unwrap_or_default();
-    let project_id = move || params.read().get("project_id");
+pub fn RepoDetail(scope: TabScope) -> impl IntoView {
+    // The tab's entity id never changes for the tab's lifetime, and the parent project is fixed
+    // when the tab opens (ruling L).
+    let repo_id = StoredValue::new_local(scope.entity_id().to_string());
+    let project_id = StoredValue::new_local(scope.parent_project().map(str::to_string));
 
     let (repo_data, set_repo_data) = signal(None::<Result<Repo, ApiClientError>>);
 
@@ -31,7 +32,7 @@ pub fn RepoDetail() -> impl IntoView {
     // Watch for WebSocket repo updates
     Effect::new(move || {
         if let Some(msg) = ws_updates.get() {
-            let current_id = repo_id();
+            let current_id = repo_id.get_value();
             if !current_id.is_empty() {
                 match &msg {
                     UpdateMessage::RepoUpdated {
@@ -43,7 +44,7 @@ pub fn RepoDetail() -> impl IntoView {
                         repo_id: deleted_id,
                     } if *deleted_id == current_id => {
                         let navigate = leptos_router::hooks::use_navigate();
-                        if let Some(proj_id) = project_id() {
+                        if let Some(proj_id) = project_id.get_value() {
                             navigate(&format!("/projects/{}/repos", proj_id), Default::default());
                         } else {
                             navigate("/repos", Default::default());
@@ -57,7 +58,7 @@ pub fn RepoDetail() -> impl IntoView {
 
     // Fetch repo when params change or refetch trigger fires
     Effect::new(move || {
-        let id = repo_id();
+        let id = repo_id.get_value();
         let _ = refetch_trigger.get();
 
         if !id.is_empty() {

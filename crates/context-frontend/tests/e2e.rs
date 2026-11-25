@@ -41,6 +41,15 @@ const PROJECT_TITLE: &str = "E2E Fixture Project";
 const SECOND_PROJECT_ID: &str = "e2e00002";
 const SECOND_PROJECT_TITLE: &str = "E2E Second Project";
 
+/// The task list the stubbed API serves inside the fixture project, so a child card exists to
+/// click.
+const TASK_LIST_ID: &str = "e2e00003";
+
+/// The note the stubbed API serves. It names a project whose tab is not open, so a global-list row
+/// must open that parent project tab first (decision 8).
+const NOTE_ID: &str = "e2e00004";
+const NOTE_PARENT_PROJECT_ID: &str = "e2e00009";
+
 /// How long the harness waits for the served origin before failing.
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -77,10 +86,30 @@ const CONTAINER_PROBE: &str = r#"() => {
         hidden_probe: gone ? gone.__c5t_probe === true : false,
         body_children: document.body.childElementCount,
         history: history.length,
+        active_view: shown ? (shown.querySelector('[data-tab-view]')?.getAttribute('data-tab-view') || '') : '',
+        active_entity: shown ? (shown.querySelector('[data-tab-entity-id]')?.getAttribute('data-tab-entity-id') || '') : '',
         in_container: wrappers.every((wrapper) =>
             wrapper.parentElement !== null && wrapper.parentElement.hasAttribute('data-tab-container')),
     };
 }"#;
+
+/// Reads the routed area: a tab URL has no detail route, so nothing may render there.
+const ROUTES_PROBE: &str = r#"() => {
+    const area = document.querySelector('[data-routes-area]');
+    return {
+        present: area !== null,
+        children: area ? area.childElementCount : -1,
+        text: area ? (area.textContent || '').trim() : '',
+    };
+}"#;
+
+/// The routed-area state [`ROUTES_PROBE`] returns.
+#[derive(Debug, Deserialize)]
+struct RoutesProbe {
+    present: bool,
+    children: usize,
+    text: String,
+}
 
 /// The container state [`CONTAINER_PROBE`] returns.
 #[derive(Debug, Deserialize)]
@@ -95,6 +124,8 @@ struct ContainerProbe {
     hidden_probe: bool,
     body_children: usize,
     history: usize,
+    active_view: String,
+    active_entity: String,
     in_container: bool,
 }
 
@@ -174,13 +205,13 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         page.url()
     );
 
-    // The tab strip renders only after the project payload arrives, so this
-    // separates "routed to the detail page" from "detail page has its data".
-    expect(page.locator(format!("a[href=\"{expected_path}/notes\"]")))
+    // The project dashboard renders inside the tab wrapper once its payload arrives, and its
+    // section pills are internal tab state, so the Notes pill is a button, not a route link.
+    expect(page.locator("[data-tab-active=\"true\"] [data-panel=\"notes\"]"))
         .with_timeout(UI_TIMEOUT)
         .to_be_visible()
         .await
-        .expect("the project detail tabs should render once the project loads");
+        .expect("the project dashboard should render inside the active tab wrapper");
 
     // Pin 1 (container): the card opened exactly one tab wrapper, and it is the active one.
     let wrappers = page.locator("[data-tab-id]");
@@ -324,6 +355,345 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
     assert_eq!(
         probe.history, history_after_chrome,
         "the second card click writes its URL with replace, so no history entry may appear"
+    );
+
+    // Decision 6: a card for an already-open surface focuses its tab, never a duplicate.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to chrome home");
+    let first_card = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(first_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render its cards again");
+
+    let history_before_refocus: usize = page
+        .evaluate("() => history.length", None::<&()>)
+        .await
+        .expect("the page should report its history length");
+
+    first_card
+        .click(None)
+        .await
+        .expect("the first project card should be clickable again");
+
+    let refocus: ContainerProbe = page
+        .evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state");
+    assert_eq!(
+        refocus.wrappers, 2,
+        "clicking an open card must focus its tab, not duplicate it, got {} wrappers",
+        refocus.wrappers
+    );
+    assert_eq!(
+        refocus.active_id, "1",
+        "the open surface's tab takes focus, got {:?}",
+        refocus.active_id
+    );
+    assert_eq!(
+        refocus.active_view, "project",
+        "the focused tab still shows its project, got {:?}",
+        refocus.active_view
+    );
+    assert_eq!(
+        refocus.history, history_before_refocus,
+        "focusing an open tab writes its URL with replace, so no history entry may appear"
+    );
+
+    // Reviewer amendment: the tab URL matches no detail route, so the routed area renders
+    // nothing beneath the tab wrapper: no detail view and no fallback paragraph.
+    let routes: RoutesProbe = page
+        .evaluate(ROUTES_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the routed area");
+    assert!(routes.present, "the routed area must be in the DOM");
+    assert_eq!(
+        routes.children, 0,
+        "with a tab active the routed area must render nothing, got {} element(s): {:?}",
+        routes.children, routes.text
+    );
+    assert!(
+        !routes.text.contains("Page not found"),
+        "the fallback paragraph must not render under a tab, got {:?}",
+        routes.text
+    );
+    expect(page.locator("[data-page=\"projects\"]"))
+        .to_have_count(0)
+        .await
+        .expect("no leftover chrome view may sit under an active tab");
+
+    // Decision 3 and 20: a panel click changes the tab's own state, never the URL.
+    let url_before_panel = page.url();
+    let history_before_panel: usize = page
+        .evaluate("() => history.length", None::<&()>)
+        .await
+        .expect("the page should report its history length");
+
+    page.locator("[data-tab-active=\"true\"] [data-panel=\"notes\"]")
+        .click(None)
+        .await
+        .expect("the Notes pill should be clickable");
+    expect(page.locator("[data-tab-active=\"true\"] [data-panel-content=\"notes\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the panel content should switch to notes");
+    let note_in_panel = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-note-card=\"{NOTE_ID}\"]",
+    ));
+    expect(note_in_panel)
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the notes panel should list the fixture note");
+
+    assert_eq!(
+        page.url(),
+        url_before_panel,
+        "a panel click must not rewrite the URL"
+    );
+    let history_after_panel: usize = page
+        .evaluate("() => history.length", None::<&()>)
+        .await
+        .expect("the page should report its history length");
+    assert_eq!(
+        history_after_panel, history_before_panel,
+        "a panel click must create no history entry"
+    );
+
+    page.locator("[data-tab-active=\"true\"] [data-panel=\"task-lists\"]")
+        .click(None)
+        .await
+        .expect("the Task Lists pill should be clickable");
+    let task_list_card = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(task_list_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the task lists panel should list the fixture task list");
+
+    // Decisions 7 and 8: a child card opens a child tab with its parent project tab present.
+    let history_before_child: usize = page
+        .evaluate("() => history.length", None::<&()>)
+        .await
+        .expect("the page should report its history length");
+
+    task_list_card
+        .click(None)
+        .await
+        .expect("the task list card should be clickable");
+
+    let child: ContainerProbe = page
+        .evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state");
+    assert_eq!(
+        child.wrappers, 3,
+        "the child card must add one wrapper beside the two project tabs, got {}",
+        child.wrappers
+    );
+    assert_eq!(
+        child.active_id, "3",
+        "the child tab is the active one, got {:?}",
+        child.active_id
+    );
+    assert_eq!(
+        child.active_view, "task-list",
+        "the active tab shows a task list, got {:?}",
+        child.active_view
+    );
+    assert_eq!(
+        child.active_entity, TASK_LIST_ID,
+        "the active tab shows the clicked task list, got {:?}",
+        child.active_entity
+    );
+    expect(page.locator("[data-tab-id=\"1\"]"))
+        .to_have_count(1)
+        .await
+        .expect("the parent project tab must still be open beside the child");
+    assert_eq!(
+        child.history, history_before_child,
+        "the child open writes its URL with replace, so no history entry may appear"
+    );
+
+    let child_url = page.url();
+    let expected_child_path = format!("/projects/{PROJECT_ID}/task-lists/{TASK_LIST_ID}");
+    assert!(
+        child_url.ends_with(&expected_child_path),
+        "opening the child should write {expected_child_path}, got {child_url}"
+    );
+    for banned in ["page=", "q=", "sort=", "order="] {
+        assert!(
+            !child_url.contains(banned),
+            "the URL carries surface identity only: {banned} must not appear, got {child_url}"
+        );
+    }
+
+    // Decision 6 again: neither an open project tab nor an open child tab is duplicated.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to chrome home");
+    expect(first_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render its cards again");
+    first_card
+        .click(None)
+        .await
+        .expect("the first project card should focus its open tab");
+
+    let project_refocus: ContainerProbe = page
+        .evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state");
+    assert_eq!(
+        project_refocus.wrappers, 3,
+        "focusing the project tab must not duplicate it, got {} wrappers",
+        project_refocus.wrappers
+    );
+    assert_eq!(
+        project_refocus.active_id, "1",
+        "the project tab takes focus back, got {:?}",
+        project_refocus.active_id
+    );
+
+    task_list_card
+        .click(None)
+        .await
+        .expect("the task list card should be clickable again");
+    let child_again: ContainerProbe = page
+        .evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state");
+    assert_eq!(
+        child_again.wrappers, 3,
+        "clicking an open child card must not duplicate it, got {} wrappers",
+        child_again.wrappers
+    );
+    assert_eq!(
+        child_again.active_id, "3",
+        "the open child tab takes focus back, got {:?}",
+        child_again.active_id
+    );
+
+    // Decision 11: the app never reads the address bar after boot. A URL mutation it did not
+    // make moves no active tab.
+    let pushed: bool = page
+        .evaluate(
+            "() => { history.pushState({}, '', '/some/other/route'); return true; }",
+            None::<&()>,
+        )
+        .await
+        .expect("the page should accept a pushed history entry");
+    assert!(pushed, "the pushed history entry should be applied");
+
+    let after_push: ContainerProbe = page
+        .evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state");
+    assert_eq!(
+        after_push.active_id, "3",
+        "a pushed URL must not change the active tab, got {:?}",
+        after_push.active_id
+    );
+    assert_eq!(
+        after_push.wrappers, 3,
+        "a pushed URL must not open or close a tab, got {} wrappers",
+        after_push.wrappers
+    );
+    assert!(
+        page.url().ends_with("/some/other/route"),
+        "the app must not rewrite a URL it did not write, got {}",
+        page.url()
+    );
+
+    // Decision 21: Back moves no active tab, because the app created no in-app history.
+    let _ = page
+        .go_back(None)
+        .await
+        .expect("the browser should step back");
+
+    let after_back: ContainerProbe = page
+        .evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state");
+    assert_eq!(
+        after_back.active_id, "3",
+        "Back must not change the active tab, got {:?}",
+        after_back.active_id
+    );
+    assert_eq!(
+        after_back.wrappers, 3,
+        "Back must not open or close a tab, got {} wrappers",
+        after_back.wrappers
+    );
+    let routes_after_back: RoutesProbe = page
+        .evaluate(ROUTES_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the routed area");
+    assert_eq!(
+        routes_after_back.children, 0,
+        "a tab URL reached through Back still renders nothing in the routed area"
+    );
+
+    // Decision 8: a global-list row opens the parent project tab first, then the child.
+    page.locator("nav a[href=\"/notes\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Notes nav link should reach the chrome notes list");
+    let note_card = page.locator(format!("[data-routes-area] [data-note-card=\"{NOTE_ID}\"]"));
+    expect(note_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome notes list should render the fixture note card");
+
+    note_card
+        .click(None)
+        .await
+        .expect("the note card should be clickable");
+
+    let after_note: ContainerProbe = page
+        .evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state");
+    assert_eq!(
+        after_note.wrappers, 5,
+        "the row must open the parent project tab first, then the note tab: expected 5 wrappers, got {}",
+        after_note.wrappers
+    );
+    assert_eq!(
+        after_note.active_id, "5",
+        "the note tab is the active one, got {:?}",
+        after_note.active_id
+    );
+    assert_eq!(
+        after_note.active_view, "note",
+        "the active tab shows a note, got {:?}",
+        after_note.active_view
+    );
+    expect(page.locator(format!(
+        "[data-tab-id=\"4\"] [data-tab-view=\"project\"][data-tab-entity-id=\"{NOTE_PARENT_PROJECT_ID}\"]",
+    )))
+        .to_have_count(1)
+        .await
+        .expect("the named project tab opens before the note tab");
+
+    let note_url = page.url();
+    let expected_note_path = format!("/projects/{NOTE_PARENT_PROJECT_ID}/notes/{NOTE_ID}");
+    assert!(
+        note_url.ends_with(&expected_note_path),
+        "the note tab should write {expected_note_path}, got {note_url}"
     );
 
     browser.close().await.expect("the browser should close");
@@ -548,7 +918,9 @@ fn route(path: &str, dist: &Path) -> Response {
 fn api_response(path: &str) -> Response {
     match path {
         "projects" => Response::json(200, &project_page()),
-        "task-lists" | "notes" | "repos" | "skills" => Response::json(200, &empty_page()),
+        "task-lists" => Response::json(200, &task_list_page()),
+        "notes" => Response::json(200, &note_page()),
+        "repos" | "skills" => Response::json(200, &empty_page()),
         "update/status" => Response::json(
             200,
             &format!(
@@ -557,7 +929,7 @@ fn api_response(path: &str) -> Response {
             ),
         ),
         "update/check" => Response::json(200, "{}"),
-        _ => match project_by_path(path) {
+        _ => match record_by_path(path) {
             Some(body) => Response::json(200, &body),
             None => Response::json(
                 404,
@@ -565,6 +937,23 @@ fn api_response(path: &str) -> Response {
             ),
         },
     }
+}
+
+/// One record the stub serves by id, when the path names one it knows.
+fn record_by_path(path: &str) -> Option<String> {
+    if let Some(body) = project_by_path(path) {
+        return Some(body);
+    }
+    if path == format!("task-lists/{TASK_LIST_ID}/stats") {
+        return Some(task_stats_record());
+    }
+    if path == format!("task-lists/{TASK_LIST_ID}") {
+        return Some(task_list_record());
+    }
+    if path == format!("notes/{NOTE_ID}") {
+        return Some(note_record());
+    }
+    None
 }
 
 /// The project detail response for `projects/<id>`, when the stub serves that project.
@@ -593,6 +982,40 @@ fn project_page() -> String {
 
 fn empty_page() -> String {
     "{\"items\":[],\"total\":0,\"limit\":12,\"offset\":0}".to_string()
+}
+
+fn task_list_record() -> String {
+    format!(
+        "{{\"id\":\"{TASK_LIST_ID}\",\"project_id\":\"{PROJECT_ID}\",\"title\":\"E2E Fixture Task List\",\"description\":\"Fixture served by the e2e harness.\",\"status\":\"active\",\"external_refs\":[],\"notes\":null,\"tags\":[\"e2e\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+    )
+}
+
+fn task_list_page() -> String {
+    format!(
+        "{{\"items\":[{}],\"total\":1,\"limit\":12,\"offset\":0}}",
+        task_list_record()
+    )
+}
+
+fn task_stats_record() -> String {
+    format!(
+        "{{\"list_id\":\"{TASK_LIST_ID}\",\"total\":0,\"backlog\":0,\"todo\":0,\"in_progress\":0,\"review\":0,\"done\":0,\"cancelled\":0}}"
+    )
+}
+
+/// The fixture note names a project whose tab is not open, so the global list row must open that
+/// project's tab first (decision 8).
+fn note_record() -> String {
+    format!(
+        "{{\"id\":\"{NOTE_ID}\",\"title\":\"E2E Fixture Note\",\"content\":\"Fixture note served by the e2e harness.\",\"tags\":[\"e2e\"],\"project_ids\":[\"{NOTE_PARENT_PROJECT_ID}\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+    )
+}
+
+fn note_page() -> String {
+    format!(
+        "{{\"items\":[{}],\"total\":1,\"limit\":12,\"offset\":0}}",
+        note_record()
+    )
 }
 
 fn static_response(dist: &Path, path: &str) -> Response {

@@ -1,16 +1,16 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
 
 use crate::api::{ApiClientError, QueryBuilder, notes};
 use crate::components::{CopyableId, MarkdownContent, NoteStackSidebar};
 use crate::models::{Note, UpdateMessage};
+use crate::tabs::TabScope;
 use crate::websocket::use_websocket_updates;
 
 #[component]
-pub fn NoteDetail() -> impl IntoView {
-    let params = use_params_map();
-    let note_id = move || params.read().get("id").unwrap_or_default();
+pub fn NoteDetail(scope: TabScope) -> impl IntoView {
+    // The tab's entity id never changes for the tab's lifetime.
+    let note_id = StoredValue::new_local(scope.entity_id().to_string());
 
     let (note_data, set_note_data) = signal(None::<Result<Note, ApiClientError>>);
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
@@ -25,7 +25,7 @@ pub fn NoteDetail() -> impl IntoView {
     // Watch for WebSocket updates for THIS note
     Effect::new(move || {
         if let Some(update) = ws_updates.get() {
-            let current_note_id = note_id();
+            let current_note_id = note_id.get_value();
             if !current_note_id.is_empty() {
                 match update {
                     UpdateMessage::NoteUpdated {
@@ -58,7 +58,7 @@ pub fn NoteDetail() -> impl IntoView {
 
     // Fetch note when ID or refetch trigger changes
     Effect::new(move || {
-        let id = note_id();
+        let id = note_id.get_value();
         let _ = refetch_trigger.get();
 
         if id.is_empty() {
@@ -78,7 +78,7 @@ pub fn NoteDetail() -> impl IntoView {
 
     // Fetch subnotes to check if this note has any
     Effect::new(move || {
-        let id = note_id();
+        let id = note_id.get_value();
         let _ = subnotes_refetch_trigger.get();
 
         if id.is_empty() {
@@ -109,7 +109,7 @@ pub fn NoteDetail() -> impl IntoView {
     let (print_notes, set_print_notes) = signal(Vec::<Note>::new());
 
     Effect::new(move || {
-        let id = note_id();
+        let id = note_id.get_value();
         if id.is_empty() {
             return;
         }
@@ -166,7 +166,7 @@ pub fn NoteDetail() -> impl IntoView {
     Effect::new(move || {
         if let Some(update) = ws_updates.get() {
             let current_selected = selected_note_id.get();
-            let parent_note_id = note_id();
+            let parent_note_id = note_id.get_value();
             if !current_selected.is_empty() {
                 match update {
                     UpdateMessage::NoteUpdated {
