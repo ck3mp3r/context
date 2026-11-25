@@ -45,6 +45,7 @@ const SECOND_PROJECT_TITLE: &str = "E2E Second Project";
 /// The task list the stubbed API serves inside the fixture project, so a child card exists to
 /// click.
 const TASK_LIST_ID: &str = "e2e00003";
+const TASK_LIST_TITLE: &str = "E2E Fixture Task List";
 
 /// The note the stubbed API serves. It names a project whose tab is not open, so a global-list row
 /// must open that parent project tab first (decision 8).
@@ -1645,8 +1646,8 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
     );
     assert_eq!(
         server.api_calls(&project_path),
-        project_calls_before + 1,
-        "the tab's own entity fetches once, with no extra request for its panels"
+        project_calls_before + 2,
+        "the card click costs one label GET and the tab's own entity fetch, with no request for its panels"
     );
 
     // Opening the notes panel is what loads it, and only then.
@@ -1890,6 +1891,68 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         projects.iter().all(|chip| chip.kind == "project")
             && children.iter().all(|chip| chip.kind != "project"),
         "no row mixes a project tab with a child"
+    );
+
+    // Pin (a chip labelled mid-session): both cards were clicked after chrome home, so neither tab
+    // had a label. The open path resolves each identity once, so both chips render the server title
+    // and no chip falls back to "<Kind> <id>" without a reload.
+    let labelled = wait_for_strip(&page, "both chips labelled by their titles", |probe| {
+        strip_row(probe, "projects")
+            .first()
+            .is_some_and(|chip| chip.label == PROJECT_TITLE)
+            && strip_row(probe, "children")
+                .first()
+                .is_some_and(|chip| chip.label == TASK_LIST_TITLE)
+    })
+    .await;
+    assert!(
+        strip_chips(&labelled)
+            .iter()
+            .all(|chip| !chip.label.contains("e2e000")),
+        "no chip falls back to the entity id once its label lands: {labelled:?}"
+    );
+
+    // Pin (no second GET): a tab whose label is known costs nothing when it is re-activated or
+    // re-opened. The request log is the witness, so a duplicate label fetch would move a count.
+    let task_list_path = format!("task-lists/{TASK_LIST_ID}");
+    let project_calls_labelled = server.api_calls(&project_path);
+    let task_list_calls_labelled = server.api_calls(&task_list_path);
+
+    page.locator(format!("[data-tab-activate=\"{}\"]", projects[0].id))
+        .click(None)
+        .await
+        .expect("the project chip should be clickable");
+    wait_for_container(&page, "the project chip focused", |probe| {
+        probe.wrappers == 2 && probe.active_view == "project"
+    })
+    .await;
+
+    let task_list_card_again = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(task_list_card_again.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the project dashboard should list the task list card again");
+    task_list_card_again
+        .click(None)
+        .await
+        .expect("the task list card should focus its open tab");
+    wait_for_container(&page, "the task list card focused its own tab", |probe| {
+        probe.wrappers == 2 && probe.active_view == "task-list"
+    })
+    .await;
+    settle_frame();
+    assert_eq!(
+        server.api_calls(&project_path),
+        project_calls_labelled,
+        "re-activating a labelled tab issues no label GET"
+    );
+    assert_eq!(
+        server.api_calls(&task_list_path),
+        task_list_calls_labelled,
+        "re-opening a surface whose label is known issues no label GET"
     );
 
     // Pin (activate): the strip's activate control focuses its own tab.
@@ -3114,7 +3177,7 @@ fn empty_page() -> String {
 
 fn task_list_record() -> String {
     format!(
-        "{{\"id\":\"{TASK_LIST_ID}\",\"project_id\":\"{PROJECT_ID}\",\"title\":\"E2E Fixture Task List\",\"description\":\"Fixture served by the e2e harness.\",\"status\":\"active\",\"external_refs\":[],\"notes\":null,\"tags\":[\"e2e\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+        "{{\"id\":\"{TASK_LIST_ID}\",\"project_id\":\"{PROJECT_ID}\",\"title\":\"{TASK_LIST_TITLE}\",\"description\":\"Fixture served by the e2e harness.\",\"status\":\"active\",\"external_refs\":[],\"notes\":null,\"tags\":[\"e2e\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
     )
 }
 

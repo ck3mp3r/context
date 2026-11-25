@@ -1,7 +1,7 @@
 use crate::api::QueryBuilder;
 use crate::components::CopyableId;
 use crate::models::{Note, UpdateMessage};
-use crate::tabs::{TabKey, TabRegistry, open_surface, should_refetch, surface_url};
+use crate::tabs::{TabKey, TabRegistry, TabTitles, open_from_card, should_refetch, surface_url};
 use crate::websocket::use_websocket_updates;
 use leptos::prelude::*;
 use pulldown_cmark::{Options, Parser, html};
@@ -35,6 +35,7 @@ pub fn NoteCard(
 
     let note_id = note.id.clone();
     let tabs = use_context::<TabRegistry>();
+    let titles = use_context::<TabTitles>();
     // The project that names this note, so the parent project tab opens first (decision 8). A card
     // inside a project panel names it explicitly; a global list row reads it from the note.
     let owner = project_id
@@ -70,8 +71,13 @@ pub fn NoteCard(
                         callback.run(note_id.clone());
                         return;
                     }
-                    if let Some(registry) = tabs {
-                        open_surface(registry, note_for_click.clone(), owner_for_click.as_deref());
+                    if let (Some(registry), Some(titles)) = (tabs, titles) {
+                        open_from_card(
+                            registry,
+                            titles,
+                            note_for_click.clone(),
+                            owner_for_click.as_deref(),
+                        );
                     }
                 }
 

@@ -3,7 +3,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::components::CopyableId;
 use crate::models::Repo;
-use crate::tabs::{TabKey, TabRegistry, open_surface, surface_url};
+use crate::tabs::{TabKey, TabRegistry, TabTitles, open_from_card, surface_url};
 use crate::utils::extract_repo_name;
 
 #[wasm_bindgen(
@@ -21,6 +21,7 @@ pub fn RepoCard(
     let display_name = extract_repo_name(&repo.remote);
     let remote_url = repo.remote.clone();
     let tabs = use_context::<TabRegistry>();
+    let titles = use_context::<TabTitles>();
     // The project that names this repo, so the parent project tab opens first (decision 8).
     let owner = project_id
         .clone()
@@ -37,8 +38,13 @@ pub fn RepoCard(
             class="block bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-4 hover:border-ctp-blue transition-colors cursor-pointer"
             on:click=move |ev| {
                 ev.prevent_default();
-                if let Some(registry) = tabs {
-                    open_surface(registry, key_for_click.clone(), owner_for_click.as_deref());
+                if let (Some(registry), Some(titles)) = (tabs, titles) {
+                    open_from_card(
+                        registry,
+                        titles,
+                        key_for_click.clone(),
+                        owner_for_click.as_deref(),
+                    );
                 }
             }
         >

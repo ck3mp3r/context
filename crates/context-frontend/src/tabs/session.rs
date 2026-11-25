@@ -380,6 +380,13 @@ impl TabTitles {
             .map(|(_, title)| title)
     }
 
+    /// Whether a label for this identity is known: a blank label names no surface, so the open path
+    /// fetches one.
+    pub fn has_label(&self, key: &TabKey) -> bool {
+        self.label(key)
+            .is_some_and(|label| !label.trim().is_empty())
+    }
+
     /// Label an identity, replacing an earlier label.
     pub fn set(&self, key: TabKey, title: String) {
         self.entries

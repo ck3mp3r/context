@@ -45,6 +45,26 @@ pub fn open_surface(registry: TabRegistry, key: TabKey, project_id: Option<&str>
     registry.open_in(key, parent)
 }
 
+/// Open the surface a card click names, and report the one identity whose label the caller must
+/// resolve.
+///
+/// `labelled` is the session's answer for an identity. A surface the session already labels costs no
+/// request, so re-activating a tab and re-opening a surface with a known label issue nothing (decision
+/// 6). A surface with no label needs exactly one fetch, and the caller resolves it without a reload.
+///
+/// The parent project tab the child opens with keeps the label the session holds: the row above a
+/// child is never the surface the click named, so this reports the clicked identity only.
+pub fn open_card(
+    registry: TabRegistry,
+    key: TabKey,
+    project_id: Option<&str>,
+    labelled: &impl Fn(&TabKey) -> bool,
+) -> Option<TabKey> {
+    let pending = (!labelled(&key)).then(|| key.clone());
+    open_surface(registry, key, project_id);
+    pending
+}
+
 /// The URL of one surface: its identity and the project it hangs under (decisions 11 and 20).
 ///
 /// No list state enters this URL, so a tab switch never writes a page, a query, or a sort order.

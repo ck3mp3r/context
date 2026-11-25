@@ -6,11 +6,12 @@
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use leptos::prelude::Effect;
+use leptos::task::spawn_local;
 use serde::Deserialize;
 
 use crate::api;
 
-use super::open::open_surface;
+use super::open::{open_card, open_surface};
 use super::pure::TabKey;
 use super::registry::TabRegistry;
 use super::session::{
@@ -106,11 +107,28 @@ fn open_boot(tabs: TabRegistry, boot: &BootSurface) -> TabKey {
 /// (decision 14). Any other failure keeps the cached label, so a flaky network never closes a tab.
 pub async fn resolve_titles(tabs: TabRegistry, titles: TabTitles, keys: Vec<TabKey>) {
     for key in keys {
-        match fetch_label(&key).await {
-            LabelOutcome::Found(title) => titles.set(key, title),
-            LabelOutcome::Gone => drop_tab(tabs, &key),
-            LabelOutcome::Unresolved => {}
-        }
+        resolve_title(tabs, titles, key).await;
+    }
+}
+
+/// Open the surface a card click names, and resolve its label when the session holds none.
+///
+/// A card click is the only path that enqueues a label fetch: boot resolves the identities
+/// `restore_or_boot` reports, so the surface a boot URL names is never fetched twice. The fetch runs
+/// on the local task queue, so the click handler never waits for it.
+pub fn open_from_card(tabs: TabRegistry, titles: TabTitles, key: TabKey, project_id: Option<&str>) {
+    let Some(pending) = open_card(tabs, key, project_id, &|key| titles.has_label(key)) else {
+        return;
+    };
+    spawn_local(async move { resolve_title(tabs, titles, pending).await });
+}
+
+/// Resolve one label: a 2xx labels the tab, a 404 closes it, any other failure keeps the fallback.
+async fn resolve_title(tabs: TabRegistry, titles: TabTitles, key: TabKey) {
+    match fetch_label(&key).await {
+        LabelOutcome::Found(title) => titles.set(key, title),
+        LabelOutcome::Gone => drop_tab(tabs, &key),
+        LabelOutcome::Unresolved => {}
     }
 }
 

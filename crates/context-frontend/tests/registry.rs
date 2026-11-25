@@ -14,11 +14,11 @@ mod pure;
 #[path = "../src/tabs/registry.rs"]
 mod registry;
 
-use open::{focus_or_open, open_surface, surface_url, write_active_url};
+use open::{focus_or_open, open_card, open_surface, surface_url, write_active_url};
 use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs};
 use registry::TabRegistry;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use leptos_router::NavigateOptions;
 
@@ -800,6 +800,56 @@ fn open_surface_focuses_an_open_child_instead_of_duplicating_it() {
         registry.active(),
         Some(first),
         "the open child takes focus back"
+    );
+}
+
+#[test]
+fn open_card_reports_one_label_to_resolve_for_a_tab_with_no_label() {
+    let registry = TabRegistry::new();
+
+    let pending = open_card(registry, TabKey::task_list("t1"), Some("p1"), &|_| false);
+
+    assert_eq!(
+        pending,
+        Some(TabKey::task_list("t1")),
+        "the clicked identity is the one label the open path fetches"
+    );
+    assert_eq!(
+        registry.len(),
+        2,
+        "the label gate changes nothing about the parent-first open"
+    );
+    assert_eq!(
+        registry.active_key(),
+        Some(TabKey::task_list("t1")),
+        "the clicked surface still takes focus"
+    );
+}
+
+#[test]
+fn open_card_asks_for_no_label_a_second_time() {
+    let registry = TabRegistry::new();
+    let resolved = Cell::new(false);
+    let labelled = |_: &TabKey| resolved.get();
+
+    let first = open_card(registry, TabKey::note("n1"), None, &labelled);
+    assert_eq!(
+        first,
+        Some(TabKey::note("n1")),
+        "the first open of an unlabelled surface resolves its label"
+    );
+
+    resolved.set(true);
+    let again = open_card(registry, TabKey::note("n1"), None, &labelled);
+
+    assert_eq!(
+        again, None,
+        "re-opening a surface whose label is known issues no GET"
+    );
+    assert_eq!(
+        registry.len(),
+        1,
+        "re-opening the same surface opens no second tab"
     );
 }
 

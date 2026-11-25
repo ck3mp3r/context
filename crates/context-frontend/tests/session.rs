@@ -587,3 +587,52 @@ fn write_owned_url_writes_only_when_the_url_differs() {
 }
 
 // endregion: --- URL ownership
+
+// region:    --- Titles
+
+#[test]
+fn has_label_is_true_only_for_a_known_non_blank_label() {
+    let titles = TabTitles::new();
+    let note = TabKey::note("n1");
+
+    assert!(
+        !titles.has_label(&note),
+        "a session that resolved nothing knows no label"
+    );
+
+    titles.set(note.clone(), String::new());
+    assert!(
+        !titles.has_label(&note),
+        "a blank stored label names no surface, so the open path fetches"
+    );
+
+    titles.set(note.clone(), "Note One".to_string());
+    assert!(titles.has_label(&note));
+    assert!(
+        !titles.has_label(&TabKey::repo("n1")),
+        "the guard is the identity, not the entity id"
+    );
+}
+
+#[test]
+fn a_label_that_arrives_after_the_open_is_what_the_session_stores() {
+    let registry = TabRegistry::new();
+    let titles = TabTitles::new();
+    registry.open(TabKey::task_list("t1"));
+
+    let before = snapshot(registry, titles);
+    assert_eq!(
+        before.tabs[0].title, "",
+        "a tab opened before its label arrives stores the empty label"
+    );
+
+    titles.set(TabKey::task_list("t1"), "Fixture Task List".to_string());
+
+    assert_eq!(
+        snapshot(registry, titles).tabs[0].title,
+        "Fixture Task List",
+        "a label that lands mid-session is the label the session stores"
+    );
+}
+
+// endregion: --- Titles

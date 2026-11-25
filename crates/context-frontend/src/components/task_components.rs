@@ -5,7 +5,7 @@ use thaw::*;
 use crate::api::{ApiClientError, task_lists, tasks};
 use crate::components::{CopyableId, InlineSurface, SurfaceLayout};
 use crate::models::{Task, TaskList, TaskStats};
-use crate::tabs::{TabKey, TabRegistry, open_surface, should_refetch, surface_url};
+use crate::tabs::{TabKey, TabRegistry, TabTitles, open_from_card, should_refetch, surface_url};
 
 // Helper functions for badge colors and labels (DRY)
 fn priority_border_color(priority: Option<i32>) -> &'static str {
@@ -1048,6 +1048,7 @@ pub fn TaskListCard(
     let list_id = task_list.id.clone();
     let list_id_for_stats = task_list.id.clone();
     let tabs = use_context::<TabRegistry>();
+    let titles = use_context::<TabTitles>();
     // The project that holds this task list, so the parent project tab opens first (decision 7).
     let owner = project_id
         .clone()
@@ -1079,8 +1080,13 @@ pub fn TaskListCard(
                         callback.run(list_id.clone());
                         return;
                     }
-                    if let Some(registry) = tabs {
-                        open_surface(registry, key_for_click.clone(), owner_for_click.as_deref());
+                    if let (Some(registry), Some(titles)) = (tabs, titles) {
+                        open_from_card(
+                            registry,
+                            titles,
+                            key_for_click.clone(),
+                            owner_for_click.as_deref(),
+                        );
                     }
                 }
 
