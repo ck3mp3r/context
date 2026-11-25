@@ -1,14 +1,16 @@
 //! Pins the tab model: identity, attachment, close, cycle, and strip rows.
 //!
-//! The wasm crate cannot host-link its own test harness, so the module tree is included by path and
-//! compiled into this binary: no wasm, no browser. The registry is exercised through the same public
-//! API the shell uses, so the signal path is pinned headless too.
+//! The wasm crate cannot host-link its own test harness, so the model modules are included by path
+//! and compiled into this binary: no wasm, no browser, and no rendering. The registry is exercised
+//! through the same public API the shell uses, so the signal path is pinned headless too.
 
-#[path = "../src/tabs/mod.rs"]
-#[allow(dead_code)]
-mod tabs;
+#[path = "../src/tabs/pure.rs"]
+mod pure;
+#[path = "../src/tabs/registry.rs"]
+mod registry;
 
-use tabs::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRegistry, TabRouteKind, Tabs};
+use pure::{CloseOutcome, StripRows, Tab, TabId, TabKey, TabRouteKind, Tabs};
+use registry::TabRegistry;
 
 /// Two projects with attached and parentless tabs: the smallest state that fills both rows and the
 /// whole ring.
@@ -61,6 +63,34 @@ fn the_same_surface_opens_one_tab() {
     assert_eq!(first, again, "an open surface is focused, not duplicated");
     assert_eq!(tabs.len(), 1);
     assert_eq!(tabs.active(), Some(first));
+}
+
+#[test]
+fn a_tab_id_renders_as_its_number_for_the_dom() {
+    let mut tabs = Tabs::default();
+    let first = tabs.open(TabKey::project("p1"));
+    let second = tabs.open(TabKey::note("n1"));
+
+    assert_eq!(
+        first.to_string(),
+        "1",
+        "the container's data-tab-id is the tab's id"
+    );
+    assert_eq!(second.to_string(), "2", "tab ids only ever grow");
+    assert_eq!(TabId::default().to_string(), "0", "the detached id is 0");
+}
+
+#[test]
+fn a_key_names_its_surface_kind_and_entity_id() {
+    assert_eq!(TabKey::project("p1").kind(), TabRouteKind::Project);
+    assert_eq!(TabKey::task_list("t1").kind(), TabRouteKind::TaskList);
+    assert_eq!(TabKey::note("n1").kind(), TabRouteKind::Note);
+    assert_eq!(TabKey::repo("r1").kind(), TabRouteKind::Repo);
+
+    assert_eq!(TabKey::project("p1").entity_id(), "p1");
+    assert_eq!(TabKey::task_list("t1").entity_id(), "t1");
+    assert_eq!(TabKey::note("n1").entity_id(), "n1");
+    assert_eq!(TabKey::repo("r1").entity_id(), "r1");
 }
 
 #[test]
@@ -561,6 +591,23 @@ fn the_registry_opens_one_tab_per_surface() {
         "the registry reports the tab the signal holds"
     );
     assert_eq!(open[0].key(), &TabKey::project("p1"));
+}
+
+#[test]
+fn the_registry_descriptors_list_every_open_identity() {
+    let registry = TabRegistry::new();
+    registry.open(TabKey::project("p1"));
+    registry.open_in(TabKey::note("n1"), "p1");
+
+    let descriptors = registry.descriptors();
+
+    assert_eq!(descriptors.len(), 2);
+    assert!(
+        descriptors
+            .iter()
+            .any(|(_, key)| key == &TabKey::note("n1")),
+        "the \"already open\" lookup must find an attached tab"
+    );
 }
 
 #[test]

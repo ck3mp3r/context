@@ -13,6 +13,7 @@ use crate::models::UpdateStatusPayload;
 use crate::pages::{
     NoteDetail, Notes, ProjectDetail, Projects, RepoDetail, Repos, Settings, Skills, TaskListDetail,
 };
+use crate::tabs::{TabContainer, TabRegistry};
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection};
 
@@ -77,6 +78,11 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     // Update state shared by the shell banner, the nav badge, and the settings check.
     let update_status = RwSignal::new(None::<UpdateStatusPayload>);
     provide_context(update_status);
+
+    // One tab registry for the whole shell: the cards open tabs into it and the container renders
+    // them, so both read the same state.
+    let tabs = TabRegistry::new();
+    provide_context(tabs);
 
     // Determine active tab based on current path
     let is_active = move |path: &str| {
@@ -176,6 +182,10 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
             </nav>
 
             <div class="flex-1">
+                // Tab surfaces render through the container, so every tab keeps one stable in-tree
+                // wrapper. Chrome views keep rendering through the routes below.
+                <TabContainer registry=tabs/>
+
                 <Routes fallback=|| view! { <p>"Page not found"</p> }>
                     <Route path=path!("/") view=Projects/>
                     <Route path=path!("/projects/:id") view=ProjectDetail/>

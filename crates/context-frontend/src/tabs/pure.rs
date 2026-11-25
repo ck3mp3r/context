@@ -98,6 +98,13 @@ impl Default for TabId {
     }
 }
 
+impl std::fmt::Display for TabId {
+    /// The id as a DOM token, so a wrapper's `data-tab-id` is the tab's id.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
 /// One open tab: its id, its identity, and the project it is attached to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tab {

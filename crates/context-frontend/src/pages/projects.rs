@@ -7,6 +7,7 @@ use crate::components::{
 };
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Paginated, Project, UpdateMessage};
+use crate::tabs::{TabKey, TabRegistry, open_surface, use_url_writer, write_active_url};
 use crate::websocket::use_websocket_updates;
 
 #[component]
@@ -17,6 +18,10 @@ pub fn Projects() -> impl IntoView {
     let pagination = use_pagination();
     let search = use_search();
     let sort = use_sort("updated_at", "desc");
+
+    // A card click opens the project's tab and writes its URL once with `replace`.
+    let tab_registry = use_context::<TabRegistry>();
+    let url_writer = StoredValue::new_local(use_url_writer());
 
     let (projects_data, set_projects_data) =
         signal(None::<Result<Paginated<Project>, ApiClientError>>);
@@ -126,6 +131,7 @@ pub fn Projects() -> impl IntoView {
                                     .iter()
                                     .map(|project| {
                                         let project_id = project.id.clone();
+                                        let card_id = project_id.clone();
                                         let project_title = project.title.clone();
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
@@ -137,6 +143,21 @@ pub fn Projects() -> impl IntoView {
                                                     href=format!("/projects/{}", project_id)
                                                     class="flex flex-col h-full"
                                                     data-project-card=project_id.clone()
+                                                    on:click=move |ev| {
+                                                        ev.prevent_default();
+                                                        if let Some(registry) = tab_registry {
+                                                            open_surface(
+                                                                registry,
+                                                                TabKey::project(card_id.clone()),
+                                                            );
+                                                            url_writer
+                                                                .with_value(|writer| {
+                                                                    let url =
+                                                                        format!("/projects/{card_id}");
+                                                                    write_active_url(writer, &url)
+                                                                });
+                                                        }
+                                                    }
                                                 >
                                                     <div class="flex items-start gap-2 mb-2">
                                                         <div class="flex-shrink-0">

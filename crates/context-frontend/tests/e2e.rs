@@ -31,10 +31,15 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use playwright_rs::{Playwright, expect};
+use serde::Deserialize;
 
 /// Project the stubbed API serves, so a real card exists to click.
 const PROJECT_ID: &str = "e2e00001";
 const PROJECT_TITLE: &str = "E2E Fixture Project";
+
+/// A second project, so a second card can open a second tab.
+const SECOND_PROJECT_ID: &str = "e2e00002";
+const SECOND_PROJECT_TITLE: &str = "E2E Second Project";
 
 /// How long the harness waits for the served origin before failing.
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
@@ -49,6 +54,49 @@ const UI_TIMEOUT: Duration = Duration::from_secs(30);
 const API_PREFIX: &str = "/dev/api/v1/";
 
 // region:    --- Test
+
+/// Reads the container's observable state in one round trip.
+///
+/// `hidden_probe` is the keep-alive witness: the property is set on a live DOM node before the
+/// switch, so it can only read back `true` if that same node survived. A remount yields a fresh
+/// node without the expando.
+const CONTAINER_PROBE: &str = r#"() => {
+    const wrappers = Array.from(document.querySelectorAll('[data-tab-id]'));
+    const active = wrappers.filter((wrapper) => wrapper.getAttribute('data-tab-active') === 'true');
+    const hidden = wrappers.filter((wrapper) => wrapper.getAttribute('data-tab-active') === 'false');
+    const shown = active[0];
+    const gone = hidden[0];
+    return {
+        wrappers: wrappers.length,
+        active: active.length,
+        active_id: shown ? shown.getAttribute('data-tab-id') : '',
+        active_display: shown ? getComputedStyle(shown).display : 'missing',
+        hidden_id: gone ? gone.getAttribute('data-tab-id') : '',
+        hidden_display: gone ? getComputedStyle(gone).display : 'missing',
+        hidden_children: gone ? gone.querySelectorAll('[data-tab-view]').length : 0,
+        hidden_probe: gone ? gone.__c5t_probe === true : false,
+        body_children: document.body.childElementCount,
+        history: history.length,
+        in_container: wrappers.every((wrapper) =>
+            wrapper.parentElement !== null && wrapper.parentElement.hasAttribute('data-tab-container')),
+    };
+}"#;
+
+/// The container state [`CONTAINER_PROBE`] returns.
+#[derive(Debug, Deserialize)]
+struct ContainerProbe {
+    wrappers: usize,
+    active: usize,
+    active_id: String,
+    active_display: String,
+    hidden_id: String,
+    hidden_display: String,
+    hidden_children: usize,
+    hidden_probe: bool,
+    body_children: usize,
+    history: usize,
+    in_container: bool,
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
@@ -92,6 +140,16 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         .await
         .expect("the Projects page should render");
 
+    // Baselines for the no-relocation and no-history pins, read before any tab exists.
+    let body_children_before: usize = page
+        .evaluate("() => document.body.childElementCount", None::<&()>)
+        .await
+        .expect("the page should report its body child count");
+    let history_before: usize = page
+        .evaluate("() => history.length", None::<&()>)
+        .await
+        .expect("the page should report its history length");
+
     let card = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
     expect(card.clone())
         .with_timeout(UI_TIMEOUT)
@@ -123,6 +181,150 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         .to_be_visible()
         .await
         .expect("the project detail tabs should render once the project loads");
+
+    // Pin 1 (container): the card opened exactly one tab wrapper, and it is the active one.
+    let wrappers = page.locator("[data-tab-id]");
+    expect(wrappers.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .expect("opening a project card should render exactly one tab wrapper");
+    expect(page.locator("[data-tab-active=\"true\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .expect("exactly one tab wrapper may be active at a time");
+
+    // Pin 2: `data-tab-id` is the tab's id, so the first tab the registry issues is `1`.
+    let first_tab_id = wrappers
+        .nth(0)
+        .get_attribute("data-tab-id")
+        .await
+        .expect("the wrapper should expose data-tab-id")
+        .unwrap_or_default();
+    assert_eq!(
+        first_tab_id, "1",
+        "the first tab renders as data-tab-id=\"1\", got {first_tab_id:?}"
+    );
+    expect(page.locator("[data-tab-id=\"1\"] [data-tab-view]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .expect("the wrapper should hold the tab's mount slot and render its view");
+
+    let history_after_first: usize = page
+        .evaluate("() => history.length", None::<&()>)
+        .await
+        .expect("the page should report its history length");
+    assert_eq!(
+        history_after_first, history_before,
+        "the card click writes its URL with replace, so no history entry may appear"
+    );
+
+    // Pin 3 (keep-alive witness): the probe lives on the DOM node itself. A remount loses it.
+    let probe_set: bool = page
+        .evaluate(
+            "() => {\n                const wrapper = document.querySelector('[data-tab-active=\"true\"]');\n                if (!wrapper) return false;\n                wrapper.__c5t_probe = true;\n                return wrapper.__c5t_probe === true;\n            }",
+            None::<&()>,
+        )
+        .await
+        .expect("the page should accept the probe property");
+    assert!(
+        probe_set,
+        "the active wrapper should carry the probe property"
+    );
+
+    // The second card lives on the chrome Projects view, so return to chrome first. Chrome
+    // navigation never closes a tab (decision 8), which is what makes the witness meaningful.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to chrome home");
+    let history_after_chrome: usize = page
+        .evaluate("() => history.length", None::<&()>)
+        .await
+        .expect("the page should report its history length");
+
+    let second_card = page.locator(format!("[data-project-card=\"{SECOND_PROJECT_ID}\"]"));
+    expect(second_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render its cards again");
+    second_card
+        .click(None)
+        .await
+        .expect("the second project card should be clickable");
+
+    let expected_second = format!("/projects/{SECOND_PROJECT_ID}");
+    assert!(
+        page.url().ends_with(&expected_second),
+        "the second card should land on {expected_second}, got {}",
+        page.url()
+    );
+
+    expect(page.locator("[data-tab-id]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(2)
+        .await
+        .expect("the second card should open a second wrapper, not replace the first");
+
+    let probe: ContainerProbe = page
+        .evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state");
+
+    assert_eq!(
+        probe.wrappers, 2,
+        "two opened cards should mount two wrappers, got {}",
+        probe.wrappers
+    );
+    assert_eq!(
+        probe.active, 1,
+        "exactly one wrapper may be active, got {}",
+        probe.active
+    );
+    assert_eq!(
+        probe.active_id, "2",
+        "the second tab is the active wrapper, got {:?}",
+        probe.active_id
+    );
+    assert_ne!(
+        probe.active_display, "none",
+        "the active wrapper must paint, got display {:?}",
+        probe.active_display
+    );
+    assert_eq!(
+        probe.hidden_id, "1",
+        "the first tab is the hidden wrapper, got {:?}",
+        probe.hidden_id
+    );
+    assert_eq!(
+        probe.hidden_display, "none",
+        "a tab that is not active renders display:none, got {:?}",
+        probe.hidden_display
+    );
+    assert_eq!(
+        probe.hidden_children, 1,
+        "a hidden tab stays mounted: its view must still be in the DOM"
+    );
+    assert!(
+        probe.hidden_probe,
+        "the first wrapper's DOM node must survive the switch; the probe is gone, so it remounted"
+    );
+    assert!(
+        probe.in_container,
+        "every wrapper must sit inside the container, never under document.body"
+    );
+    assert_eq!(
+        probe.body_children, body_children_before,
+        "opening tabs must not add a node under document.body"
+    );
+    assert_eq!(
+        probe.history, history_after_chrome,
+        "the second card click writes its URL with replace, so no history entry may appear"
+    );
 
     browser.close().await.expect("the browser should close");
     drop(server);
@@ -355,24 +557,37 @@ fn api_response(path: &str) -> Response {
             ),
         ),
         "update/check" => Response::json(200, "{}"),
-        _ if path == format!("projects/{PROJECT_ID}") => Response::json(200, &project()),
-        _ => Response::json(
-            404,
-            "{\"error\":\"e2e stub: endpoint not served\",\"details\":null}",
-        ),
+        _ => match project_by_path(path) {
+            Some(body) => Response::json(200, &body),
+            None => Response::json(
+                404,
+                "{\"error\":\"e2e stub: endpoint not served\",\"details\":null}",
+            ),
+        },
     }
 }
 
-fn project() -> String {
+/// The project detail response for `projects/<id>`, when the stub serves that project.
+fn project_by_path(path: &str) -> Option<String> {
+    let id = path.strip_prefix("projects/")?;
+    match id {
+        PROJECT_ID => Some(project_record(PROJECT_ID, PROJECT_TITLE)),
+        SECOND_PROJECT_ID => Some(project_record(SECOND_PROJECT_ID, SECOND_PROJECT_TITLE)),
+        _ => None,
+    }
+}
+
+fn project_record(id: &str, title: &str) -> String {
     format!(
-        "{{\"id\":\"{PROJECT_ID}\",\"title\":\"{PROJECT_TITLE}\",\"description\":\"Fixture served by the e2e harness.\",\"tags\":[\"e2e\"],\"external_refs\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+        "{{\"id\":\"{id}\",\"title\":\"{title}\",\"description\":\"Fixture served by the e2e harness.\",\"tags\":[\"e2e\"],\"external_refs\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
     )
 }
 
 fn project_page() -> String {
     format!(
-        "{{\"items\":[{}],\"total\":1,\"limit\":12,\"offset\":0}}",
-        project()
+        "{{\"items\":[{},{}],\"total\":2,\"limit\":12,\"offset\":0}}",
+        project_record(PROJECT_ID, PROJECT_TITLE),
+        project_record(SECOND_PROJECT_ID, SECOND_PROJECT_TITLE)
     )
 }
 

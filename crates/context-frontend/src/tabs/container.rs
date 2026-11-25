@@ -1,0 +1,166 @@
+//! The keep-alive container: one stable wrapper per open tab.
+//!
+//! Decision 12: the wrapper is one keyed element in a list, hidden with `display:none` on itself,
+//! and a tab's dialogs and overlays render inside that wrapper rather than under `document.body`.
+//! Decision 13: a hidden tab stays mounted, so a switch hides and never unmounts.
+//!
+//! The wrapper is also the observation surface every later pin asserts against: `data-tab-id` is
+//! the tab's id, and `data-tab-active` is `"true"` on the active wrapper only.
+
+use leptos::prelude::*;
+
+use super::pure::{TabId, TabKey, TabRouteKind};
+use super::registry::TabRegistry;
+
+// region:    --- Types
+
+/// The tab a wrapper renders for: its identity and whether it is the active tab.
+///
+/// A tab surface reads this through [`use_tab_scope`] instead of the route params, because one
+/// route can mount several tabs and a hidden tab has no route of its own.
+#[derive(Clone, Debug)]
+pub struct TabScope {
+    id: TabId,
+    key: TabKey,
+    active: Signal<bool>,
+}
+
+impl TabScope {
+    /// Bundle a tab's identity with the reactive visibility of its wrapper.
+    pub fn new(id: TabId, key: TabKey, active: Signal<bool>) -> Self {
+        Self { id, key, active }
+    }
+
+    /// The tab's id, as it appears in `data-tab-id`.
+    pub fn id(&self) -> TabId {
+        self.id
+    }
+
+    /// The tab's identity: surface kind plus entity id.
+    pub fn key(&self) -> &TabKey {
+        &self.key
+    }
+
+    /// The surface kind this tab shows.
+    pub fn kind(&self) -> TabRouteKind {
+        self.key.kind()
+    }
+
+    /// The id of the entity this tab shows.
+    pub fn entity_id(&self) -> &str {
+        self.key.entity_id()
+    }
+
+    /// Whether this tab is the active one, which is what its wrapper's `display` follows.
+    pub fn is_active(&self) -> bool {
+        self.active.get()
+    }
+}
+
+/// The tab scope of the wrapper a view renders in, or `None` outside the container.
+pub fn use_tab_scope() -> Option<TabScope> {
+    use_context::<TabScope>()
+}
+
+// endregion: --- Types
+
+// region:    --- Components
+
+/// The keep-alive container: one keyed wrapper per open tab, in strip order.
+///
+/// The key is the tab id, so opening or closing a tab never rebuilds the wrappers that survive it.
+#[component]
+pub fn TabContainer(registry: TabRegistry) -> impl IntoView {
+    view! {
+        <div class="flex flex-col" data-tab-container="">
+            <For
+                each=move || {
+                    registry
+                        .tabs()
+                        .into_iter()
+                        .map(|tab| (tab.id(), tab.key().clone()))
+                }
+                key=|(id, _)| *id
+                children=move |(id, tab_key)| {
+                    view! { <TabWrapper registry=registry id=id tab_key=tab_key/> }
+                }
+            />
+        </div>
+    }
+}
+
+/// One tab's wrapper: the tab's fixed mount point, hidden while the tab is not active.
+#[component]
+fn TabWrapper(registry: TabRegistry, id: TabId, tab_key: TabKey) -> impl IntoView {
+    let active = Signal::derive(move || registry.active() == Some(id));
+    provide_context(TabScope::new(id, tab_key, active));
+
+    view! {
+        <div
+            data-tab-id=id.to_string()
+            data-tab-active=move || active_label(active.get())
+            style=move || wrapper_style(active.get())
+        >
+            <TabMount/>
+        </div>
+    }
+}
+
+/// The mount slot every tab surface renders into.
+///
+/// The inline surfaces replace the placeholder; the container only has to give every tab one fixed
+/// in-tree mount point.
+#[component]
+fn TabMount() -> impl IntoView {
+    let scope = use_tab_scope();
+
+    view! {
+        <div class="h-full" data-tab-mount="">
+            {scope.map(|scope| view! { <TabPlaceholder scope=scope/> })}
+        </div>
+    }
+}
+
+/// What a wrapper shows before the real surface lands: the tab's identity, read from its scope.
+#[component]
+fn TabPlaceholder(scope: TabScope) -> impl IntoView {
+    let kind = kind_name(scope.kind());
+    let entity_id = scope.entity_id().to_string();
+    let label = format!("{kind} {entity_id}");
+
+    view! {
+        <div class="p-6 text-ctp-subtext0" data-tab-view=kind data-tab-entity-id=entity_id>
+            {label}
+        </div>
+    }
+}
+
+// endregion: --- Components
+
+// region:    --- Support
+
+/// The DOM token a wrapper's view uses for its surface kind.
+fn kind_name(kind: TabRouteKind) -> &'static str {
+    match kind {
+        TabRouteKind::Project => "project",
+        TabRouteKind::TaskList => "task-list",
+        TabRouteKind::Note => "note",
+        TabRouteKind::Repo => "repo",
+    }
+}
+
+/// The wrapper's `display`: a hidden tab stays mounted, it only stops painting (decision 13).
+fn wrapper_style(active: bool) -> &'static str {
+    if active {
+        "display:block"
+    } else {
+        "display:none"
+    }
+}
+
+/// The wrapper's `data-tab-active` token.
+fn active_label(active: bool) -> &'static str {
+    if active { "true" } else { "false" }
+}
+
+// endregion: --- Support
