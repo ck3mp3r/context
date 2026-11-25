@@ -25,8 +25,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -49,6 +49,12 @@ const TASK_LIST_ID: &str = "e2e00003";
 /// must open that parent project tab first (decision 8).
 const NOTE_ID: &str = "e2e00004";
 const NOTE_PARENT_PROJECT_ID: &str = "e2e00009";
+
+/// The note that names no project, so its tab is parentless and its close is the last close.
+const PARENTLESS_NOTE_ID: &str = "e2e00007";
+
+/// The port the debug bundle dials for updates (`WS_URL` in `src/websocket.rs`). The stub owns it.
+const WS_ADDR: &str = "127.0.0.1:8080";
 
 /// The task the stubbed API serves inside the fixture task list, so a task card exists to open the
 /// task detail surface.
@@ -206,6 +212,10 @@ const CLICK_THROUGH_PROBE: &str = r#"(selector) => {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
+    // The debug bundle dials the hardcoded `ws://localhost:8080/dev/ws`, so the stub owns that
+    // exact port and this page connects to it from its first load. A taken port fails here.
+    let socket = WebSocketStub::start();
+
     let root = repo_root();
     build_spa(&root);
 
@@ -1068,7 +1078,209 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
         "closing the restored surface must release the page scroll"
     );
 
+    // === The websocket deletion reaction ===
+
+    // The reload starts an empty strip, which is what the last-close path needs, and re-opens the
+    // stub's socket because the debug bundle dials it on mount.
+    let connections = socket.connections();
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load again for the deletion pins");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render on the reloaded SPA");
+    socket.wait_for_connection_after(connections);
+
+    // The note names a project, so opening it opens the project tab first: two tabs, note active.
+    page.locator("nav a[href=\"/notes\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Notes nav link should reach the chrome notes list");
+    let deletion_note = page.locator(format!("[data-note-card=\"{NOTE_ID}\"]"));
+    expect(deletion_note.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome notes list should render the fixture note card");
+    deletion_note
+        .click(None)
+        .await
+        .expect("the note card should open its tab");
+
+    let open_note =
+        wait_for_container(&page, "the note tab open beside its project tab", |probe| {
+            probe.wrappers == 2 && probe.active_view == "note"
+        })
+        .await;
+    let note_tab = open_note.active_id.clone();
+
+    // A non-delete update keeps the tabs: each tab's own refetch arm stays the owner of those.
+    socket.send(&format!(
+        "{{\"type\":\"NoteUpdated\",\"data\":{{\"note_id\":\"{NOTE_ID}\"}}}}"
+    ));
+    settle_frame();
+    let after_update = container_probe(&page).await;
+    assert_eq!(
+        after_update.wrappers, 2,
+        "a NoteUpdated must neither open nor close a tab, got {} wrappers",
+        after_update.wrappers
+    );
+    assert_eq!(
+        after_update.active_id, note_tab,
+        "a NoteUpdated must not move focus, got {:?}",
+        after_update.active_id
+    );
+
+    // The deletion closes the note's tab; the project tab survives it and takes focus.
+    socket.send(&format!(
+        "{{\"type\":\"NoteDeleted\",\"data\":{{\"note_id\":\"{NOTE_ID}\"}}}}"
+    ));
+    let after_delete = wait_for_container(&page, "the deleted note's tab closed", |probe| {
+        probe.wrappers == 1
+    })
+    .await;
+    assert_eq!(
+        after_delete.active, 1,
+        "the surviving tab must be the active one, got {} active wrappers",
+        after_delete.active
+    );
+    assert_ne!(
+        after_delete.active_id, note_tab,
+        "the closed tab must not keep focus, got {:?}",
+        after_delete.active_id
+    );
+    assert_eq!(
+        after_delete.active_view, "project",
+        "the surviving tab is the note's project, got {:?}",
+        after_delete.active_view
+    );
+    expect(page.locator(format!(
+        "[data-tab-view=\"note\"][data-tab-entity-id=\"{NOTE_ID}\"]",
+    )))
+    .with_timeout(UI_TIMEOUT)
+    .to_have_count(0)
+    .await
+    .expect("the deleted note's wrapper should be gone");
+
+    // A surviving tab paints nothing beneath it: no detail view and no not-found view.
+    let routes_after_delete: RoutesProbe = page
+        .evaluate(ROUTES_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the routed area");
+    assert!(
+        routes_after_delete.present,
+        "the routed area must stay in the tree"
+    );
+    assert_eq!(
+        routes_after_delete.children, 0,
+        "a surviving tab renders nothing in the routed area, got {:?}",
+        routes_after_delete.text
+    );
+    assert!(
+        !routes_after_delete.text.contains("Page not found"),
+        "the deletion must not paint a not-found view, got {:?}",
+        routes_after_delete.text
+    );
+
+    // The reaction navigates nowhere: the one writer names the surviving tab, never a chrome list.
+    let url_after_delete = page.url();
+    assert!(
+        !url_after_delete.ends_with("/notes")
+            && !url_after_delete.ends_with("/repos")
+            && !url_after_delete.ends_with("/task-lists"),
+        "the deletion must not write a chrome list route, got {url_after_delete}"
+    );
+    let surviving_path = format!("/projects/{NOTE_PARENT_PROJECT_ID}");
+    assert!(
+        url_after_delete.ends_with(&surviving_path),
+        "the one writer names the surviving tab {surviving_path}, got {url_after_delete}"
+    );
+
+    // A deletion that names no open tab changes nothing at all.
+    socket.send("{\"type\":\"NoteDeleted\",\"data\":{\"note_id\":\"e2e000ff\"}}");
+    settle_frame();
+    let after_unknown = container_probe(&page).await;
+    assert_eq!(
+        after_unknown.wrappers, 1,
+        "a deletion for a surface with no open tab must not close a tab, got {} wrappers",
+        after_unknown.wrappers
+    );
+    assert_eq!(
+        after_unknown.active_id, after_delete.active_id,
+        "a deletion for a surface with no open tab must not move focus"
+    );
+    assert!(
+        page.url().ends_with(&surviving_path),
+        "a deletion for a surface with no open tab must not navigate, got {}",
+        page.url()
+    );
+
+    // The last-close path needs an empty strip, so the page reloads again and opens the parentless
+    // note, whose only tab it is.
+    let connections = socket.connections();
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load again for the last-close pin");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render before the last-close pin");
+    socket.wait_for_connection_after(connections);
+
+    page.locator("nav a[href=\"/notes\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Notes nav link should reach the chrome notes list");
+    let parentless = page.locator(format!("[data-note-card=\"{PARENTLESS_NOTE_ID}\"]",));
+    expect(parentless.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome notes list should render the parentless note card");
+    parentless
+        .click(None)
+        .await
+        .expect("the parentless note card should open its tab");
+
+    wait_for_container(&page, "the parentless note's tab alone", |probe| {
+        probe.wrappers == 1 && probe.active_view == "note"
+    })
+    .await;
+    let parentless_path = format!("/notes/{PARENTLESS_NOTE_ID}");
+    assert!(
+        page.url().ends_with(&parentless_path),
+        "a parentless note opens without a project segment, got {}",
+        page.url()
+    );
+
+    socket.send(&format!(
+        "{{\"type\":\"NoteDeleted\",\"data\":{{\"note_id\":\"{PARENTLESS_NOTE_ID}\"}}}}"
+    ));
+    let emptied =
+        wait_for_container(&page, "the last tab closed", |probe| probe.wrappers == 0).await;
+    assert_eq!(
+        emptied.active, 0,
+        "the last close leaves no active tab, got {} active wrappers",
+        emptied.active
+    );
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the last close returns to chrome home");
+    assert!(
+        page.url().ends_with('/'),
+        "the last close writes chrome home, got {}",
+        page.url()
+    );
+
     browser.close().await.expect("the browser should close");
+    drop(socket);
     drop(server);
 }
 
@@ -1113,6 +1325,39 @@ async fn wait_for_closed_surface(page: &Page) -> SurfaceProbe {
         );
         thread::sleep(Duration::from_millis(25));
     }
+}
+
+/// Reads the container state in one round trip.
+async fn container_probe(page: &Page) -> ContainerProbe {
+    page.evaluate(CONTAINER_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the container state")
+}
+
+/// Polls the container until `predicate` holds, so a websocket frame has time to reach the app.
+async fn wait_for_container(
+    page: &Page,
+    what: &str,
+    predicate: impl Fn(&ContainerProbe) -> bool,
+) -> ContainerProbe {
+    let deadline = Instant::now() + UI_TIMEOUT;
+    loop {
+        let probe = container_probe(page).await;
+        if predicate(&probe) {
+            return probe;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the container never showed {what}: {probe:?}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Gives one frame on the loopback socket time to reach the app, so a "nothing changed" pin means
+/// what it says. A frame on loopback lands in microseconds; this margin is two orders wider.
+fn settle_frame() {
+    thread::sleep(Duration::from_millis(500));
 }
 
 /// Runs a control's own click handler, for a control an open surface's backdrop covers.
@@ -1327,15 +1572,314 @@ fn close_gracefully(stream: &mut TcpStream) {
     }
 }
 
+// region:    --- WebSocket stub
+
+/// The stub websocket the debug bundle dials, on the hardcoded port `src/websocket.rs` names.
+///
+/// One accepted client is kept, so the test can send a text frame into the running SPA; a reload's
+/// socket replaces the one before it. The port is fixed, so a busy port fails the run with that
+/// reason instead of moving elsewhere.
+struct WebSocketStub {
+    client: Arc<Mutex<Option<TcpStream>>>,
+    accepted: Arc<AtomicUsize>,
+    shutdown: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl WebSocketStub {
+    /// Binds `WS_ADDR` and answers opening handshakes. A taken port is a hard failure.
+    fn start() -> Self {
+        let listener = TcpListener::bind(WS_ADDR).unwrap_or_else(|error| {
+            panic!(
+                "the e2e websocket stub needs {WS_ADDR}, because the debug bundle hardcodes \
+                 ws://localhost:8080/dev/ws, and the port is not free: {error}"
+            )
+        });
+        listener
+            .set_nonblocking(true)
+            .expect("the e2e websocket listener should switch to non-blocking mode");
+
+        let client = Arc::new(Mutex::new(None));
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let slot = Arc::clone(&client);
+        let count = Arc::clone(&accepted);
+        let stop = Arc::clone(&shutdown);
+        let thread = thread::spawn(move || ws_accept_loop(listener, &slot, &count, &stop));
+
+        Self {
+            client,
+            accepted,
+            shutdown,
+            thread: Some(thread),
+        }
+    }
+
+    /// How many sockets the stub accepted, so a reload's own socket is the one that follows it.
+    fn connections(&self) -> usize {
+        self.accepted.load(Ordering::Relaxed)
+    }
+
+    /// Waits until a socket after `previous` arrives, which is the page's own connection.
+    fn wait_for_connection_after(&self, previous: usize) {
+        let deadline = Instant::now() + READY_TIMEOUT;
+        loop {
+            let accepted = self.connections();
+            if accepted > previous {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the app never opened ws://localhost:8080/dev/ws (accepted {accepted} sockets)"
+            );
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// Writes one text frame to the latest accepted socket.
+    fn send(&self, text: &str) {
+        let mut slot = self
+            .client
+            .lock()
+            .expect("the stub's client slot should not be poisoned");
+        let stream = slot
+            .as_mut()
+            .unwrap_or_else(|| panic!("the stub has no open websocket to carry {text:?}"));
+        if let Err(error) = stream.write_all(&text_frame(text)) {
+            panic!("the stub could not write a frame to the app's websocket: {error}");
+        }
+        let _ = stream.flush();
+    }
+}
+
+impl Drop for WebSocketStub {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.thread.take()
+            && handle.join().is_err()
+        {
+            eprintln!("e2e websocket stub thread panicked during teardown");
+        }
+    }
+}
+
+fn ws_accept_loop(
+    listener: TcpListener,
+    client: &Mutex<Option<TcpStream>>,
+    accepted: &AtomicUsize,
+    stop: &AtomicBool,
+) {
+    while !stop.load(Ordering::Relaxed) {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let Some(stream) = ws_handshake(stream) else {
+                    continue;
+                };
+                if let Ok(mut slot) = client.lock() {
+                    *slot = Some(stream);
+                }
+                accepted.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(2));
+            }
+            Err(error) => {
+                eprintln!("e2e websocket stub stopped accepting: {error}");
+                return;
+            }
+        }
+    }
+}
+
+/// Answers the RFC 6455 opening handshake and keeps the socket for a later frame.
+fn ws_handshake(mut stream: TcpStream) -> Option<TcpStream> {
+    if stream.set_nonblocking(false).is_err() {
+        return None;
+    }
+    if stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .is_err()
+    {
+        return None;
+    }
+
+    let key = read_websocket_key(&stream)?;
+    let head = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+        websocket_accept(&key)
+    );
+    if stream.write_all(head.as_bytes()).is_err() {
+        return None;
+    }
+    let _ = stream.flush();
+
+    Some(stream)
+}
+
+/// The client's `Sec-WebSocket-Key` from the opening handshake.
+fn read_websocket_key(stream: &TcpStream) -> Option<String> {
+    let mut reader = BufReader::new(stream);
+
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() {
+        return None;
+    }
+    if !request_line.starts_with("GET ") {
+        return None;
+    }
+
+    let mut key = None;
+    loop {
+        let mut header = String::new();
+        let read = reader.read_line(&mut header).ok()?;
+        if read == 0 || header == "\r\n" || header == "\n" {
+            break;
+        }
+        if let Some((name, value)) = header.split_once(':')
+            && name.eq_ignore_ascii_case("sec-websocket-key")
+        {
+            key = Some(value.trim().to_string());
+        }
+    }
+
+    key
+}
+
+/// One final text frame in the server-to-client direction, which RFC 6455 leaves unmasked.
+fn text_frame(text: &str) -> Vec<u8> {
+    let payload = text.as_bytes();
+    let mut frame = Vec::with_capacity(payload.len() + 4);
+    frame.push(0x81);
+    if payload.len() < 126 {
+        frame.push(payload.len() as u8);
+    } else {
+        assert!(
+            payload.len() <= usize::from(u16::MAX),
+            "one stub frame carries at most 64 KiB"
+        );
+        frame.push(126);
+        frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    }
+    frame.extend_from_slice(payload);
+    frame
+}
+
+/// The RFC 6455 accept token: `base64(SHA1(key + GUID))`.
+fn websocket_accept(key: &str) -> String {
+    let mut material = key.to_string();
+    material.push_str("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    base64(&sha1(material.as_bytes()))
+}
+
+/// SHA-1 of `bytes`, which is the hash the accept token covers.
+fn sha1(bytes: &[u8]) -> [u8; 20] {
+    let mut digest: [u32; 5] = [
+        0x6745_2301,
+        0xEFCD_AB89,
+        0x98BA_DCFE,
+        0x1032_5476,
+        0xC3D2_E1F0,
+    ];
+
+    let bit_len = (bytes.len() as u64) * 8;
+    let mut message = bytes.to_vec();
+    message.push(0x80);
+    while message.len() % 64 != 56 {
+        message.push(0);
+    }
+    message.extend_from_slice(&bit_len.to_be_bytes());
+
+    for chunk in message.as_chunks::<64>().0 {
+        let mut words = [0u32; 80];
+        for (index, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            words[index] = u32::from_be_bytes(*word);
+        }
+        for index in 16..80 {
+            words[index] =
+                (words[index - 3] ^ words[index - 8] ^ words[index - 14] ^ words[index - 16])
+                    .rotate_left(1);
+        }
+
+        let [mut a, mut b, mut c, mut d, mut e] = digest;
+        for (index, word) in words.iter().enumerate() {
+            let (f, k) = match index {
+                0..=19 => ((b & c) | (!b & d), 0x5A82_7999),
+                20..=39 => (b ^ c ^ d, 0x6ED9_EBA1),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1B_BCDC),
+                _ => (b ^ c ^ d, 0xCA62_C1D6),
+            };
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(*word);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+
+        digest[0] = digest[0].wrapping_add(a);
+        digest[1] = digest[1].wrapping_add(b);
+        digest[2] = digest[2].wrapping_add(c);
+        digest[3] = digest[3].wrapping_add(d);
+        digest[4] = digest[4].wrapping_add(e);
+    }
+
+    let mut out = [0u8; 20];
+    for (index, word) in digest.iter().enumerate() {
+        out[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+    }
+    out
+}
+
+/// Standard base64 with padding, the alphabet the accept token uses.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let triple = (u32::from(chunk[0]) << 16)
+            | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
+            | u32::from(chunk.get(2).copied().unwrap_or(0));
+        encoded.push(char::from(ALPHABET[((triple >> 18) & 0x3f) as usize]));
+        encoded.push(char::from(ALPHABET[((triple >> 12) & 0x3f) as usize]));
+        encoded.push(match chunk.len() {
+            1 => '=',
+            _ => char::from(ALPHABET[((triple >> 6) & 0x3f) as usize]),
+        });
+        encoded.push(match chunk.len() {
+            1 | 2 => '=',
+            _ => char::from(ALPHABET[(triple & 0x3f) as usize]),
+        });
+    }
+    encoded
+}
+
+/// RFC 6455 section 1.3 is the one published accept-token vector, so it pins the handshake helpers.
+#[test]
+fn websocket_accept_matches_the_rfc_example() {
+    assert_eq!(
+        websocket_accept("dGhlIHNhbXBsZSBub25jZQ=="),
+        "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    );
+}
+
+// endregion: --- WebSocket stub
+
 fn route(path: &str, dist: &Path) -> Response {
     if let Some(api_path) = path.strip_prefix(API_PREFIX) {
         return api_response(api_path);
     }
 
-    // The SPA dials `/dev/ws`; the stubbed API has no websocket, so the
-    // connection is refused outright instead of answered with HTML.
+    // The SPA dials `ws://localhost:8080/dev/ws`, which the harness serves from its own listener
+    // (`WebSocketStub`). This origin answers the path with a 404, so a bundle that ever dialed a
+    // relative path fails loudly here instead of reading HTML as a frame.
     if path.starts_with("/dev/ws") {
-        return Response::text(404, "e2e stub: no websocket");
+        return Response::text(404, "e2e stub: the websocket lives on 127.0.0.1:8080");
     }
 
     static_response(dist, path)
@@ -1388,6 +1932,9 @@ fn record_by_path(path: &str) -> Option<String> {
     }
     if path == format!("notes/{NOTE_ID}") {
         return Some(note_record());
+    }
+    if path == format!("notes/{PARENTLESS_NOTE_ID}") {
+        return Some(parentless_note_record());
     }
     None
 }
@@ -1477,8 +2024,16 @@ fn note_record() -> String {
 
 fn note_page() -> String {
     format!(
-        "{{\"items\":[{}],\"total\":1,\"limit\":12,\"offset\":0}}",
-        note_record()
+        "{{\"items\":[{},{}],\"total\":2,\"limit\":12,\"offset\":0}}",
+        note_record(),
+        parentless_note_record()
+    )
+}
+
+/// The fixture note that names no project, so its tab is parentless and its close is the last close.
+fn parentless_note_record() -> String {
+    format!(
+        "{{\"id\":\"{PARENTLESS_NOTE_ID}\",\"title\":\"E2E Parentless Note\",\"content\":\"Parentless note served by the e2e harness.\",\"tags\":[],\"project_ids\":[],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
     )
 }
 

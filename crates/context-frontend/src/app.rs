@@ -9,11 +9,11 @@ use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
 use crate::components::{ThemeSwitcher, UpdateBadge, UpdateBanner};
-use crate::models::UpdateStatusPayload;
+use crate::models::{UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
-use crate::tabs::{TabContainer, TabRegistry, surface_url, write_active_url};
+use crate::tabs::{TabContainer, TabKey, TabRegistry, surface_url, write_active_url};
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
-use crate::websocket::{WebSocketProvider, use_websocket_connection};
+use crate::websocket::{WebSocketProvider, use_websocket_connection, use_websocket_updates};
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -82,14 +82,52 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     let tabs = TabRegistry::new();
     provide_context(tabs);
 
+    // The deletion reaction: a surface deleted over the websocket closes its tab. Cascade and
+    // neighbour activation are the model's close rules; this reaction writes no URL, because the
+    // one writer below names whatever tab survives. Every other update falls through to the tab's
+    // own refetch handler.
+    let ws_updates = use_websocket_updates();
+    Effect::new(move |_| {
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let key = match update {
+            UpdateMessage::NoteDeleted { note_id } => TabKey::note(note_id),
+            UpdateMessage::RepoDeleted { repo_id } => TabKey::repo(repo_id),
+            UpdateMessage::TaskListDeleted { task_list_id } => TabKey::task_list(task_list_id),
+            _ => return,
+        };
+        // The lookup and the close are untracked, so this effect reacts to a new message only: a
+        // surface the user reopens after its deletion stays open.
+        untrack(|| {
+            if let Some((id, _)) = tabs
+                .descriptors()
+                .into_iter()
+                .find(|(_, open)| open == &key)
+            {
+                tabs.close(id);
+            }
+        });
+    });
+
     // The one URL writer: the active tab names the URL, written once with `replace` (decisions 11
     // and 21). Nothing here reads the address bar, so a mutation the app did not make cannot move
     // the active tab.
+    //
+    // An empty strip names no surface, so the last close writes chrome home. The write follows the
+    // transition to an empty strip, not every empty read: a route the app opened no tab for (a
+    // deep link, a chrome list) keeps the URL it already has.
     let url_writer = use_navigate();
+    let mut had_active = false;
     Effect::new(move |_| {
         let Some(key) = tabs.active_key() else {
+            if had_active {
+                had_active = false;
+                write_active_url(&url_writer, "/");
+            }
             return;
         };
+        had_active = true;
         let url = surface_url(&key, tabs.active_project().as_deref());
         write_active_url(&url_writer, &url);
     });
