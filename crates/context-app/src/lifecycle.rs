@@ -11,7 +11,7 @@
 
 use std::process::Command;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use tauri::webview::{NewWindowFeatures, NewWindowResponse, PageLoadEvent};
@@ -46,7 +46,7 @@ pub const SETTINGS_PATH: &str = "/settings";
 const OPEN_DEDUP_WINDOW: Duration = Duration::from_millis(200);
 /// Delay between SPA origin probes of the recovery watch.
 const RECOVERY_POLL_INTERVAL: Duration = Duration::from_secs(2);
-/// How long the first navigation may stay uncommitted before the watchdog acts.
+/// How long the paint may stay unconfirmed before the watchdog acts.
 const RECOVERY_LOAD_BOUND: Duration = Duration::from_secs(15);
 /// How many reloads the first-load watchdog may schedule for one window.
 const RECOVERY_RELOAD_LIMIT: usize = 3;
@@ -72,11 +72,24 @@ static LAST_OPENED: Mutex<Option<(String, Instant)>> = Mutex::new(None);
 /// that a paint probe is worth sending; it never suppresses the reload.
 static COMMIT_SEEN: AtomicBool = AtomicBool::new(false);
 
-/// Whether the SPA confirmed it painted its root element.
+/// Whether the SPA of the current window confirmed it painted its root element.
 ///
-/// Latched: once a probe answers, the watchdog stops probing and stays quiet for
-/// the rest of the process.
+/// Per window: creating a window clears the latch, so every recreated window is
+/// probed again instead of inheriting its predecessor's paint. Once a window
+/// confirms a paint, the watchdog stays quiet for the rest of that window's life.
 static PAINT_CONFIRMED: AtomicBool = AtomicBool::new(false);
+
+/// Reloads the first-load watchdog scheduled for the current window.
+///
+/// Per window: creating a window clears the count, so a recreated window spends
+/// its own [`RECOVERY_RELOAD_LIMIT`] instead of inheriting a spent budget.
+static WATCHDOG_RELOADS: AtomicUsize = AtomicUsize::new(0);
+
+/// Moment the current window was created.
+///
+/// Per window: creating a window stamps it, so [`window_age`] measures the load
+/// bound of the recreated window from its own creation, not its predecessor's.
+static WINDOW_CREATED: Mutex<Option<Instant>> = Mutex::new(None);
 
 /// Whether a reload is scheduled and has not run yet.
 ///
@@ -111,7 +124,13 @@ pub fn create_main_window(app: &AppHandle, route: Option<&str>) -> WindowResult<
 /// The new window is focused before returning: creating a window only orders it
 /// within this app, so an inactive app would leave the recreated window behind
 /// the frontmost one.
+///
+/// The first-load watchdog starts fresh here: this is the single window creation
+/// point, so a recreated window gets its own paint probe, reload budget, and load
+/// bound instead of inheriting its predecessor's.
 fn create_window_at(app: &AppHandle, path: &str) -> WindowResult<()> {
+    reset_watchdog_state();
+
     let target = spa_url(path)?;
     let window = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::External(target))
         .title(MAIN_WINDOW_TITLE)
@@ -364,6 +383,47 @@ pub(crate) fn paint_answer(answer: &str) -> PaintProbe {
     }
 }
 
+/// Start the first-load watchdog over for a window that is about to exist.
+///
+/// The three incident records are per window: a recreated window is probed again,
+/// spends its own reload budget, and counts its load bound from its own creation
+/// time. Partial resets would look fixed while still leaving the window blank.
+pub(crate) fn reset_watchdog_state() {
+    PAINT_CONFIRMED.store(false, Ordering::SeqCst);
+    WATCHDOG_RELOADS.store(0, Ordering::SeqCst);
+
+    let Ok(mut created) = WINDOW_CREATED.lock() else {
+        return;
+    };
+
+    *created = Some(Instant::now());
+}
+
+/// Record a paint probe answer for the current window, and report a paint.
+///
+/// Only a painted answer latches the paint. Every miss leaves the latch alone, so
+/// the next poll asks again and the watchdog keeps failing toward a reload.
+pub(crate) fn record_paint_probe(probe: PaintProbe) -> bool {
+    let painted = probe == PaintProbe::Painted;
+    if painted {
+        PAINT_CONFIRMED.store(true, Ordering::SeqCst);
+    }
+
+    painted
+}
+
+/// Time since the current window was created.
+///
+/// A window that `create_window_at` never stamped has no age yet, so the load
+/// bound of the first window starts at zero rather than at the process start.
+pub(crate) fn window_age() -> Duration {
+    let Ok(created) = WINDOW_CREATED.lock() else {
+        return Duration::ZERO;
+    };
+
+    created.map(|created| created.elapsed()).unwrap_or_default()
+}
+
 /// Ask the webview whether the SPA painted its root element.
 ///
 /// `eval_with_callback` is the only read-back: `eval` is fire-and-forget and
@@ -399,17 +459,15 @@ async fn confirm_painted(app: &AppHandle) -> PaintProbe {
 /// transition of the origin this build loads. The first-load watchdog reloads a
 /// window that never confirmed it painted while the origin answers, so neither a
 /// silently dropped first navigation nor a committed-but-blank page leaves a
-/// blank view; it acts at most [`RECOVERY_RELOAD_LIMIT`] times and stays quiet
-/// once the SPA confirms a paint. Both detectors share [`schedule_reload`], so
-/// one incident reloads once.
+/// blank view; it acts at most [`RECOVERY_RELOAD_LIMIT`] times per window and
+/// stays quiet once the SPA confirms a paint. Both detectors share
+/// [`schedule_reload`], so one incident reloads once.
 pub fn spawn_recovery_watch(app: &AppHandle) {
     let app = app.clone();
 
     tauri::async_runtime::spawn(async move {
         let origin = crate::server::spa_origin();
-        let created = Instant::now();
         let mut previous_up = crate::server::origin_ready(&origin).await;
-        let mut watchdog_reloads = 0_usize;
 
         loop {
             tokio::time::sleep(RECOVERY_POLL_INTERVAL).await;
@@ -423,10 +481,14 @@ pub fn spawn_recovery_watch(app: &AppHandle) {
             }
             previous_up = now_up;
 
+            // Reloads and age belong to the current window: a recreated window
+            // carries its own budget and its own load bound.
+            let reloads = WATCHDOG_RELOADS.load(Ordering::SeqCst);
+            let elapsed = window_age();
             let watchdog_due = now_up
-                && watchdog_reloads < RECOVERY_RELOAD_LIMIT
+                && reloads < RECOVERY_RELOAD_LIMIT
                 && !PAINT_CONFIRMED.load(Ordering::SeqCst)
-                && created.elapsed() >= RECOVERY_LOAD_BOUND;
+                && elapsed >= RECOVERY_LOAD_BOUND;
             if watchdog_due {
                 let url = main_window_url(&app);
                 let observed = WatchdogState {
@@ -434,8 +496,8 @@ pub fn spawn_recovery_watch(app: &AppHandle) {
                     url_names_origin: matches!(&url, Ok(url) if is_spa_origin(url)),
                     painted: PAINT_CONFIRMED.load(Ordering::SeqCst),
                     origin_up: now_up,
-                    reloads: watchdog_reloads,
-                    elapsed: created.elapsed(),
+                    reloads,
+                    elapsed,
                 };
 
                 let probe = if probe_due(&observed) {
@@ -443,10 +505,7 @@ pub fn spawn_recovery_watch(app: &AppHandle) {
                 } else {
                     PaintProbe::Skipped
                 };
-                let painted = probe == PaintProbe::Painted;
-                if painted {
-                    PAINT_CONFIRMED.store(true, Ordering::SeqCst);
-                }
+                let painted = record_paint_probe(probe);
 
                 let state = WatchdogState {
                     painted,
@@ -454,7 +513,7 @@ pub fn spawn_recovery_watch(app: &AppHandle) {
                 };
 
                 if watchdog_verdict(&state) == WatchdogVerdict::Reload {
-                    watchdog_reloads += 1;
+                    let attempt = WATCHDOG_RELOADS.fetch_add(1, Ordering::SeqCst) + 1;
                     let reported = match &url {
                         Ok(url) => url.to_string(),
                         Err(error) => format!("<{error}>"),
@@ -462,7 +521,7 @@ pub fn spawn_recovery_watch(app: &AppHandle) {
                     schedule_reload(
                         &app,
                         format!(
-                            "context: reloaded the main window after the first load stayed blank (url={reported:?}, paint={probe:?}, attempt={watchdog_reloads}/{RECOVERY_RELOAD_LIMIT})"
+                            "context: reloaded the main window after the first load stayed blank (url={reported:?}, paint={probe:?}, attempt={attempt}/{RECOVERY_RELOAD_LIMIT})"
                         ),
                     );
                 }

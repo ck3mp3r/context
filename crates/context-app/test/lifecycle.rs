@@ -285,6 +285,121 @@ fn only_an_explicit_true_confirms_the_paint() {
     );
 }
 
+#[test]
+#[serial]
+fn a_new_window_starts_with_fresh_watchdog_state() {
+    PAINT_CONFIRMED.store(true, Ordering::SeqCst);
+    WATCHDOG_RELOADS.store(RECOVERY_RELOAD_LIMIT, Ordering::SeqCst);
+    *WINDOW_CREATED
+        .lock()
+        .expect("The creation clock lock should be held") =
+        Some(Instant::now() - Duration::from_secs(100));
+
+    reset_watchdog_state();
+
+    assert!(
+        !PAINT_CONFIRMED.load(Ordering::SeqCst),
+        "a new window must be probed again instead of inheriting a paint"
+    );
+    assert_eq!(
+        WATCHDOG_RELOADS.load(Ordering::SeqCst),
+        0,
+        "a new window must not inherit a spent reload budget"
+    );
+    assert!(
+        window_age() < Duration::from_secs(1),
+        "a new window must count its load bound from its own creation"
+    );
+}
+
+#[test]
+#[serial]
+fn a_recreated_window_resets_the_paint_latch() {
+    PAINT_CONFIRMED.store(true, Ordering::SeqCst);
+
+    reset_watchdog_state();
+
+    assert!(
+        !PAINT_CONFIRMED.load(Ordering::SeqCst),
+        "a recreated window gets its own paint probe"
+    );
+}
+
+#[test]
+#[serial]
+fn a_recreated_window_resets_the_reload_counter() {
+    // The predecessor spent its whole budget on a blank first load. The
+    // recreated window must be reloadable again, not inherit the spent count.
+    WATCHDOG_RELOADS.store(RECOVERY_RELOAD_LIMIT, Ordering::SeqCst);
+    assert_eq!(
+        watchdog_verdict(&state(
+            true,
+            true,
+            false,
+            true,
+            WATCHDOG_RELOADS.load(Ordering::SeqCst)
+        )),
+        WatchdogVerdict::Idle,
+        "the predecessor's budget is spent"
+    );
+
+    reset_watchdog_state();
+
+    let reloads = WATCHDOG_RELOADS.load(Ordering::SeqCst);
+    assert_eq!(reloads, 0, "the recreated window starts a new budget");
+    assert_eq!(
+        watchdog_verdict(&state(true, true, false, true, reloads)),
+        WatchdogVerdict::Reload,
+        "a blank recreated window must reload again"
+    );
+}
+
+#[test]
+#[serial]
+fn a_recreated_window_counts_from_its_own_creation() {
+    *WINDOW_CREATED
+        .lock()
+        .expect("The creation clock lock should be held") =
+        Some(Instant::now() - Duration::from_secs(100));
+
+    reset_watchdog_state();
+
+    assert!(
+        window_age() < Duration::from_secs(1),
+        "the load bound of a recreated window starts now"
+    );
+}
+
+#[test]
+#[serial]
+fn a_painted_probe_latches_the_paint() {
+    reset_watchdog_state();
+
+    let painted = record_paint_probe(PaintProbe::Painted);
+
+    assert!(painted, "a painted answer records a paint");
+    assert!(
+        PAINT_CONFIRMED.load(Ordering::SeqCst),
+        "a painted answer latches the paint for the window"
+    );
+}
+
+#[test]
+#[serial]
+fn a_missed_probe_leaves_the_paint_unconfirmed() {
+    for probe in [PaintProbe::Blank, PaintProbe::Unanswered] {
+        reset_watchdog_state();
+
+        let painted = record_paint_probe(probe);
+
+        assert!(!painted, "{probe:?} is not a paint");
+        assert!(
+            !PAINT_CONFIRMED.load(Ordering::SeqCst),
+            "{probe:?} must not latch a paint"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn origin_ready_reports_a_200_origin() {
     let (listener, url) = origin_url();
