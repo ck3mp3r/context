@@ -9,10 +9,6 @@ use commands::PageParams;
 #[path = "../../test/cli/utils.rs"]
 mod utils_test;
 
-#[cfg(test)]
-#[path = "../../test/cli/api_client.rs"]
-mod api_client_test;
-
 use clap::{Parser, Subcommand};
 use miette::Result;
 

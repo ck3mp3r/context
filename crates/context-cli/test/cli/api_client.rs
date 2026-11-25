@@ -1,6 +1,6 @@
-use crate::cli::api_client::*;
+use super::*;
 
-use context_core::{clear_base_path, get_config_dir, get_config_path, set_base_path};
+use context_core::{clear_base_path, get_config_dir, get_config_path, set_base_path, settings};
 use serial_test::serial;
 use tempfile::TempDir;
 
@@ -257,5 +257,121 @@ fn missing_config_root_uses_the_profile_port() {
         base_url,
         format!("http://localhost:{PROFILE_PORT}"),
         "a missing config root should fall back to the profile port"
+    );
+}
+
+// =============================================================================
+// Loud settings failures: an unreadable, unparsable or invalid file warns and
+// the client carries on. The absent and partial states stay silent.
+// =============================================================================
+
+#[test]
+#[serial]
+fn corrupt_settings_file_warns_with_the_path_and_the_parse_error() {
+    let base = base_with_config("port = \"not-a-number\"\n");
+    let path = get_config_path();
+    let path_text = path.display().to_string();
+    let load_error = settings::load(&path).expect_err("a corrupt file must not load");
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    let warning = warning.expect("a parse failure must produce a warning");
+    assert_eq!(
+        warning,
+        settings_warning(&path, &load_error),
+        "the returned warning must be the formatted warning"
+    );
+    assert!(
+        warning.contains(&path_text),
+        "the warning must name the file, got: {warning}"
+    );
+    assert!(
+        warning.contains("not-a-number") || warning.contains("invalid type"),
+        "the warning must name the parse error, got: {warning}"
+    );
+}
+
+#[test]
+#[serial]
+fn invalid_stored_value_warns_with_the_path() {
+    let base = base_with_config("port = 0\n");
+    let path = get_config_path();
+    let path_text = path.display().to_string();
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    let warning = warning.expect("an out-of-range value must produce a warning");
+    assert!(
+        warning.contains(&path_text),
+        "the warning must name the file, got: {warning}"
+    );
+    assert!(
+        warning.contains("port must be between"),
+        "the warning must name the validation error, got: {warning}"
+    );
+}
+
+#[test]
+#[serial]
+fn directory_where_the_settings_file_belongs_warns() {
+    let base = TempDir::new().expect("Failed to create base temp dir");
+    set_base_path(base.path().to_path_buf());
+    let path = get_config_path();
+    let path_text = path.display().to_string();
+    std::fs::create_dir_all(&path).expect("directory creates");
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    let warning = warning.expect("a read failure must produce a warning");
+    assert!(
+        warning.contains(&path_text),
+        "the warning must name the file, got: {warning}"
+    );
+}
+
+#[test]
+#[serial]
+fn absent_settings_file_is_silent() {
+    let base = TempDir::new().expect("Failed to create base temp dir");
+    set_base_path(base.path().to_path_buf());
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    assert_eq!(
+        warning, None,
+        "a missing settings file is the normal first run and stays silent"
+    );
+}
+
+#[test]
+#[serial]
+fn partial_settings_file_is_silent() {
+    let base = base_with_config("verbosity = 2\n");
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    assert_eq!(
+        warning, None,
+        "absent keys resolve to defaults without a warning"
     );
 }

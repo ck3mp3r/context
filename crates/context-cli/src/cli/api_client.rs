@@ -2,6 +2,7 @@ use reqwest::{Client, Response};
 use rustls_platform_verifier::Verifier;
 use serde::de::DeserializeOwned;
 use std::env;
+use std::path::Path;
 use std::sync::Arc;
 
 use context_core::{settings, try_get_config_path};
@@ -60,9 +61,14 @@ impl ApiClient {
     /// 3. Stored settings port, dialed through `localhost`
     /// 4. Default: http://localhost:3737 (release) or http://localhost:3738 (debug)
     pub fn new(api_url: Option<String>) -> Self {
-        let base_url = api_url
-            .or_else(|| env::var("C5T_API_URL").ok())
-            .unwrap_or_else(stored_base_url);
+        let (base_url, warning) = match api_url.or_else(|| env::var("C5T_API_URL").ok()) {
+            Some(url) => (url, None),
+            None => stored_base_url(),
+        };
+
+        if let Some(warning) = warning {
+            eprintln!("{warning}");
+        }
 
         Self {
             base_url,
@@ -131,21 +137,46 @@ impl ApiClient {
 /// can dial, so the port is always reached through `localhost`. A missing,
 /// unreadable, unparsable, or invalid settings file yields the profile default.
 /// So does an environment that names no config root: the client still dials.
-fn stored_base_url() -> String {
+///
+/// The second element is the warning the caller prints when the file was
+/// ignored. An absent file is the normal first run and a file with absent keys
+/// resolves to defaults: both are silent, so only a read, parse or validation
+/// failure produces a warning.
+fn stored_base_url() -> (String, Option<String>) {
     let Some(path) = try_get_config_path() else {
-        return DEFAULT_API_URL.to_string();
+        return (DEFAULT_API_URL.to_string(), None);
     };
 
-    let Ok(stored) = settings::load(&path) else {
-        return DEFAULT_API_URL.to_string();
+    let stored = match settings::load(&path) {
+        Ok(stored) => stored,
+        Err(error) => {
+            let warning = settings_warning(&path, &error);
+            return (DEFAULT_API_URL.to_string(), Some(warning));
+        }
     };
 
-    if settings::validate_stored(&stored).is_err() {
-        return DEFAULT_API_URL.to_string();
+    if let Err(error) = settings::validate_stored(&stored) {
+        let warning = settings_warning(&path, &error);
+        return (DEFAULT_API_URL.to_string(), Some(warning));
     }
 
-    stored
+    let url = stored
         .port
         .map(|port| format!("http://localhost:{port}"))
-        .unwrap_or_else(|| DEFAULT_API_URL.to_string())
+        .unwrap_or_else(|| DEFAULT_API_URL.to_string());
+
+    (url, None)
 }
+
+/// One-line warning for a settings file the client ignored.
+///
+/// The path is named in front of the error on purpose: `Parse` and `Io` repeat
+/// it in their own Display, while `Validation` carries no path at all. Printing
+/// stays with the caller.
+fn settings_warning(path: &Path, error: &settings::SettingsError) -> String {
+    format!("c5t: ignoring settings file {}: {error}", path.display())
+}
+
+#[cfg(test)]
+#[path = "../../test/cli/api_client.rs"]
+mod api_client_test;

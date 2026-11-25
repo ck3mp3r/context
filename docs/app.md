@@ -158,7 +158,9 @@ Stored settings live in `config.toml` under the profile configuration directory:
 | Debug | `~/Library/Application Support/c5t-dev/config.toml` |
 | Release | `~/Library/Application Support/c5t/config.toml` |
 
-`XDG_CONFIG_HOME` replaces the macOS configuration root, and `c5t api --home` replaces the root for one run.
+`XDG_CONFIG_HOME` does not move the configuration root. The root is the platform location: `~/Library/Application Support` on macOS, `%APPDATA%` on Windows and `~/.config` elsewhere. The app and `context-service` start without the shell's environment while a terminal CLI inherits it, so honoring the variable would give one profile two `config.toml` files. `c5t api --home` replaces the root for one run.
+
+Older builds did read `XDG_CONFIG_HOME`, so a legacy `$XDG_CONFIG_HOME/c5t/config.toml` (debug: `c5t-dev`) is copied into the platform root when no native file exists. The copy runs once: an existing native file wins and is never overwritten.
 
 The file holds any of `host`, `port`, `verbosity`, `enable_docs`, `skills_dir`, and `start_at_login`. An absent key means "use the built-in default"; the service resolves the file over the defaults at startup.
 
@@ -169,9 +171,21 @@ Precedence, highest first:
 3. `config.toml`.
 4. Built-in defaults: port 3738 (debug) or 3737 (release), host `0.0.0.0` for the CLI and loopback for the service, verbosity 0, docs off, `skills_dir` under the data directory, `start_at_login` on.
 
+### Environment overrides
+
+The same order holds for every override: an explicit flag or an environment variable beats `config.toml`, and `config.toml` beats the built-in defaults.
+
+| Override | Effect | Position |
+|----------|--------|----------|
+| `--api-url` | Base URL the CLI client calls | First: beats `C5T_API_URL`, the stored `port` and the profile URL |
+| `C5T_API_URL` | Base URL the CLI client calls | Second: used when `--api-url` is absent; beats the stored `port` and the profile URL |
+| `C5T_SKILLS_DIR` | Skills cache directory | A flag for `skills_dir` only: `--skills-dir` beats it, and it beats the stored `skills_dir` |
+| `C5T_PURGE_RETENTION_DAYS` | Days a tombstone is kept before purge | Beats the built-in 30 days; the file holds no such key |
+| `C5T_GITHUB_TOKEN` | Bearer token for the update check's release-list request | Beats an anonymous request; the file holds no such key |
+
 A stored value applies after the next restart of the process that reads it. The SPA **Settings** page (`/settings`) shows the stored values, the built-in defaults and what the running process uses; a field that differs from the running process is marked **restart to apply**.
 
-A `config.toml` that cannot be parsed, or that carries an out-of-range value, is logged and ignored: the service starts on the built-in defaults.
+A `config.toml` that cannot be read or parsed, that is a directory, or that carries an out-of-range value is reported on stderr and ignored: the service starts, and the CLI client dials, on the built-in defaults. The CLI client prints `c5t: ignoring settings file <path>: <error>`, so a truncated file left by an interrupted write is visible instead of silent. A missing file, the normal first run, and a file with absent keys are silent.
 
 ## Start at login
 
