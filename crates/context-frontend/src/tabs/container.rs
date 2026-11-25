@@ -23,19 +23,13 @@ use crate::pages::{NoteDetail, ProjectDetail, RepoDetail, TaskListDetail};
 pub struct TabScope {
     id: TabId,
     key: TabKey,
-    parent: Option<String>,
     active: Signal<bool>,
 }
 
 impl TabScope {
     /// Bundle a tab's identity with the reactive visibility of its wrapper.
-    pub fn new(id: TabId, key: TabKey, parent: Option<String>, active: Signal<bool>) -> Self {
-        Self {
-            id,
-            key,
-            parent,
-            active,
-        }
+    pub fn new(id: TabId, key: TabKey, active: Signal<bool>) -> Self {
+        Self { id, key, active }
     }
 
     /// The tab's id, as it appears in `data-tab-id`.
@@ -56,16 +50,6 @@ impl TabScope {
     /// The id of the entity this tab shows.
     pub fn entity_id(&self) -> &str {
         self.key.entity_id()
-    }
-
-    /// The project whose child row holds this tab, when the surface names one.
-    pub fn parent_project(&self) -> Option<&str> {
-        match self.key.kind() {
-            TabRouteKind::Project => Some(self.key.entity_id()),
-            TabRouteKind::TaskList | TabRouteKind::Note | TabRouteKind::Repo => {
-                self.parent.as_deref()
-            }
-        }
     }
 
     /// Whether this tab is the active one, which is what its wrapper's `display` follows.
@@ -117,12 +101,7 @@ fn TabWrapper(registry: TabRegistry, id: TabId, tab_key: TabKey) -> impl IntoVie
     // A memo, not a derived signal: the mount view must re-render only when the flag changes, or
     // every registry update would remount the surface and throw its state away (decision 13).
     let mounted = Memo::new(move |_| registry.mounted(id));
-    let parent = registry
-        .tabs()
-        .into_iter()
-        .find(|tab| tab.id() == id)
-        .and_then(|tab| tab.parent_project().map(str::to_string));
-    provide_context(TabScope::new(id, tab_key, parent, active));
+    provide_context(TabScope::new(id, tab_key, active));
 
     view! {
         <div
