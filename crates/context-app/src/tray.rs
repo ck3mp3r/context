@@ -77,8 +77,8 @@ const UPDATE_TEXT_PREFIX: &str = "Update: ";
 const UPDATE_IDLE_TEXT: &str = "Update: up to date";
 /// Label shown while a check runs.
 const UPDATE_CHECKING_TEXT: &str = "Update: checking…";
-/// Label shown once the candidate installed and the service restarts.
-const UPDATE_READY_TEXT: &str = "Update: ready — restarting";
+/// Label shown once the candidate installed; the restart waits for the user.
+const UPDATE_READY_TEXT: &str = "Update: ready — restart to finish";
 /// Label shown while the candidate installs.
 const UPDATE_INSTALLING_TEXT: &str = "Update: installing";
 /// Label shown when the last attempt failed.

@@ -220,7 +220,11 @@ fn the_installing_row_reports_the_install() {
 fn the_ready_row_reports_the_restart() {
     let status = parse_update(r#"{"current_version":"0.9.0","status":"ready"}"#);
 
-    assert_eq!(update_label(Some(&status)), "Update: ready — restarting");
+    assert_eq!(
+        update_label(Some(&status)),
+        "Update: ready — restart to finish",
+        "the row must not claim a restart that waits for the user"
+    );
 }
 
 #[test]

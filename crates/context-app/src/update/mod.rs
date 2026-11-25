@@ -17,6 +17,7 @@ use context_core::update::{
     write as write_state,
 };
 use context_server::api::notifier::{ChangeNotifier, UpdateMessage};
+use tauri::Manager;
 
 use self::releases::Candidate;
 
@@ -204,7 +205,6 @@ impl UpdateFlow for ServiceUpdateFlow {
         let notifier = self.notifier.clone();
         let publish_path = state_path.clone();
         let executor = install::TauriExecutor::new(self.app.clone());
-        let app = self.app.clone();
         let busy = Arc::clone(&self.busy);
 
         // The plugin API is async, and a blocking wait inside an axum worker
@@ -212,23 +212,54 @@ impl UpdateFlow for ServiceUpdateFlow {
         tauri::async_runtime::spawn_blocking(move || {
             let _release = BusyRelease(busy);
 
-            let outcome = install::install(
-                &executor,
+            let outcome = install::install(&executor, &state_path, move |state| {
+                transition(&publish_path, &notifier, state).map_err(|error| error.to_string())
+            });
+
+            if let Err(error) = outcome {
+                eprintln!("context: update install stopped: {error:?}");
+            }
+        });
+
+        Ok(())
+    }
+
+    fn restart(&self) -> UpdateStateResult<()> {
+        if let Some(refusal) = dev_build_refusal() {
+            return Err(refusal);
+        }
+
+        claim(&self.busy)?;
+
+        let state_path = self.state_path.clone();
+
+        // The gate runs before the task starts, as an install's does: a state
+        // that stages nothing answers 409, not a 202 that no-ops.
+        restart_gate(&state_path, &self.busy)?;
+
+        let app = self.app.clone();
+        let busy = Arc::clone(&self.busy);
+
+        // Spawning a process and respawning a GUI block, and a stalled axum
+        // worker would stall the runtime: the sequence runs on a blocking task.
+        tauri::async_runtime::spawn_blocking(move || {
+            let _release = BusyRelease(busy);
+
+            let gui = app.clone();
+            let outcome = restart_sequence(
                 &state_path,
-                move |state| {
-                    transition(&publish_path, &notifier, state).map_err(|error| error.to_string())
-                },
                 |service| {
                     install::restart_command(service)
                         .spawn()
                         .map(|_child| ())
                         .map_err(|error| format!("Failed to start the new service: {error}"))
                 },
+                move || respawn_gui(&gui),
                 move || app.exit(0),
             );
 
             if let Err(error) = outcome {
-                eprintln!("context: update install stopped: {error:?}");
+                eprintln!("context: update restart stopped: {error:?}");
             }
         });
 
@@ -282,10 +313,10 @@ fn release(busy: &Mutex<bool>) {
     *busy.lock().unwrap() = false;
 }
 
-/// Refuse an install in a debug build: there is no bundle to swap.
+/// Refuse an install or restart in a debug build: there is no bundle to swap.
 fn dev_build_refusal() -> Option<UpdateStateError> {
     cfg!(debug_assertions).then(|| UpdateStateError::Invalid {
-        message: "update install is disabled in development builds".to_string(),
+        message: "update install and restart are disabled in development builds".to_string(),
     })
 }
 
@@ -307,6 +338,100 @@ fn install_rejection(error: install::InstallError) -> UpdateStateError {
         },
         install::InstallError::Failed(message) => UpdateStateError::Invalid { message },
     }
+}
+
+/// Whether `state` carries a bundle an install staged and the process has not run.
+///
+/// Only `ready` does: the swap finished, and the old binary still serves it. A
+/// state that is mid-flight answers [`UpdateStateError::Busy`]; anything else has
+/// nothing to restart into.
+pub(crate) fn restart_target(state: &UpdateState) -> UpdateStateResult<()> {
+    match state.status {
+        UpdateStatus::Ready => Ok(()),
+        UpdateStatus::Checking | UpdateStatus::Downloading | UpdateStatus::Installing => {
+            Err(UpdateStateError::Busy)
+        }
+        UpdateStatus::Idle | UpdateStatus::Available | UpdateStatus::Failed => {
+            Err(UpdateStateError::Invalid {
+                message: "no installed update to restart into".to_string(),
+            })
+        }
+    }
+}
+
+/// Gate a restart trigger against the state, releasing the claim on a refusal.
+///
+/// The trigger runs this before it starts the sequence, so a state that stages
+/// nothing answers 409 at once. A refused trigger leaves the flow free for the
+/// next one; an accepted trigger keeps the claim while the sequence runs.
+pub(crate) fn restart_gate(state_path: &Path, busy: &Mutex<bool>) -> UpdateStateResult<()> {
+    let target = match load_state(state_path) {
+        Ok(state) => restart_target(&state),
+        Err(error) => Err(UpdateStateError::Io {
+            message: error.to_string(),
+        }),
+    };
+
+    if target.is_err() {
+        release(busy);
+    }
+
+    target
+}
+
+/// Run the restart sequence: spawn the new service, respawn the GUI, exit.
+///
+/// The new service starts first and its shell sleeps a second before it execs
+/// the swapped binary, so the old process still answers while the GUI comes
+/// back. The GUI respawn runs next, and the old process exits last: the port and
+/// the single-instance socket are never double-held.
+///
+/// The launchd agent is absent on purpose. No bootstrap, no kickstart, no
+/// re-point: the detached child is the only service owner for this session, and
+/// the registered agent starts the swapped binary at the next login by itself.
+///
+/// A failed spawn leaves the state untouched, so `ready` persists and the user
+/// can try the restart again. The gate is repeated here so a state that moved
+/// between the trigger and the blocking task still stages nothing.
+pub(crate) fn restart_sequence<S, G, X>(
+    state_path: &Path,
+    spawn_service: S,
+    restart_gui: G,
+    exit: X,
+) -> UpdateStateResult<()>
+where
+    S: FnOnce(&Path) -> Result<(), String>,
+    G: FnOnce(),
+    X: FnOnce(),
+{
+    let state = load_state(state_path).map_err(|error| UpdateStateError::Io {
+        message: error.to_string(),
+    })?;
+    restart_target(&state)?;
+
+    let service = crate::server::sibling_service_path()
+        .map_err(|message| UpdateStateError::Invalid { message })?;
+    spawn_service(&service).map_err(|message| UpdateStateError::Invalid { message })?;
+
+    restart_gui();
+    exit();
+
+    Ok(())
+}
+
+/// End the GUIs this service spawned, then bring a fresh one up.
+///
+/// A missing service state or a GUI that will not start is logged and the
+/// restart goes on: the new service keeps serving, and a close and reopen of
+/// the GUI finds it.
+fn respawn_gui(app: &tauri::AppHandle) {
+    let Some(gui) = app.try_state::<crate::launcher::ServiceState>() else {
+        eprintln!("context: the service state is missing; the GUI is not respawned");
+        return;
+    };
+
+    gui.terminate_children();
+    gui.launch_gui(None);
 }
 
 /// Read the state file, reporting the default state when it cannot be read.

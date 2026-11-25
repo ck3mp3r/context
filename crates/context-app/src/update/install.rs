@@ -1,8 +1,10 @@
-//! The consent install sequence: download, verify, swap, restart.
+//! The consent install sequence: download, verify, swap.
 //!
 //! The updater plugin downloads the signed artifact and swaps the bundle;
-//! everything around it — the guards, the phase transitions, the restart
-//! bootstrap — lives here, so a fake executor drives the whole sequence in tests.
+//! everything around it — the guards and the phase transitions — lives here, so
+//! a fake executor drives the whole sequence in tests. The sequence ends at
+//! `ready`: the bundle is staged on disk and this process keeps serving it. The
+//! restart that runs it is [`super::ServiceUpdateFlow::restart`].
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -104,22 +106,14 @@ pub(crate) fn install_target(state: &UpdateState) -> Result<String, InstallError
 
 /// Run the install sequence for the candidate the state offers.
 ///
-/// `publish` records each phase — the flow writes the file and broadcasts it —,
-/// `spawn_bootstrap` starts the delayed restart of the service, and `ready_exit`
-/// ends the old process once the new one is on its way. Nothing runs while the
-/// state offers no candidate.
-pub(crate) fn install<E, P, S, X>(
-    executor: &E,
-    state_path: &Path,
-    publish: P,
-    spawn_bootstrap: S,
-    ready_exit: X,
-) -> Result<(), InstallError>
+/// `publish` records each phase — the flow writes the file and broadcasts it.
+/// The sequence ends at `ready`: nothing spawns the swapped service and nothing
+/// exits this process, because the running binary keeps serving the staged
+/// bundle from its open inode. Nothing runs while the state offers no candidate.
+pub(crate) fn install<E, P>(executor: &E, state_path: &Path, publish: P) -> Result<(), InstallError>
 where
     E: BundleExecutor,
     P: Fn(UpdateState) -> Result<(), String> + Sync,
-    S: FnOnce(&Path) -> Result<(), String>,
-    X: FnOnce(),
 {
     let state = load_state(state_path).map_err(|error| InstallError::Failed(error.to_string()))?;
     let manifest = install_target(&state)?;
@@ -144,13 +138,6 @@ where
 
     publish(ready_state(&state)).map_err(InstallError::Failed)?;
 
-    let service = crate::server::sibling_service_path().map_err(InstallError::Failed)?;
-    if let Err(message) = spawn_bootstrap(&service) {
-        record_failure(&publish, &message);
-        return Err(InstallError::Failed(message));
-    }
-
-    ready_exit();
     Ok(())
 }
 

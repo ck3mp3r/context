@@ -1,7 +1,7 @@
 //! Tests for the update endpoints.
 //!
 //! Covers the GET/POST contract: the persisted state becomes the response, and
-//! the two triggers forward to the injected flow and map its errors.
+//! the triggers forward to the injected flow and map its errors.
 
 use std::sync::{Arc, Mutex};
 
@@ -89,6 +89,14 @@ impl UpdateFlow for FakeFlow {
             .lock()
             .expect("calls lock")
             .push("install".to_string());
+        self.answer.outcome()
+    }
+
+    fn restart(&self) -> UpdateStateResult<()> {
+        self.calls
+            .lock()
+            .expect("calls lock")
+            .push("restart".to_string());
         self.answer.outcome()
     }
 
@@ -251,16 +259,29 @@ async fn install_update_returns_accepted() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn restart_update_returns_accepted() {
+    let flow = FakeFlow::default();
+    let app = test_app(flow.clone()).await;
+
+    let (status, _) = call(&app, "POST", "/api/v1/update/restart", None).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(flow.calls(), vec!["restart".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_busy_flow_maps_to_conflict() {
     let app = test_app(FakeFlow::with_answer(Answer::Busy)).await;
 
     let (check_status, check_body) =
         call(&app, "POST", "/api/v1/update/check", Some(json!({}))).await;
     let (install_status, install_body) = call(&app, "POST", "/api/v1/update/install", None).await;
+    let (restart_status, restart_body) = call(&app, "POST", "/api/v1/update/restart", None).await;
 
     assert_eq!(check_status, StatusCode::CONFLICT);
     assert_eq!(install_status, StatusCode::CONFLICT);
-    for body in [check_body, install_body] {
+    assert_eq!(restart_status, StatusCode::CONFLICT);
+    for body in [check_body, install_body, restart_body] {
         let message = body["error"].as_str().expect("error envelope carries text");
         assert!(
             message.contains("already running"),
@@ -276,10 +297,12 @@ async fn an_unavailable_flow_maps_to_service_unavailable() {
     let (check_status, check_body) =
         call(&app, "POST", "/api/v1/update/check", Some(json!({}))).await;
     let (install_status, install_body) = call(&app, "POST", "/api/v1/update/install", None).await;
+    let (restart_status, restart_body) = call(&app, "POST", "/api/v1/update/restart", None).await;
 
     assert_eq!(check_status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(install_status, StatusCode::SERVICE_UNAVAILABLE);
-    for body in [check_body, install_body] {
+    assert_eq!(restart_status, StatusCode::SERVICE_UNAVAILABLE);
+    for body in [check_body, install_body, restart_body] {
         let message = body["error"].as_str().expect("error envelope carries text");
         assert!(
             message.contains("No update flow"),
@@ -296,6 +319,7 @@ fn update_paths_are_registered_in_the_openapi_document() {
         "/api/v1/update/status",
         "/api/v1/update/check",
         "/api/v1/update/install",
+        "/api/v1/update/restart",
     ] {
         assert!(
             document.paths.paths.contains_key(path),

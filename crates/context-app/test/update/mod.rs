@@ -1,12 +1,14 @@
-//! Tests for the update flow: the gating decision, the busy guard, and the
-//! startup reconciliation after an install.
+//! Tests for the update flow: the gating decision, the busy guard, the startup
+//! reconciliation after an install, and the restart sequence.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{
-    CheckDecision, CheckGate, claim, dev_build_refusal, read_state, release, settled_after_install,
-    should_check, state_available, state_with, transition,
+    CheckDecision, CheckGate, claim, dev_build_refusal, read_state, release, restart_gate,
+    restart_sequence, restart_target, settled_after_install, should_check, state_available,
+    state_with, transition,
 };
 use crate::update::releases::{Candidate, manifest_url};
 use context_core::settings::Settings;
@@ -41,12 +43,12 @@ fn gate(auto_update: bool) -> CheckGate<impl Fn() -> Settings> {
 
 #[cfg(debug_assertions)]
 #[test]
-fn a_debug_build_refuses_to_install() {
-    let refusal = dev_build_refusal().expect("a debug build must refuse an install");
+fn a_debug_build_refuses_to_install_and_restart() {
+    let refusal = dev_build_refusal().expect("a debug build must refuse install and restart");
 
     assert!(
-        matches!(refusal, UpdateStateError::Invalid { ref message } if message.contains("development builds")),
-        "the refusal names the development build, got: {refusal:?}"
+        matches!(refusal, UpdateStateError::Invalid { ref message } if message.contains("development builds") && message.contains("restart")),
+        "the refusal names the development build and both actions, got: {refusal:?}"
     );
 }
 
@@ -307,5 +309,221 @@ fn the_gate_declines_an_automatic_check_while_auto_update_is_off() {
         gate(false).decide(false),
         CheckDecision::Decline,
         "auto-update off must not claim the flow"
+    );
+}
+
+/// State an install leaves behind: the swapped bundle waits for a restart.
+fn ready_state() -> UpdateState {
+    UpdateState {
+        status: UpdateStatus::Ready,
+        current_version: "0.9.0".to_string(),
+        candidate_version: Some("0.9.0".to_string()),
+        candidate_tag: Some("v0.9.0".to_string()),
+        ..UpdateState::default()
+    }
+}
+
+/// State with a candidate the user has not consented to.
+fn available_state() -> UpdateState {
+    UpdateState {
+        status: UpdateStatus::Available,
+        current_version: "0.8.0".to_string(),
+        candidate_version: Some("0.9.0".to_string()),
+        candidate_tag: Some("v0.9.0".to_string()),
+        ..UpdateState::default()
+    }
+}
+
+/// State file inside a temp dir this test alone owns.
+fn state_file(state: &UpdateState) -> (TempDir, PathBuf) {
+    let dir = TempDir::new().expect("Failed to create test temp dir");
+    let path = dir.path().join("update.json");
+    context_core::update::write(&path, state).expect("the state file writes");
+
+    (dir, path)
+}
+
+#[test]
+fn a_ready_state_carries_a_restart_target() {
+    assert!(
+        restart_target(&ready_state()).is_ok(),
+        "a staged bundle is the thing the restart runs"
+    );
+}
+
+#[test]
+fn a_mid_flight_state_is_busy() {
+    for status in [
+        UpdateStatus::Checking,
+        UpdateStatus::Downloading,
+        UpdateStatus::Installing,
+    ] {
+        let state = UpdateState {
+            status,
+            ..ready_state()
+        };
+
+        assert!(
+            matches!(restart_target(&state), Err(UpdateStateError::Busy)),
+            "{status:?} must report the run in flight"
+        );
+    }
+}
+
+#[test]
+fn a_state_without_a_staged_bundle_has_no_restart_target() {
+    for status in [
+        UpdateStatus::Idle,
+        UpdateStatus::Available,
+        UpdateStatus::Failed,
+    ] {
+        let state = UpdateState {
+            status,
+            ..ready_state()
+        };
+
+        assert!(
+            matches!(
+                restart_target(&state),
+                Err(UpdateStateError::Invalid { .. })
+            ),
+            "{status:?} must have nothing to restart into"
+        );
+    }
+}
+
+#[test]
+fn a_restart_gate_refuses_a_state_without_a_staged_bundle() {
+    let (_dir, path) = state_file(&available_state());
+    let busy = Mutex::new(false);
+    claim(&busy).expect("the trigger claims the flow");
+
+    let outcome = restart_gate(&path, &busy);
+
+    assert!(
+        matches!(outcome, Err(UpdateStateError::Invalid { .. })),
+        "a state with no staged bundle must answer 409, not a 202 that no-ops, got: {outcome:?}"
+    );
+    assert!(
+        claim(&busy).is_ok(),
+        "a refused restart must release the claim, so the next trigger is not Busy"
+    );
+}
+
+#[test]
+fn a_restart_gate_holds_the_claim_for_a_staged_bundle() {
+    let (_dir, path) = state_file(&ready_state());
+    let busy = Mutex::new(false);
+    claim(&busy).expect("the trigger claims the flow");
+
+    assert!(
+        restart_gate(&path, &busy).is_ok(),
+        "a staged bundle opens the gate"
+    );
+    assert!(
+        matches!(claim(&busy), Err(UpdateStateError::Busy)),
+        "the claim stays held while the sequence runs"
+    );
+}
+
+#[test]
+fn a_restart_spawns_the_service_then_respawns_the_gui_then_exits() {
+    let (_dir, path) = state_file(&ready_state());
+    let log = Mutex::new(Vec::new());
+
+    let outcome = restart_sequence(
+        &path,
+        |service| {
+            log.lock()
+                .expect("log lock")
+                .push(format!("spawn {}", service.display()));
+            Ok(())
+        },
+        || log.lock().expect("log lock").push("gui".to_string()),
+        || log.lock().expect("log lock").push("exit".to_string()),
+    );
+
+    assert!(outcome.is_ok(), "the staged update restarts: {outcome:?}");
+
+    let log = log.lock().expect("log lock").clone();
+    assert_eq!(
+        log.len(),
+        3,
+        "the restart has exactly three steps — spawn, GUI, exit — and no launchd work, got: {log:?}"
+    );
+    assert!(
+        log[0].starts_with("spawn ") && log[0].ends_with("context-service"),
+        "the sequence starts the swapped service first, got: {log:?}"
+    );
+    assert_eq!(
+        log[1], "gui",
+        "the GUI respawns before the old process exits, so the new window sees a healthy origin"
+    );
+    assert_eq!(
+        log[2], "exit",
+        "the shell's sleep 1 lets the old process release the port and the single-instance socket"
+    );
+
+    assert_eq!(
+        read_state(&path).status,
+        UpdateStatus::Ready,
+        "the restart rewrites no state; the new process settles it at its own startup"
+    );
+}
+
+#[test]
+fn a_failed_service_spawn_keeps_the_old_process_serving() {
+    let (_dir, path) = state_file(&ready_state());
+    let gui = AtomicBool::new(false);
+    let exited = AtomicBool::new(false);
+
+    let outcome = restart_sequence(
+        &path,
+        |_service| Err("no shell to restart through".to_string()),
+        || gui.store(true, Ordering::SeqCst),
+        || exited.store(true, Ordering::SeqCst),
+    );
+
+    assert!(
+        matches!(outcome, Err(UpdateStateError::Invalid { ref message }) if message.contains("no shell")),
+        "the failure names the spawn error, got: {outcome:?}"
+    );
+    assert!(
+        !gui.load(Ordering::SeqCst),
+        "a restart that cannot start the new service must not touch the GUI"
+    );
+    assert!(
+        !exited.load(Ordering::SeqCst),
+        "a restart that cannot start the new service must keep serving"
+    );
+    assert_eq!(
+        read_state(&path).status,
+        UpdateStatus::Ready,
+        "ready persists, so the user can try the restart again"
+    );
+}
+
+#[test]
+fn a_restart_without_a_staged_bundle_runs_nothing() {
+    let (_dir, path) = state_file(&available_state());
+    let log = Mutex::new(Vec::new());
+
+    let outcome = restart_sequence(
+        &path,
+        |_service| {
+            log.lock().expect("log lock").push("spawn".to_string());
+            Ok(())
+        },
+        || log.lock().expect("log lock").push("gui".to_string()),
+        || log.lock().expect("log lock").push("exit".to_string()),
+    );
+
+    assert!(
+        matches!(outcome, Err(UpdateStateError::Invalid { .. })),
+        "a state without a staged bundle refuses the restart, got: {outcome:?}"
+    );
+    assert!(
+        log.lock().expect("log lock").is_empty(),
+        "a refused restart must not spawn, respawn or exit anything"
     );
 }

@@ -1,6 +1,6 @@
 //! Update status and trigger endpoints.
 //!
-//! `GET /api/v1/update/status` reports the persisted update state. The two POST
+//! `GET /api/v1/update/status` reports the persisted update state. The POST
 //! endpoints forward to the injected flow and return at once: the flow runs the
 //! work on its own task and owns every `/ws` broadcast, so these handlers never
 //! notify.
@@ -143,6 +143,29 @@ pub async fn install_update<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>
     State(state): State<AppState<D, G, U>>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state.update().install().map_err(trigger_error)?;
+
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Restart onto the bundle an install staged.
+///
+/// The flow spawns the swapped service, respawns the GUI and exits the old
+/// process. Nothing here touches launchd.
+#[utoipa::path(
+    post,
+    path = "/api/v1/update/restart",
+    tag = "updates",
+    responses(
+        (status = 202, description = "Restart started; the GUI reopens and the new service takes over"),
+        (status = 409, description = "No installed update waits, or a run is in flight", body = ErrorResponse),
+        (status = 503, description = "No update flow is attached", body = ErrorResponse)
+    )
+)]
+#[instrument(skip(state))]
+pub async fn restart_update<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    state.update().restart().map_err(trigger_error)?;
 
     Ok(StatusCode::ACCEPTED)
 }

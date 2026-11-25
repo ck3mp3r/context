@@ -109,6 +109,7 @@ macro_rules! routes {
         super::v1::get_update_status,
         super::v1::check_for_update,
         super::v1::install_update,
+        super::v1::restart_update,
     ),
     components(
         schemas(
@@ -272,6 +273,7 @@ pub fn create_router<
         get "/update/status" => super::v1::get_update_status,
         post "/update/check" => super::v1::check_for_update,
         post "/update/install" => super::v1::install_update,
+        post "/update/restart" => super::v1::restart_update,
         get "/task-lists/{id}/stats" => super::v1::get_task_list_stats,
     });
 

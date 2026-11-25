@@ -1,9 +1,12 @@
 //! Tests for the consent install sequence: the guards, the phase transitions,
 //! the restart command, and the fake-executor success and failure paths.
+//!
+//! The install takes no restart seam. Its only vocabulary is the executor and
+//! the publisher, so a swap ends at `ready` and cannot spawn the new service or
+//! exit the old process: the running binary keeps serving the staged bundle.
 
 use std::path::Path;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::install::{
     BundleExecutor, InstallError, install, install_target, restart_command, shell_quote,
@@ -151,21 +154,14 @@ fn states_without_a_candidate_are_not_installable() {
 fn a_refused_install_leaves_the_state_file_alone() {
     let (_dir, path) = state_file(&UpdateState::default());
     let statuses = Mutex::new(Vec::new());
-    let exited = AtomicBool::new(false);
 
     let outcome = install(
         &FakeExecutor::succeeding(),
         &path,
         publisher(&path, &statuses),
-        |_path| Ok(()),
-        || exited.store(true, Ordering::SeqCst),
     );
 
     assert!(matches!(outcome, Err(InstallError::NotAvailable)));
-    assert!(
-        !exited.load(Ordering::SeqCst),
-        "a refused install must not exit"
-    );
     assert_eq!(
         load_state(&path).expect("the state file loads").status,
         UpdateStatus::Idle,
@@ -174,24 +170,12 @@ fn a_refused_install_leaves_the_state_file_alone() {
 }
 
 #[test]
-fn a_successful_swap_ends_ready_and_restarts() {
+fn a_successful_swap_ends_ready_and_stages_the_bundle() {
     let (_dir, path) = state_file(&available_state());
     let statuses = Mutex::new(Vec::new());
-    let log = Mutex::new(Vec::new());
     let executor = FakeExecutor::succeeding();
 
-    let outcome = install(
-        &executor,
-        &path,
-        publisher(&path, &statuses),
-        |service| {
-            log.lock()
-                .expect("log lock")
-                .push(format!("spawn {}", service.display()));
-            Ok(())
-        },
-        || log.lock().expect("log lock").push("exit".to_string()),
-    );
+    let outcome = install(&executor, &path, publisher(&path, &statuses));
 
     assert!(outcome.is_ok(), "the swap succeeds: {outcome:?}");
     assert_eq!(
@@ -211,7 +195,11 @@ fn a_successful_swap_ends_ready_and_restarts() {
     );
 
     let stored = load_state(&path).expect("the state file loads");
-    assert_eq!(stored.status, UpdateStatus::Ready);
+    assert_eq!(
+        stored.status,
+        UpdateStatus::Ready,
+        "ready is the install's terminal state: the bundle is staged, nothing restarts"
+    );
     assert_eq!(stored.candidate_version.as_deref(), Some("0.9.0"));
     assert_eq!(stored.candidate_tag.as_deref(), Some("v0.9.0"));
     assert_eq!(stored.candidate_notes.as_deref(), Some("Release notes"));
@@ -219,39 +207,20 @@ fn a_successful_swap_ends_ready_and_restarts() {
         stored.current_version, "0.9.0",
         "the new bundle runs the candidate version, so reconciliation can settle"
     );
-
-    let log = log.lock().expect("log lock").clone();
-    assert_eq!(
-        log.len(),
-        2,
-        "the bootstrap spawns once, then the exit runs"
-    );
-    assert!(log[0].starts_with("spawn ") && log[0].ends_with("context-service"));
-    assert_eq!(log[1], "exit");
 }
 
 #[test]
 fn a_failed_swap_ends_failed_without_restarting() {
     let (_dir, path) = state_file(&available_state());
     let statuses = Mutex::new(Vec::new());
-    let log = Mutex::new(Vec::new());
 
     let outcome = install(
         &FakeExecutor::failing("the bundle could not be replaced"),
         &path,
         publisher(&path, &statuses),
-        |_service| {
-            log.lock().expect("log lock").push("spawn".to_string());
-            Ok(())
-        },
-        || log.lock().expect("log lock").push("exit".to_string()),
     );
 
     assert!(matches!(outcome, Err(InstallError::Failed(_))));
-    assert!(
-        log.lock().expect("log lock").is_empty(),
-        "a failed swap must not restart"
-    );
 
     let stored = load_state(&path).expect("the state file loads");
     assert_eq!(stored.status, UpdateStatus::Failed);
@@ -261,38 +230,6 @@ fn a_failed_swap_ends_failed_without_restarting() {
             .as_deref()
             .is_some_and(|message| message.contains("the bundle could not be replaced")),
         "the failure message names the plugin error, got: {:?}",
-        stored.message
-    );
-}
-
-#[test]
-fn a_failed_restart_does_not_exit() {
-    let (_dir, path) = state_file(&available_state());
-    let statuses = Mutex::new(Vec::new());
-    let exited = AtomicBool::new(false);
-
-    let outcome = install(
-        &FakeExecutor::succeeding(),
-        &path,
-        publisher(&path, &statuses),
-        |_service| Err("no shell to restart through".to_string()),
-        || exited.store(true, Ordering::SeqCst),
-    );
-
-    assert!(matches!(outcome, Err(InstallError::Failed(_))));
-    assert!(
-        !exited.load(Ordering::SeqCst),
-        "a service that cannot restart must keep serving"
-    );
-
-    let stored = load_state(&path).expect("the state file loads");
-    assert_eq!(stored.status, UpdateStatus::Failed);
-    assert!(
-        stored
-            .message
-            .as_deref()
-            .is_some_and(|message| message.contains("no shell")),
-        "the failure message names the restart error, got: {:?}",
         stored.message
     );
 }

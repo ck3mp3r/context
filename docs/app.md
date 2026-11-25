@@ -348,8 +348,9 @@ The app updates itself from GitHub releases. The service owns the flow, so an up
 
 1. The service resolves the release that its channel allows — with the pre-release channel on, every release is a candidate; with it off, only stable releases — and takes the newest version. Versions follow semver, so a build-suffix pre-release such as `0.8.1-b118f3a` sorts below `0.8.1` and is never offered over it.
 2. The SPA banner offers the candidate. Nothing downloads until Install is pressed.
-3. On consent the service downloads the signed `Context.app.tar.gz`, verifies it against the pinned public key, swaps the bundle atomically, starts the new service binary and exits. The window survives and reconnects on `/ws` when the new server answers; the tray disappears and returns with the new process.
-4. Progress lives in `update.json` in the profile configuration directory:
+3. On consent the service downloads the signed `Context.app.tar.gz`, verifies it against the pinned public key, and swaps the bundle atomically. It stops there: the state becomes `ready`, the bundle waits on disk, and the running service keeps serving it.
+4. Restart, from the pill CTA, runs the sequence: the service starts the new service binary with a one-second delay, terminates and respawns the GUI, then exits. The old process releases port 3737 and the single-instance socket while the child still sleeps, so one instance always owns them. The launchd agent is not touched: the detached child owns the session, and at the next login the registered agent starts the new binary by itself.
+5. Progress lives in `update.json` in the profile configuration directory:
 
    | Build | State file |
    |-------|------------|
@@ -389,7 +390,7 @@ No scope is needed: the release list of a public repository is readable with any
 
 - Banner above the navigation and the version badge in the nav: offer, install, dismiss. The badge shows the candidate next to the running version.
 - Tray row `Update: …` in the service menu, refreshed by the same 60-second poll as the sync row. It is informational: installing happens in the banner.
-- REST: `GET /api/v1/update/status`, `POST /api/v1/update/check` with the body `{"manual": true}` or `{"manual": false}`, and `POST /api/v1/update/install`. Every state change is broadcast on `/ws` as `UpdateStateChanged { status, version }`.
+- REST: `GET /api/v1/update/status`, `POST /api/v1/update/check` with the body `{"manual": true}` or `{"manual": false}`, `POST /api/v1/update/install`, and `POST /api/v1/update/restart`. Every state change is broadcast on `/ws` as `UpdateStateChanged { status, version }`.
 
 ### Signing key (one time)
 

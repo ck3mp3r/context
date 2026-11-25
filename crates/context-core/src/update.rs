@@ -99,7 +99,7 @@ pub type UpdateStateResult<T> = Result<T, UpdateStateError>;
 
 /// Seam between the REST layer and the process that runs the update flow.
 ///
-/// Both methods start work on the flow's own task and return immediately; the
+/// Every trigger starts work on the flow's own task and returns immediately; the
 /// flow reports progress through the persisted [`UpdateState`].
 ///
 /// # Trigger contract
@@ -109,8 +109,9 @@ pub type UpdateStateResult<T> = Result<T, UpdateStateError>;
 ///
 /// - A non-manual check declines with `Ok(())` while auto-update is off. It
 ///   writes no state and broadcasts nothing.
-/// - A debug build declines every install with [`UpdateStateError::Invalid`]
-///   before the claim, so an install in a debug build never answers `Busy`.
+/// - A debug build declines every install and restart with
+///   [`UpdateStateError::Invalid`] before the claim, so neither ever answers
+///   `Busy` in a development build.
 ///
 /// A trigger that would start work while another run is in flight answers
 /// [`UpdateStateError::Busy`] unless a decline above applies.
@@ -119,7 +120,17 @@ pub trait UpdateFlow: Send + Sync {
     fn check(&self, manual: bool) -> UpdateStateResult<()>;
 
     /// Start installing the candidate that waits for consent.
+    ///
+    /// The install ends at [`UpdateStatus::Ready`]: the bundle is swapped on
+    /// disk and the running process keeps serving it. Nothing restarts.
     fn install(&self) -> UpdateStateResult<()>;
+
+    /// Restart onto the bundle an install staged.
+    ///
+    /// One sequence, one service owner: start the swapped service, terminate
+    /// and respawn the GUI, then end the old process. The launchd agent is not
+    /// touched, so ownership returns to it at the next login.
+    fn restart(&self) -> UpdateStateResult<()>;
 
     /// Read the persisted update state.
     ///
@@ -130,8 +141,9 @@ pub trait UpdateFlow: Send + Sync {
 
 /// Flow attached when the process has no updater, such as a CLI-only build.
 ///
-/// It never starts work: both [`UpdateFlow::check`] and [`UpdateFlow::install`]
-/// answer [`UpdateStateError::Unavailable`], which the REST layer reports as 503.
+/// It never starts work: [`UpdateFlow::check`], [`UpdateFlow::install`] and
+/// [`UpdateFlow::restart`] answer [`UpdateStateError::Unavailable`], which the
+/// REST layer reports as 503.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoUpdateFlow;
 
@@ -263,6 +275,10 @@ impl UpdateFlow for NoUpdateFlow {
     }
 
     fn install(&self) -> UpdateStateResult<()> {
+        Err(UpdateStateError::Unavailable)
+    }
+
+    fn restart(&self) -> UpdateStateResult<()> {
         Err(UpdateStateError::Unavailable)
     }
 
