@@ -1272,6 +1272,14 @@ pub fn TaskListContent(task_list: Signal<TaskList>) -> impl IntoView {
                     Some(Ok(stats)) => {
                         view! {
                             <div class="flex flex-col h-full">
+                                // Header: the id copy button beside the task list title
+                                <div class="mb-4 flex-shrink-0 flex items-start gap-3" data-task-list-header=tl.id.clone()>
+                                    <div class="flex-shrink-0">
+                                        <CopyableId id=tl.id.clone()/>
+                                    </div>
+                                    <h2 class="flex-1 min-w-0 break-words text-2xl font-bold text-ctp-text">{tl.title.clone()}</h2>
+                                </div>
+
                                 // Description, tags, and external refs (if present)
                                 {(tl.description.is_some() || !tl.tags.is_empty() || !tl.external_refs.is_empty()).then(|| {
                                     view! {

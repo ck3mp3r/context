@@ -851,6 +851,21 @@ async fn spa_body() {
         "the child open writes its URL with replace, so no history entry may appear"
     );
 
+    // The task list detail view carries its own header: the list title and an id copy button.
+    let list_header = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-header=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(list_header.clone().locator("h2"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_text(TASK_LIST_TITLE)
+        .await
+        .expect("the task list detail header should show the fixture task list title");
+    expect(list_header.locator("button[title=\"Copy to clipboard\"]"))
+        .with_timeout(UI_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .expect("the task list detail header should show one id copy button");
+
     let child_url = page.url();
     let expected_child_path = format!("/projects/{PROJECT_ID}/task-lists/{TASK_LIST_ID}");
     assert!(
