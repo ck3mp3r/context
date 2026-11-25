@@ -51,6 +51,7 @@ const TASK_LIST_TITLE: &str = "E2E Fixture Task List";
 /// must open that parent project tab first (decision 8).
 const NOTE_ID: &str = "e2e00004";
 const NOTE_PARENT_PROJECT_ID: &str = "e2e00009";
+const NOTE_PARENT_PROJECT_TITLE: &str = "E2E Note Parent Project";
 
 /// The note that names no project, so its tab is parentless and its close is the last close.
 const PARENTLESS_NOTE_ID: &str = "e2e00007";
@@ -905,6 +906,39 @@ async fn spa_boots_and_project_card_navigation_reaches_project_detail() {
     assert!(
         note_url.ends_with(&expected_note_path),
         "the note tab should write {expected_note_path}, got {note_url}"
+    );
+
+    // Pin (parent chip labelled mid-session): the note card opened a project tab this session had
+    // never opened, so the open path resolves its label beside the note's. The parent chip renders
+    // the served title, and no chip keeps the "<Kind> <id>" fallback.
+    let labelled = wait_for_strip(&page, "the parent project chip labelled", |probe| {
+        probe.visible
+            && strip_row(probe, "projects")
+                .iter()
+                .any(|chip| chip.label == NOTE_PARENT_PROJECT_TITLE)
+            && strip_chips(probe)
+                .iter()
+                .all(|chip| !chip.label.contains("e2e000"))
+    })
+    .await;
+    let project_titles: Vec<&str> = strip_row(&labelled, "projects")
+        .iter()
+        .map(|chip| chip.label.as_str())
+        .collect();
+    assert_eq!(
+        project_titles,
+        vec![
+            PROJECT_TITLE,
+            SECOND_PROJECT_TITLE,
+            NOTE_PARENT_PROJECT_TITLE
+        ],
+        "the parent the note card opened renders its title, not the id fallback: {labelled:?}"
+    );
+    assert!(
+        strip_chips(&labelled)
+            .iter()
+            .all(|chip| !chip.label.is_empty()),
+        "no chip renders a blank label: {labelled:?}"
     );
 
     // === Inline surfaces (decision 12): a surface renders inside its tab wrapper ===
@@ -3153,6 +3187,9 @@ fn project_by_path(path: &str) -> Option<String> {
     match id {
         PROJECT_ID => Some(project_record(PROJECT_ID, PROJECT_TITLE)),
         SECOND_PROJECT_ID => Some(project_record(SECOND_PROJECT_ID, SECOND_PROJECT_TITLE)),
+        NOTE_PARENT_PROJECT_ID => {
+            Some(project_record(NOTE_PARENT_PROJECT_ID, NOTE_PARENT_PROJECT_TITLE))
+        }
         _ => None,
     }
 }

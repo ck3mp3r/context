@@ -111,16 +111,18 @@ pub async fn resolve_titles(tabs: TabRegistry, titles: TabTitles, keys: Vec<TabK
     }
 }
 
-/// Open the surface a card click names, and resolve its label when the session holds none.
+/// Open the surface a card click names, and resolve the labels it opened without one.
 ///
 /// A card click is the only path that enqueues a label fetch: boot resolves the identities
-/// `restore_or_boot` reports, so the surface a boot URL names is never fetched twice. The fetch runs
-/// on the local task queue, so the click handler never waits for it.
+/// `restore_or_boot` reports, so the surface a boot URL names is never fetched twice. The resolves
+/// run in the order `open_card` names them, the parent project tab before the surface it holds, and
+/// on the local task queue, so the click handler never waits for one.
 pub fn open_from_card(tabs: TabRegistry, titles: TabTitles, key: TabKey, project_id: Option<&str>) {
-    let Some(pending) = open_card(tabs, key, project_id, &|key| titles.has_label(key)) else {
+    let pending = open_card(tabs, key, project_id, &|key| titles.has_label(key));
+    if pending.is_empty() {
         return;
-    };
-    spawn_local(async move { resolve_title(tabs, titles, pending).await });
+    }
+    spawn_local(async move { resolve_titles(tabs, titles, pending).await });
 }
 
 /// Resolve one label: a 2xx labels the tab, a 404 closes it, any other failure keeps the fallback.

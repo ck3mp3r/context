@@ -32,37 +32,55 @@ pub fn focus_or_open(registry: TabRegistry, key: TabKey) -> TabId {
 /// A surface that names no project opens parentless. A child names the project it hangs under, so
 /// that project's tab opens before the child and the child attaches to it (ruling L).
 pub fn open_surface(registry: TabRegistry, key: TabKey, project_id: Option<&str>) -> TabId {
-    let parent = match key.kind() {
-        TabRouteKind::Project => None,
-        TabRouteKind::TaskList | TabRouteKind::Note | TabRouteKind::Repo => {
-            project_id.filter(|project| !project.is_empty())
-        }
-    };
-    let Some(parent) = parent else {
+    let Some(parent) = open_parent(&key, project_id) else {
         return focus_or_open(registry, key);
     };
-    focus_or_open(registry, TabKey::project(parent));
-    registry.open_in(key, parent)
+    focus_or_open(registry, parent.clone());
+    registry.open_in(key, parent.entity_id())
 }
 
-/// Open the surface a card click names, and report the one identity whose label the caller must
-/// resolve.
+/// Open the surface a card click names, and report the labels the caller must resolve: the parent
+/// project tab this click opens first, then the clicked surface.
 ///
 /// `labelled` is the session's answer for an identity. A surface the session already labels costs no
-/// request, so re-activating a tab and re-opening a surface with a known label issue nothing (decision
-/// 6). A surface with no label needs exactly one fetch, and the caller resolves it without a reload.
+/// request, and a parent that the click only focuses stays quiet, because its label was enqueued when
+/// it opened. So re-activating a tab and re-opening a surface with a known label issue nothing
+/// (decision 6).
 ///
-/// The parent project tab the child opens with keeps the label the session holds: the row above a
-/// child is never the surface the click named, so this reports the clicked identity only.
+/// An unlabelled open asks for one fetch. A fetch that fails for any reason other than 404 stores no
+/// label, so clicking the same card again asks once more: the retry is bounded by a click and
+/// self-healing, never automatic.
 pub fn open_card(
     registry: TabRegistry,
     key: TabKey,
     project_id: Option<&str>,
     labelled: &impl Fn(&TabKey) -> bool,
-) -> Option<TabKey> {
-    let pending = (!labelled(&key)).then(|| key.clone());
+) -> Vec<TabKey> {
+    let parent = open_parent(&key, project_id)
+        .filter(|parent| !is_open(registry, parent) && !labelled(parent));
+    let clicked = (!labelled(&key)).then(|| key.clone());
+
     open_surface(registry, key, project_id);
-    pending
+
+    parent.into_iter().chain(clicked).collect()
+}
+
+/// The parent project identity this surface opens with, when it names one (decisions 7 and 8).
+fn open_parent(key: &TabKey, project_id: Option<&str>) -> Option<TabKey> {
+    match key.kind() {
+        TabRouteKind::Project => None,
+        TabRouteKind::TaskList | TabRouteKind::Note | TabRouteKind::Repo => project_id
+            .filter(|project| !project.is_empty())
+            .map(TabKey::project),
+    }
+}
+
+/// Whether this identity is already open, so its label was enqueued when it opened.
+fn is_open(registry: TabRegistry, key: &TabKey) -> bool {
+    registry
+        .descriptors()
+        .into_iter()
+        .any(|(_, open)| &open == key)
 }
 
 /// The URL of one surface: its identity and the project it hangs under (decisions 11 and 20).

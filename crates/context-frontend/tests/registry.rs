@@ -804,15 +804,15 @@ fn open_surface_focuses_an_open_child_instead_of_duplicating_it() {
 }
 
 #[test]
-fn open_card_reports_one_label_to_resolve_for_a_tab_with_no_label() {
+fn open_card_reports_the_parent_label_before_the_clicked_one() {
     let registry = TabRegistry::new();
 
     let pending = open_card(registry, TabKey::task_list("t1"), Some("p1"), &|_| false);
 
     assert_eq!(
         pending,
-        Some(TabKey::task_list("t1")),
-        "the clicked identity is the one label the open path fetches"
+        vec![TabKey::project("p1"), TabKey::task_list("t1")],
+        "the parent project tab the click opens is resolved before the surface it holds"
     );
     assert_eq!(
         registry.len(),
@@ -827,6 +827,35 @@ fn open_card_reports_one_label_to_resolve_for_a_tab_with_no_label() {
 }
 
 #[test]
+fn open_card_stays_quiet_about_a_parent_that_is_already_open() {
+    let registry = TabRegistry::new();
+    registry.open(TabKey::project("p1"));
+
+    let pending = open_card(registry, TabKey::note("n1"), Some("p1"), &|_| false);
+
+    assert_eq!(
+        pending,
+        vec![TabKey::note("n1")],
+        "a parent that only focused was resolved when it opened"
+    );
+    assert_eq!(registry.len(), 2, "the click opens no second parent tab");
+}
+
+#[test]
+fn open_card_stays_quiet_about_a_parent_whose_label_is_known() {
+    let registry = TabRegistry::new();
+    let labelled = |key: &TabKey| key == &TabKey::project("p1");
+
+    let pending = open_card(registry, TabKey::task_list("t1"), Some("p1"), &labelled);
+
+    assert_eq!(
+        pending,
+        vec![TabKey::task_list("t1")],
+        "a parent the session already labels costs no request"
+    );
+}
+
+#[test]
 fn open_card_asks_for_no_label_a_second_time() {
     let registry = TabRegistry::new();
     let resolved = Cell::new(false);
@@ -835,15 +864,15 @@ fn open_card_asks_for_no_label_a_second_time() {
     let first = open_card(registry, TabKey::note("n1"), None, &labelled);
     assert_eq!(
         first,
-        Some(TabKey::note("n1")),
+        vec![TabKey::note("n1")],
         "the first open of an unlabelled surface resolves its label"
     );
 
     resolved.set(true);
     let again = open_card(registry, TabKey::note("n1"), None, &labelled);
 
-    assert_eq!(
-        again, None,
+    assert!(
+        again.is_empty(),
         "re-opening a surface whose label is known issues no GET"
     );
     assert_eq!(
