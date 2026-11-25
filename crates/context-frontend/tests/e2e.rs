@@ -61,8 +61,10 @@ const NOTE_PARENT_PROJECT_TITLE: &str = "E2E Note Parent Project";
 /// The note that names no project, so its tab is parentless and its close is the last close.
 const PARENTLESS_NOTE_ID: &str = "e2e00007";
 
-/// The port the debug bundle dials for updates (`WS_URL` in `src/websocket.rs`). The stub owns it.
-const WS_ADDR: &str = "127.0.0.1:8080";
+/// The path the debug bundle dials for updates (`WS_PATH` in `src/websocket.rs`). The bundle derives
+/// host and port from the page's own location, so the static server answers this path on the same
+/// ephemeral port it serves the app from.
+const WS_PATH: &str = "/dev/ws";
 
 /// The task the stubbed API serves inside the fixture task list, so a task card exists to open the
 /// task detail surface.
@@ -460,10 +462,6 @@ fn spa_boots_and_project_card_navigation_reaches_project_detail() {
 }
 
 async fn spa_body() {
-    // The debug bundle dials the hardcoded `ws://localhost:8080/dev/ws`, so the stub owns that
-    // exact port and this page connects to it from its first load. A taken port fails here.
-    let socket = WebSocketStub::start();
-
     let root = repo_root();
     build_spa(&root);
 
@@ -475,7 +473,10 @@ async fn spa_body() {
         index.display()
     );
 
+    // One ephemeral port carries the app and its websocket stub, so a preview holding 8080 is a
+    // neighbour, not a collision.
     let server = StaticServer::start(dist);
+    let socket = server.socket();
     let origin = server.origin();
     wait_for_origin(&server.addr, &origin);
     println!("e2e origin ready: {origin}");
@@ -3673,7 +3674,6 @@ async fn spa_body() {
     );
 
     browser.close().await.expect("the browser should close");
-    drop(socket);
     drop(server);
 }
 
@@ -4063,7 +4063,7 @@ fn origin_answers(addr: &SocketAddr) -> bool {
     }
 }
 
-/// Serves `dist/` plus the stubbed API from a loopback port the OS assigns.
+/// Serves `dist/`, the stubbed API, and the websocket stub from one loopback port the OS assigns.
 ///
 /// The server runs on its own thread inside this test process, so it cannot
 /// outlive the run: `Drop` stops the accept loop and joins the thread.
@@ -4073,6 +4073,8 @@ struct StaticServer {
     requests: Arc<Mutex<Vec<String>>>,
     /// The mutable update stub: the pill re-reads `/update/status` after every announcement.
     update: Arc<UpdateStub>,
+    /// The page's websocket, answered from this server's own listener.
+    socket: WebSocketSlot,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -4094,14 +4096,28 @@ impl StaticServer {
         let log = Arc::clone(&requests);
         let update = Arc::new(UpdateStub::new());
         let stub = Arc::clone(&update);
-        let thread = thread::spawn(move || accept_loop(listener, &dist, &log, &stub, &stop));
+        let socket = WebSocketSlot::new();
+        let slot = socket.clone();
+        let thread = thread::spawn(move || accept_loop(listener, &dist, &log, &stub, &stop, &slot));
 
         Self {
             addr,
             requests,
             update,
+            socket,
             shutdown,
             thread: Some(thread),
+        }
+    }
+
+    /// The websocket handle for this server's origin.
+    ///
+    /// The debug bundle derives its URL from the page's own location, so the stub answers `/dev/ws`
+    /// on the same port as the app instead of pinning one of its own.
+    fn socket(&self) -> WebSocketStub {
+        WebSocketStub {
+            addr: self.addr,
+            slot: self.socket.clone(),
         }
     }
 
@@ -4153,10 +4169,11 @@ fn accept_loop(
     requests: &Mutex<Vec<String>>,
     update: &UpdateStub,
     stop: &AtomicBool,
+    socket: &WebSocketSlot,
 ) {
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
-            Ok((stream, _)) => serve_connection(stream, dist, requests, update),
+            Ok((stream, _)) => serve_connection(stream, dist, requests, update, socket),
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(2));
             }
@@ -4173,6 +4190,7 @@ fn serve_connection(
     dist: &Path,
     requests: &Mutex<Vec<String>>,
     update: &UpdateStub,
+    socket: &WebSocketSlot,
 ) {
     // A socket accepted from a non-blocking listener inherits the flag, and a
     // non-blocking `write_all` fails with EWOULDBLOCK once the send buffer is
@@ -4181,22 +4199,36 @@ fn serve_connection(
         return;
     }
 
-    let Some(target) = read_request(&stream) else {
+    let Some(head) = read_request(&stream) else {
         return;
     };
-    let path = target.split('?').next().unwrap_or("/");
+    let path = head.target.split('?').next().unwrap_or("/");
+
+    // The page dials this path on the origin that served it, so the upgrade happens here, on the
+    // one port the harness bound.
+    if path == WS_PATH {
+        socket.accept(stream, head.websocket_key.as_deref());
+        return;
+    }
+
     if let Ok(mut log) = requests.lock() {
         log.push(path.to_string());
     }
 
-    let response = route(&target, dist, update);
+    let response = route(&head.target, dist, update);
     write_response(&mut stream, response);
     close_gracefully(&mut stream);
 }
 
+/// One request head: its target, and the handshake key a websocket upgrade carries.
+struct RequestHead {
+    target: String,
+    websocket_key: Option<String>,
+}
+
 /// Reads the request head and drains the body, so closing the socket cannot
 /// reset the connection and truncate the response the browser is reading.
-fn read_request(stream: &TcpStream) -> Option<String> {
+fn read_request(stream: &TcpStream) -> Option<RequestHead> {
     let mut reader = BufReader::new(stream);
 
     let mut request_line = String::new();
@@ -4209,6 +4241,7 @@ fn read_request(stream: &TcpStream) -> Option<String> {
     let target = parts.next()?.to_string();
 
     let mut body_len = 0;
+    let mut websocket_key = None;
     let mut header = String::new();
     loop {
         header.clear();
@@ -4222,6 +4255,9 @@ fn read_request(stream: &TcpStream) -> Option<String> {
         if name.eq_ignore_ascii_case("content-length") {
             body_len = value.trim().parse().unwrap_or(0);
         }
+        if name.eq_ignore_ascii_case("sec-websocket-key") {
+            websocket_key = Some(value.trim().to_string());
+        }
     }
 
     if body_len > 0 {
@@ -4229,7 +4265,10 @@ fn read_request(stream: &TcpStream) -> Option<String> {
         reader.read_exact(&mut body).ok()?;
     }
 
-    Some(target)
+    Some(RequestHead {
+        target,
+        websocket_key,
+    })
 }
 
 /// Half-closes the connection and drains the peer's side, so the kernel does
@@ -4249,51 +4288,55 @@ fn close_gracefully(stream: &mut TcpStream) {
 
 // region:    --- WebSocket stub
 
-/// The stub websocket the debug bundle dials, on the hardcoded port `src/websocket.rs` names.
+/// The page's websocket: the socket it holds now, and how many have arrived.
 ///
-/// One accepted client is kept, so the test can send a text frame into the running SPA; a reload's
-/// socket replaces the one before it. The port is fixed, so a busy port fails the run with that
-/// reason instead of moving elsewhere.
-struct WebSocketStub {
+/// The static server owns this state and answers `/dev/ws` on its own listener, so the app and the
+/// stub share one ephemeral port. The debug bundle derives its URL from the page's location, which
+/// is why no port is pinned.
+#[derive(Clone)]
+struct WebSocketSlot {
     client: Arc<Mutex<Option<TcpStream>>>,
     accepted: Arc<AtomicUsize>,
-    shutdown: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
 }
 
-impl WebSocketStub {
-    /// Binds `WS_ADDR` and answers opening handshakes. A taken port is a hard failure.
-    fn start() -> Self {
-        let listener = TcpListener::bind(WS_ADDR).unwrap_or_else(|error| {
-            panic!(
-                "the e2e websocket stub needs {WS_ADDR}, because the debug bundle hardcodes \
-                 ws://localhost:8080/dev/ws, and the port is not free: {error}"
-            )
-        });
-        listener
-            .set_nonblocking(true)
-            .expect("the e2e websocket listener should switch to non-blocking mode");
-
-        let client = Arc::new(Mutex::new(None));
-        let accepted = Arc::new(AtomicUsize::new(0));
-        let shutdown = Arc::new(AtomicBool::new(false));
-
-        let slot = Arc::clone(&client);
-        let count = Arc::clone(&accepted);
-        let stop = Arc::clone(&shutdown);
-        let thread = thread::spawn(move || ws_accept_loop(listener, &slot, &count, &stop));
-
+impl WebSocketSlot {
+    fn new() -> Self {
         Self {
-            client,
-            accepted,
-            shutdown,
-            thread: Some(thread),
+            client: Arc::new(Mutex::new(None)),
+            accepted: Arc::new(AtomicUsize::new(0)),
         }
     }
 
+    /// Answers one opening handshake and keeps the socket, replacing the one before it.
+    ///
+    /// A request without the handshake key is no upgrade, so its socket is dropped.
+    fn accept(&self, stream: TcpStream, key: Option<&str>) {
+        let Some(key) = key else {
+            return;
+        };
+        let Some(stream) = ws_handshake(stream, key) else {
+            return;
+        };
+        if let Ok(mut slot) = self.client.lock() {
+            *slot = Some(stream);
+        }
+        self.accepted.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// The test's handle on the served page's websocket, on the same loopback port as the app.
+///
+/// One accepted client is kept, so the test can send a text frame into the running SPA; a reload's
+/// socket replaces the one before it.
+struct WebSocketStub {
+    addr: SocketAddr,
+    slot: WebSocketSlot,
+}
+
+impl WebSocketStub {
     /// How many sockets the stub accepted, so a reload's own socket is the one that follows it.
     fn connections(&self) -> usize {
-        self.accepted.load(Ordering::Relaxed)
+        self.slot.accepted.load(Ordering::Relaxed)
     }
 
     /// Waits until a socket after `previous` arrives, which is the page's own connection.
@@ -4306,7 +4349,8 @@ impl WebSocketStub {
             }
             assert!(
                 Instant::now() < deadline,
-                "the app never opened ws://localhost:8080/dev/ws (accepted {accepted} sockets)"
+                "the app never opened ws://{}{WS_PATH} (accepted {accepted} sockets)",
+                self.addr
             );
             thread::sleep(Duration::from_millis(25));
         }
@@ -4322,10 +4366,11 @@ impl WebSocketStub {
     /// Writes one text frame, reporting a socket the page has closed instead of panicking.
     ///
     /// A resend outlives the socket it first wrote into: the write of a frame nobody reads fails
-    /// once the peer's reset arrives, and the stub's accept loop puts the page's next socket in
-    /// the slot, so the following attempt lands in the live one.
+    /// once the peer's reset arrives, and the accept path puts the page's next socket in the slot,
+    /// so the following attempt lands in the live one.
     fn write_frame(&self, text: &str) -> std::io::Result<()> {
         let mut slot = self
+            .slot
             .client
             .lock()
             .expect("the stub's client slot should not be poisoned");
@@ -4338,61 +4383,15 @@ impl WebSocketStub {
     }
 }
 
-impl Drop for WebSocketStub {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.thread.take()
-            && handle.join().is_err()
-        {
-            eprintln!("e2e websocket stub thread panicked during teardown");
-        }
-    }
-}
-
-fn ws_accept_loop(
-    listener: TcpListener,
-    client: &Mutex<Option<TcpStream>>,
-    accepted: &AtomicUsize,
-    stop: &AtomicBool,
-) {
-    while !stop.load(Ordering::Relaxed) {
-        match listener.accept() {
-            Ok((stream, _)) => {
-                let Some(stream) = ws_handshake(stream) else {
-                    continue;
-                };
-                if let Ok(mut slot) = client.lock() {
-                    *slot = Some(stream);
-                }
-                accepted.fetch_add(1, Ordering::Relaxed);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(2));
-            }
-            Err(error) => {
-                eprintln!("e2e websocket stub stopped accepting: {error}");
-                return;
-            }
-        }
-    }
-}
-
 /// Answers the RFC 6455 opening handshake and keeps the socket for a later frame.
-fn ws_handshake(mut stream: TcpStream) -> Option<TcpStream> {
+fn ws_handshake(mut stream: TcpStream, key: &str) -> Option<TcpStream> {
     if stream.set_nonblocking(false).is_err() {
         return None;
     }
-    if stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .is_err()
-    {
-        return None;
-    }
 
-    let key = read_websocket_key(&stream)?;
     let head = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
-        websocket_accept(&key)
+        websocket_accept(key)
     );
     if stream.write_all(head.as_bytes()).is_err() {
         return None;
@@ -4400,35 +4399,6 @@ fn ws_handshake(mut stream: TcpStream) -> Option<TcpStream> {
     let _ = stream.flush();
 
     Some(stream)
-}
-
-/// The client's `Sec-WebSocket-Key` from the opening handshake.
-fn read_websocket_key(stream: &TcpStream) -> Option<String> {
-    let mut reader = BufReader::new(stream);
-
-    let mut request_line = String::new();
-    if reader.read_line(&mut request_line).is_err() {
-        return None;
-    }
-    if !request_line.starts_with("GET ") {
-        return None;
-    }
-
-    let mut key = None;
-    loop {
-        let mut header = String::new();
-        let read = reader.read_line(&mut header).ok()?;
-        if read == 0 || header == "\r\n" || header == "\n" {
-            break;
-        }
-        if let Some((name, value)) = header.split_once(':')
-            && name.eq_ignore_ascii_case("sec-websocket-key")
-        {
-            key = Some(value.trim().to_string());
-        }
-    }
-
-    key
 }
 
 /// One final text frame in the server-to-client direction, which RFC 6455 leaves unmasked.
@@ -4632,13 +4602,6 @@ fn route(target: &str, dist: &Path, update: &UpdateStub) -> Response {
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     if let Some(api_path) = path.strip_prefix(API_PREFIX) {
         return api_response(api_path, query, update);
-    }
-
-    // The SPA dials `ws://localhost:8080/dev/ws`, which the harness serves from its own listener
-    // (`WebSocketStub`). This origin answers the path with a 404, so a bundle that ever dialed a
-    // relative path fails loudly here instead of reading HTML as a frame.
-    if path.starts_with("/dev/ws") {
-        return Response::text(404, "e2e stub: the websocket lives on 127.0.0.1:8080");
     }
 
     static_response(dist, path)

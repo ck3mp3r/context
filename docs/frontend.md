@@ -56,14 +56,30 @@ crates/context-frontend/src/
 
 Run **two processes** for hot reloading:
 
-1. **Trunk dev server** (port 8080):
+1. **Trunk preview** (port 8080), owned by the launchd agent `c5t-trunk-serve`:
    ```sh
-   trunk serve
+   cp scripts/c5t-trunk-serve.plist ~/Library/LaunchAgents/   # once per machine
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/c5t-trunk-serve.plist   # start
+   launchctl bootout gui/$(id -u)/c5t-trunk-serve                                 # stop
+   launchctl kickstart -k gui/$(id -u)/c5t-trunk-serve                            # restart
    ```
    - Watches `crates/context-frontend/src/**` for changes
    - Auto-rebuilds WASM on file save
    - Live reloads browser
    - Proxies `/dev/api/*` → `http://localhost:3738/api/*`
+   - `RunAtLoad` and no `KeepAlive`, so launchd starts it once and never respawns it: a stop stays
+     stopped, and a `Trunk.toml` port change takes effect on the next start
+   - Log: `/tmp/trunk-serve.log`
+
+   launchd starts processes with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, which holds no
+   `tailwindcss`, so the plist sets `EnvironmentVariables.PATH` to the dev shell's directories. The
+   `pre_build` hook fails with `error spawning hook ... No such file or directory` when that `PATH`
+   is missing, and the preview then serves a stale bundle. After `nix flake update`, refresh the
+   list with `nix develop --command printenv PATH`. The plist names this checkout and those store
+   paths, so it is machine-specific.
+
+   A foreground `trunk serve` (or the dev shell's `serve` helper) still serves the same port for a
+   one-off run. Run it instead of the agent, never beside it: both bind 8080.
 
 2. **Backend API server** (port 3738):
    ```sh
@@ -282,7 +298,10 @@ The harness runs `trunk build`, serves `crates/context-server/dist/` plus a
 stubbed `/dev/api/v1` from a loopback port the OS assigns, polls that origin
 until it answers, and stops its server thread when the test ends. The SPA's
 debug build reads its API from `/dev/api/v1`, which is why the stub serves that
-prefix instead of a backend on port 3738.
+prefix instead of a backend on port 3738. It also derives its websocket URL from
+the page's own location (path `/dev/ws`), so the harness answers the upgrade on
+that same ephemeral port. A preview holding 127.0.0.1:8080 is a neighbour, not a
+collision, and the run needs no kill-and-restore dance.
 
 `cargo test -p context-frontend ...` does not work from the repository root:
 the package is excluded from the workspace (root `Cargo.toml` line 12), so cargo

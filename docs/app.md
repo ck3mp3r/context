@@ -49,15 +49,18 @@ A stored `port` in `config.toml` replaces the profile port; see [Settings and co
 
 ## Dev workflow
 
-The laio `misc` window (`.laio.yaml`) holds three panes side by side: `trunk serve`, `scripts/dev-service`, and the GUI. Run the panes in that order, after `nix develop` (or `direnv allow`).
+The laio `misc` window (`.laio.yaml`) holds three panes side by side: the preview, `scripts/dev-service`, and the GUI. Run them in that order, after `nix develop` (or `direnv allow`).
 
-1. Start the frontend dev server:
+1. Start the frontend preview:
 
    ```sh
-   trunk serve
+   cp scripts/c5t-trunk-serve.plist ~/Library/LaunchAgents/    # once per machine
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/c5t-trunk-serve.plist
    ```
 
-   It serves the SPA on `http://127.0.0.1:8080/`, proxies `/dev` to `http://localhost:3738/`, and proxies `/dev/ws` to `ws://localhost:3738/ws`. It rebuilds the SPA on every frontend change. Expected output:
+   Stop it with `launchctl bootout gui/$(id -u)/c5t-trunk-serve`, restart it with `launchctl kickstart -k gui/$(id -u)/c5t-trunk-serve`. The repo-tracked plist carries `RunAtLoad` and no `KeepAlive`, so launchd starts one `trunk serve` and never respawns it: one start, one process, and a stop leaves nothing behind. The `misc` window's `trunk serve` pane binds the same port, so run the agent or the pane, never both.
+
+   It serves the SPA on `http://127.0.0.1:8080/`, proxies `/dev` to `http://localhost:3738/`, and proxies `/dev/ws` to `ws://localhost:3738/ws`. It rebuilds the SPA on every frontend change, and the log is `/tmp/trunk-serve.log`. [frontend.md](frontend.md#development-mode) lists the `PATH` the agent needs for the `tailwindcss` hook. Expected output:
 
    ```
    INFO 📡 serving static assets at -> /

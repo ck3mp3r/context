@@ -7,12 +7,19 @@ use leptos_use::{UseWebSocketReturn, use_websocket};
 
 use crate::models::UpdateMessage;
 
-// Development: Trunk proxy at /dev/ws forwards to backend ws://localhost:3738/ws
+/// Development: the Trunk dev server proxies `/dev/ws` to the backend's `ws://localhost:3738/ws`.
 #[cfg(debug_assertions)]
-const WS_URL: &str = "ws://localhost:8080/dev/ws";
+const WS_PATH: &str = "/dev/ws";
 
-// Production: Direct connection to backend WebSocket
+/// Production: the backend answers `/ws` itself.
 #[cfg(not(debug_assertions))]
+const WS_PATH: &str = "/ws";
+
+/// WebSocket URL on the origin that served this page.
+///
+/// The page's own location decides host and port, so a preview served from any port dials that
+/// same port. The e2e harness serves the app and its websocket stub from one ephemeral loopback
+/// port, which a pinned port would collide with.
 fn get_ws_url() -> String {
     let window = web_sys::window().expect("no window");
     let location = window.location();
@@ -24,7 +31,7 @@ fn get_ws_url() -> String {
     // Convert http(s) to ws(s)
     let ws_protocol = if protocol == "https:" { "wss:" } else { "ws:" };
 
-    format!("{}//{}/ws", ws_protocol, host)
+    format!("{ws_protocol}//{host}{WS_PATH}")
 }
 
 /// WebSocket context containing connection state and latest update message
@@ -37,17 +44,8 @@ pub struct WebSocketContext {
 /// Provider component that establishes WebSocket connection and provides context to children
 #[component]
 pub fn WebSocketProvider(children: Children) -> impl IntoView {
-    // Get WebSocket URL based on build mode
-    let url = {
-        #[cfg(debug_assertions)]
-        {
-            WS_URL.to_string()
-        }
-        #[cfg(not(debug_assertions))]
-        {
-            get_ws_url()
-        }
-    };
+    // Get the WebSocket URL from the origin that served this page
+    let url = get_ws_url();
 
     // Create WebSocket connection
     let UseWebSocketReturn {
