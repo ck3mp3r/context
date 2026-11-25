@@ -1,10 +1,10 @@
 //! The tab shell: the pure navigation model, its reactive registry, the keep-alive container, the
 //! minimal open path, and the session a reload restores.
 //!
-//! Rendering of the strip belongs to `strip.rs` and keyboard handling to `keyboard.rs`. URL wiring
-//! belongs to the router. This module owns what the design settles as data (identity, close, cycle,
-//! strip rows), the wrappers that keep every tab mounted, the one-tab open path, and the stored
-//! session.
+//! Rendering of the strip belongs to `strip.rs`, keyboard handling to `keyboard.rs`, and the one
+//! native call — the window title — to `title.rs`. URL wiring belongs to the router. This module
+//! owns what the design settles as data (identity, close, cycle, strip rows), the wrappers that keep
+//! every tab mounted, the one-tab open path, and the stored session.
 
 mod boot;
 mod container;
@@ -15,6 +15,7 @@ mod pure;
 mod registry;
 mod session;
 mod strip;
+mod title;
 
 pub use boot::{resolve_titles, restore_or_boot, start_session_persistence};
 pub use container::{TabContainer, TabScope, use_tab_scope};
@@ -28,3 +29,4 @@ pub use session::{
     boot_surface, storage_key, write_owned_url,
 };
 pub use strip::TabStrip;
+pub use title::start_window_title;

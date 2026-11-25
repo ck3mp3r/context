@@ -114,7 +114,7 @@ The service and the GUI share a build profile, not a lock: a dev GUI attaches to
 The GUI is a regular app: it has a Dock icon and a Cmd+Tab entry, and it is a pure view over the service. Closing its window keeps the GUI alive, and a Dock click brings the window back.
 
 - Cmd+Q, the application-menu **Quit**, and the Dock's Quit end the GUI process only. The service keeps serving.
-- The close button, Cmd+W, and the application-menu **Close Window** close the window. The GUI stays running; a Dock click reopens the window through the reopen event.
+- The close button and the application-menu **Close Window** (Cmd+Shift+W) close the window. The GUI stays running; a Dock click reopens the window through the reopen event. Cmd+W belongs to the SPA, which closes the active tab with it and never the window.
 - Launching the GUI again focuses the running one through its single-instance handler.
 
 When a healthy service does not answer on the configured port, the GUI spawns the sibling `context-service` and waits up to ten seconds for `/health`. When the service never answers, the GUI shows an error dialog and exits.

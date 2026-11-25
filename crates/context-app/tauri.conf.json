@@ -4,6 +4,7 @@
   "mainBinaryName": "Context",
   "identifier": "c5t.kemper.wtf",
   "app": {
+    "withGlobalTauri": true,
     "security": {
       "csp": null
     }

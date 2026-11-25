@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "spa-ipc",
+  "description": "Grants the SPA origin one window call: setTitle. No event and no close permission.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:8080", "http://127.0.0.1:3737"]
+  },
+  "permissions": ["core:window:allow-set-title"]
+}

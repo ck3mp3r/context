@@ -32,7 +32,7 @@ pub fn start_keyboard(
             on_command(event, tabs, &navigate);
             return;
         }
-        if event.ctrl_key() && !event.meta_key() && event.key() == "Tab" {
+        if event.ctrl_key() && !event.meta_key() && !event.alt_key() && event.key() == "Tab" {
             event.prevent_default();
             if event.shift_key() {
                 tabs.cycle_previous();

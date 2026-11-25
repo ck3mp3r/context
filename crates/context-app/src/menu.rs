@@ -15,8 +15,9 @@
 //! `ExitRequested { code: None }`, which the window-close veto prevents.
 //!
 //! Close Window closes the view and lets the process live, so a Dock click can
-//! bring the window back. The Window submenu carries the predefined close item,
-//! which is the Cmd+W surface.
+//! bring the window back. It sits on Cmd+Shift+W: the webview receives plain
+//! Cmd+W as a `keydown` and closes the active tab with it (decision 17), so no
+//! item in this menu claims that chord.
 //!
 //! The GUI runs as a regular app, so the system displays this menu: it belongs to
 //! the frontmost app and carries the Dock entry and the Cmd+Tab entry.
@@ -44,6 +45,12 @@ pub const QUIT_ITEM_ID: &str = "quit";
 const CLOSE_VIEW_TEXT: &str = "Close Window";
 /// Id of the close item, matched by the menu event handler in `main`.
 pub const CLOSE_VIEW_ITEM_ID: &str = "close-view";
+/// Keyboard accelerator of Close Window.
+///
+/// Cmd+Shift+W, never plain Cmd+W: the webview receives Cmd+W as a `keydown` and
+/// closes the active tab with it (decision 17). Its handler skips every shifted
+/// chord, so Cmd+Shift+W stays the window's own shortcut.
+const CLOSE_VIEW_ACCELERATOR: &str = "CmdOrCtrl+Shift+W";
 /// Keyboard accelerator of Quit.
 ///
 /// Cmd+Q quits this process only. The service keeps running, and the next GUI
@@ -60,7 +67,9 @@ mod menu_test;
 
 /// Build the menu bar and install it as the application menu.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    let close_view = MenuItemBuilder::with_id(CLOSE_VIEW_ITEM_ID, CLOSE_VIEW_TEXT).build(app)?;
+    let close_view = MenuItemBuilder::with_id(CLOSE_VIEW_ITEM_ID, CLOSE_VIEW_TEXT)
+        .accelerator(CLOSE_VIEW_ACCELERATOR)
+        .build(app)?;
     let quit = MenuItemBuilder::with_id(QUIT_ITEM_ID, QUIT_TEXT)
         .accelerator(QUIT_ACCELERATOR)
         .build(app)?;
@@ -86,8 +95,6 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let window = SubmenuBuilder::new(app, WINDOW_MENU_TITLE)
         .minimize()
         .maximize()
-        .separator()
-        .close_window()
         .build()?;
 
     let menu = MenuBuilder::new(app)

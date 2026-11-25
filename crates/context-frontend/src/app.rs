@@ -13,7 +13,8 @@ use crate::models::{UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
 use crate::tabs::{
     TabContainer, TabKey, TabRegistry, TabStrip, TabTitles, boot_surface, resolve_titles,
-    restore_or_boot, start_keyboard, start_session_persistence, surface_url, write_owned_url,
+    restore_or_boot, start_keyboard, start_session_persistence, start_window_title, surface_url,
+    write_owned_url,
 };
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
 use crate::websocket::{WebSocketProvider, use_websocket_connection, use_websocket_updates};
@@ -96,6 +97,10 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     let unresolved = restore_or_boot(tabs, titles, boot);
     spawn_local(async move { resolve_titles(tabs, titles, unresolved).await });
     start_session_persistence(tabs, titles);
+
+    // The one native seam (decisions P and 18): the window title follows the active tab through one
+    // best-effort `setTitle` call. Nothing else of the shell crosses into the native window.
+    start_window_title(tabs, titles);
 
     // The deletion reaction: a surface deleted over the websocket closes its tab. Cascade and
     // neighbour activation are the model's close rules; this reaction writes no URL, because the

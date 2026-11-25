@@ -93,7 +93,7 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
 fn StripTab(registry: TabRegistry, titles: TabTitles, id: TabId, tab_key: TabKey) -> impl IntoView {
     let active = Signal::derive(move || registry.active() == Some(id));
     let kind = kind_token(tab_key.kind());
-    let label = move || chip_label(&titles, &tab_key);
+    let label = move || tab_label(&titles, &tab_key);
 
     let on_activate = move |_| {
         registry.activate(id);
@@ -158,11 +158,12 @@ fn open_tab(registry: TabRegistry, id: TabId) -> Option<Tab> {
     registry.tabs().into_iter().find(|tab| tab.id() == id)
 }
 
-/// The chip's label: the resolved title, or the identity when no title has arrived yet.
+/// The label of one tab: the resolved title, or the identity when no title has arrived yet.
 ///
 /// A tab opened in this session has no title until the label resolve answers, so the fallback keeps
-/// the chip readable and clickable instead of blank.
-fn chip_label(titles: &TabTitles, key: &TabKey) -> String {
+/// the chip readable and clickable instead of blank. The window title reads this same rule, so the
+/// chip and the window never disagree about a tab.
+pub(crate) fn tab_label(titles: &TabTitles, key: &TabKey) -> String {
     match titles.label(key).filter(|label| !label.trim().is_empty()) {
         Some(label) => label,
         None => format!("{} {}", kind_title(key.kind()), key.entity_id()),

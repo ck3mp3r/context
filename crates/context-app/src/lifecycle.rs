@@ -28,7 +28,11 @@ type WindowResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 /// Label of the application window.
 const MAIN_WINDOW_LABEL: &str = "main";
-/// Title of the application window.
+/// Title of the application window: the default the SPA overrides per active tab.
+///
+/// The SPA names the window after the active tab through one `setTitle` call
+/// (decision P). A webview without the Tauri global never makes that call, so
+/// this static title stays, and no interaction depends on it.
 const MAIN_WINDOW_TITLE: &str = "Context";
 /// Initial width of the application window in logical pixels.
 const MAIN_WINDOW_WIDTH: f64 = 1280.0;
@@ -212,8 +216,8 @@ pub(crate) fn spa_url(path: &str) -> WindowResult<tauri::Url> {
 /// Close the application window, leaving the app and the server running.
 ///
 /// `WebviewWindow::close` is the graceful close: it raises the close-requested
-/// event, the same path the predefined close-window item and the close button
-/// take. Closing the last window raises `ExitRequested { code: None }`, which
+/// event, the same path the Close Window item and the close button take. Closing
+/// the last window raises `ExitRequested { code: None }`, which
 /// `handle_run_event` vetoes, so the process survives. A closed window is not an
 /// error — the tray brings it back.
 pub fn close_main_window(app: &AppHandle) -> WindowResult<()> {
