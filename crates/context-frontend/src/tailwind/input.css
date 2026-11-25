@@ -837,3 +837,50 @@ body {
   max-width: none;
 }
 
+/* === Tab strip chips: the breadcrumb.
+   Row one reads as projects and row two as the children of the active project, so a project chip
+   and a child chip never share one base surface: the project's base keeps the raised middle
+   surface and the child's base stays on the lowest one, whatever the state. The states are
+   attribute selectors, so a chip's base colour never changes with them:
+   - `data-strip-active="true"` is the surface the user is on;
+   - `data-tab-ancestor="true"` is the project that owns the active task-list child, read as its
+     parent in the breadcrumb. It is a separate attribute on purpose, and it carries its own
+     underline so the location and its parent never look alike. */
+.tab-chip {
+  display: flex;
+  align-items: stretch;
+  border-radius: 0.5rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tab-chip--project {
+  background-color: var(--ctp-surface1);
+  color: var(--ctp-subtext1);
+}
+
+.tab-chip--project:hover {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+
+.tab-chip--child {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-subtext1);
+}
+
+.tab-chip--child:hover {
+  background-color: var(--ctp-surface1);
+  color: var(--ctp-text);
+}
+
+.tab-chip[data-strip-active="true"] {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+
+.tab-chip[data-tab-ancestor="true"] {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+  box-shadow: inset 0 -2px 0 0 var(--ctp-blue);
+}
+

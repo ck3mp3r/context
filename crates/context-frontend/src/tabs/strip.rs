@@ -93,12 +93,38 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
 /// close never shares a control with the activate path.
 #[component]
 fn StripTab(registry: TabRegistry, titles: TabTitles, id: TabId, tab_key: TabKey) -> impl IntoView {
+    let project = match &tab_key {
+        TabKey::Project { project_id } => Some(project_id.clone()),
+        TabKey::TaskList { .. } | TabKey::Note { .. } | TabKey::Repo { .. } => None,
+    };
+    let is_project = project.is_some();
     let active = Signal::derive(move || registry.active() == Some(id));
+    // The breadcrumb's second reading: this chip is the project that owns the active task-list
+    // child. It is its own attribute, never a second meaning of `data-strip-active`, so "where am I"
+    // and "whose parent is that" stay apart.
+    let ancestor = Signal::derive({
+        let project = project.clone();
+        move || {
+            let Some(project) = project.as_deref() else {
+                return false;
+            };
+            registry
+                .active_key()
+                .is_some_and(|key| key.kind() == TabRouteKind::TaskList)
+                && registry.active_project().as_deref() == Some(project)
+        }
+    });
     let kind = kind_token(tab_key.kind());
     let label = move || tab_label(&titles, &tab_key);
 
-    let on_activate = move |_| {
-        registry.activate(id);
+    let activate_project = project.clone();
+    let on_activate = move |_| match activate_project.as_deref() {
+        Some(project) => {
+            registry.activate_project(project);
+        }
+        None => {
+            registry.activate(id);
+        }
     };
     let on_close = move |_| {
         registry.close(id);
@@ -115,7 +141,8 @@ fn StripTab(registry: TabRegistry, titles: TabTitles, id: TabId, tab_key: TabKey
             data-strip-tab=id.to_string()
             data-strip-kind=kind
             data-strip-active=move || active_token(active.get())
-            class=move || chip_class(active.get())
+            data-tab-ancestor=move || ancestor_token(ancestor.get())
+            class=chip_class(is_project)
             on:auxclick=on_auxclick
         >
             <button
@@ -197,12 +224,22 @@ fn active_token(active: bool) -> &'static str {
     if active { "true" } else { "false" }
 }
 
-/// The chip's classes: the active chip reads as raised surface.
-fn chip_class(active: bool) -> &'static str {
-    if active {
-        "flex items-stretch rounded-lg bg-ctp-surface2 text-ctp-text"
+/// The chip's `data-tab-ancestor` token: present only on the project chip that owns the active
+/// task-list child, so the attribute marks the parent and never the location.
+fn ancestor_token(ancestor: bool) -> Option<&'static str> {
+    ancestor.then_some("true")
+}
+
+/// The chip's classes: a project chip keeps its own base surface and a child chip its own, so row
+/// one reads as projects and row two as children.
+///
+/// The active and ancestor states are attribute selectors in `input.css`, so no state enters this
+/// class and a chip's base colour never depends on it.
+fn chip_class(project: bool) -> &'static str {
+    if project {
+        "tab-chip tab-chip--project"
     } else {
-        "flex items-stretch rounded-lg bg-ctp-surface0 text-ctp-subtext1 hover:bg-ctp-surface1 hover:text-ctp-text transition-colors"
+        "tab-chip tab-chip--child"
     }
 }
 

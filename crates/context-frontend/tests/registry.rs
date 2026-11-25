@@ -1076,3 +1076,136 @@ fn every_close_leaves_the_active_tab_mounted_and_rendered() {
     assert_eq!(closed.len(), 5, "every restored tab closed exactly once");
     assert!(tabs.is_empty());
 }
+
+#[test]
+fn a_project_restores_the_task_list_it_showed() {
+    let mut tabs = Tabs::default();
+    let p1 = tabs.open(TabKey::project("p1"));
+    let t1 = tabs.open_in(TabKey::task_list("t1"), "p1");
+    let p2 = tabs.open(TabKey::project("p2"));
+    assert_eq!(tabs.active(), Some(p2), "the last tab opened takes focus");
+
+    assert_eq!(tabs.activate_project("p1"), Some(t1));
+    assert_eq!(
+        tabs.active(),
+        Some(t1),
+        "the project chip restores the child the project last showed"
+    );
+    assert_ne!(
+        tabs.active(),
+        Some(p1),
+        "a project with a remembered task list does not land on its overview"
+    );
+}
+
+#[test]
+fn a_recorded_task_list_survives_a_visit_to_another_project() {
+    let mut tabs = Tabs::default();
+    let p1 = tabs.open(TabKey::project("p1"));
+    let t1 = tabs.open_in(TabKey::task_list("t1"), "p1");
+    assert!(tabs.activate(t1));
+
+    let p2 = tabs.open(TabKey::project("p2"));
+    assert_eq!(tabs.active(), Some(p2));
+
+    assert_eq!(tabs.activate_project("p1"), Some(t1));
+    assert_eq!(
+        tabs.active(),
+        Some(t1),
+        "leaving a project and coming back keeps the task list it showed"
+    );
+    assert_eq!(
+        tabs.strip_rows().children,
+        vec![t1],
+        "the restored child renders in its project's row"
+    );
+}
+
+#[test]
+fn a_project_with_no_remembered_task_list_focuses_its_overview() {
+    let mut tabs = Tabs::default();
+    let p1 = tabs.open(TabKey::project("p1"));
+    let p2 = tabs.open(TabKey::project("p2"));
+    assert_eq!(tabs.active(), Some(p2));
+
+    assert_eq!(tabs.activate_project("p1"), Some(p1));
+    assert_eq!(
+        tabs.active(),
+        Some(p1),
+        "with nothing remembered the project chip names the overview"
+    );
+}
+
+#[test]
+fn a_project_whose_task_list_is_focused_shows_its_overview() {
+    let mut tabs = Tabs::default();
+    let p1 = tabs.open(TabKey::project("p1"));
+    let t1 = tabs.open_in(TabKey::task_list("t1"), "p1");
+    assert!(tabs.activate(t1));
+
+    assert_eq!(tabs.activate_project("p1"), Some(p1));
+    assert_eq!(
+        tabs.active(),
+        Some(p1),
+        "the chip of the project that owns the active child collapses to the overview"
+    );
+    assert!(
+        tabs.contains(t1),
+        "the overview keeps the task list open, it only deselects it"
+    );
+}
+
+#[test]
+fn a_project_already_on_its_overview_stays_there() {
+    let mut tabs = Tabs::default();
+    let p1 = tabs.open(TabKey::project("p1"));
+    let t1 = tabs.open_in(TabKey::task_list("t1"), "p1");
+    assert!(tabs.activate(p1));
+
+    assert_eq!(tabs.activate_project("p1"), Some(p1));
+    assert_eq!(
+        tabs.active(),
+        Some(p1),
+        "a second click on the focused project chip restores nothing"
+    );
+    assert!(
+        !tabs
+            .active_key()
+            .is_some_and(|key| *key == TabKey::task_list("t1"))
+    );
+    assert!(tabs.contains(t1));
+}
+
+#[test]
+fn closing_a_task_list_forgets_it() {
+    let mut tabs = Tabs::default();
+    let p1 = tabs.open(TabKey::project("p1"));
+    let t1 = tabs.open_in(TabKey::task_list("t1"), "p1");
+    assert!(matches!(tabs.close(t1), CloseOutcome::Closed { .. }));
+    let p2 = tabs.open(TabKey::project("p2"));
+    assert_eq!(tabs.active(), Some(p2));
+
+    assert_eq!(tabs.activate_project("p1"), Some(p1));
+    assert_eq!(
+        tabs.active(),
+        Some(p1),
+        "a closed task list is not restored: its project names the overview"
+    );
+}
+
+#[test]
+fn the_registry_restores_a_project_task_list() {
+    let registry = TabRegistry::new();
+    registry.open(TabKey::project("p1"));
+    let task_list = registry.open_in(TabKey::task_list("t1"), "p1");
+    registry.open(TabKey::project("p2"));
+    assert_eq!(registry.active_key(), Some(TabKey::project("p2")));
+
+    assert_eq!(registry.activate_project("p1"), Some(task_list));
+    assert_eq!(registry.active_key(), Some(TabKey::task_list("t1")));
+    assert_eq!(
+        registry.len(),
+        3,
+        "restoring a child opens no tab beside the three it already had"
+    );
+}

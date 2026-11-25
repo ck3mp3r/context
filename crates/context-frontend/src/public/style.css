@@ -522,9 +522,6 @@
   .items-start {
     align-items: flex-start;
   }
-  .items-stretch {
-    align-items: stretch;
-  }
   .justify-between {
     justify-content: space-between;
   }
@@ -1901,6 +1898,37 @@ body {
 }
 .container {
   max-width: none;
+}
+.tab-chip {
+  display: flex;
+  align-items: stretch;
+  border-radius: 0.5rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.tab-chip--project {
+  background-color: var(--ctp-surface1);
+  color: var(--ctp-subtext1);
+}
+.tab-chip--project:hover {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+.tab-chip--child {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-subtext1);
+}
+.tab-chip--child:hover {
+  background-color: var(--ctp-surface1);
+  color: var(--ctp-text);
+}
+.tab-chip[data-strip-active="true"] {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+.tab-chip[data-tab-ancestor="true"] {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+  box-shadow: inset 0 -2px 0 0 var(--ctp-blue);
 }
 @property --tw-translate-x {
   syntax: "*";

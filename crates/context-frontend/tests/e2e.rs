@@ -47,6 +47,11 @@ const SECOND_PROJECT_TITLE: &str = "E2E Second Project";
 const TASK_LIST_ID: &str = "e2e00003";
 const TASK_LIST_TITLE: &str = "E2E Fixture Task List";
 
+/// The task list the stubbed API serves inside the second project, so that project has a child row
+/// of its own and the breadcrumb marker can move between two projects.
+const SECOND_TASK_LIST_ID: &str = "e2e0000a";
+const SECOND_TASK_LIST_TITLE: &str = "E2E Second Task List";
+
 /// The note the stubbed API serves. It names a project whose tab is not open, so a global-list row
 /// must open that parent project tab first (decision 8).
 const NOTE_ID: &str = "e2e00004";
@@ -257,6 +262,8 @@ const STRIP_PROBE: &str = r#"() => {
                 id: chip.getAttribute('data-strip-tab') || '',
                 kind: chip.getAttribute('data-strip-kind') || '',
                 active: chip.getAttribute('data-strip-active') === 'true',
+                ancestor: chip.getAttribute('data-tab-ancestor') === 'true',
+                background: getComputedStyle(chip).backgroundColor,
                 label: activate ? (activate.textContent || '').trim() : '',
                 separated: activate !== null && close !== null
                     && close.closest('[data-tab-activate]') === null,
@@ -285,13 +292,16 @@ struct StripRowProbe {
     chips: Vec<StripChipProbe>,
 }
 
-/// One tab chip: its id, its surface kind, whether it is the active chip, its label, and whether its
-/// close control is structurally separate from its activate control.
+/// One tab chip: its id, its surface kind, whether it is the active chip, whether it is the
+/// ancestor of the active child, its computed background, its label, and whether its close control
+/// is structurally separate from its activate control.
 #[derive(Debug, Deserialize)]
 struct StripChipProbe {
     id: String,
     kind: String,
     active: bool,
+    ancestor: bool,
+    background: String,
     label: String,
     separated: bool,
 }
@@ -2451,8 +2461,8 @@ async fn spa_body() {
         "Cmd+T opens no blank tab"
     );
 
-    // Pin (the + control): it reaches the same chrome view, and a chip's activate control writes the
-    // tab URL back through the one writer.
+    // Pin (the + control): it reaches the same chrome view, and a project chip restores the task
+    // list that project last showed, writing its URL back through the one writer.
     let strip = strip_probe(&page).await;
     let project_chip = strip_row(&strip, "projects")
         .first()
@@ -2463,17 +2473,20 @@ async fn spa_body() {
         .click(None)
         .await
         .expect("the project chip should focus its tab");
-    let focused_project = wait_for_container(&page, "the project chip focused", |probe| {
-        probe.active_entity == PROJECT_ID && probe.active_view == "project"
-    })
-    .await;
+    let restored_from_chrome =
+        wait_for_container(&page, "the project chip restored its task list", |probe| {
+            probe.wrappers == tabs_before_cmd_t
+                && probe.active_view == "task-list"
+                && probe.active_entity == TASK_LIST_ID
+        })
+        .await;
     assert_eq!(
-        focused_project.active_id, project_chip,
-        "the strip's activate control focuses its own tab"
+        restored_from_chrome.active_id, after_cmd_w.active_id,
+        "the chip focuses the child its project last showed, and opens no tab"
     );
     assert_eq!(
         page_path(&page).await,
-        format!("/projects/{PROJECT_ID}"),
+        format!("/projects/{PROJECT_ID}/task-lists/{TASK_LIST_ID}"),
         "the one writer names the tab the strip focused"
     );
 
@@ -2762,16 +2775,35 @@ async fn spa_body() {
         .await
         .expect("the overview is the only surface on the projects home");
 
-    // Pin (a project chip returns): selecting the project tab from the overview paints its overview
-    // and brings its task-list row back.
+    // Pin (a project chip returns): from the overview, the chip restores the task list the project
+    // last showed, and a second click collapses to the project's own overview.
     let project_chip = strip_row(&home, "projects")[0].id.clone();
     page.locator(format!("[data-tab-activate=\"{project_chip}\"]"))
         .click(None)
         .await
         .expect("the project chip should focus its tab");
+    let restored_kanban =
+        wait_for_container(&page, "the project chip restored its task list", |probe| {
+            probe.active_view == "task-list" && probe.active_entity == TASK_LIST_ID
+        })
+        .await;
+    assert_eq!(
+        restored_kanban.active, 1,
+        "exactly one surface paints: {restored_kanban:?}"
+    );
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}/task-lists/{TASK_LIST_ID}"),
+        "the one writer names the tab the chip focused"
+    );
+
+    page.locator(format!("[data-tab-activate=\"{project_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the project chip should collapse to its overview");
     let back_on_project = wait_for_container(
         &page,
-        "the project tab painted from the overview",
+        "the project tab painted from its task list",
         |probe| probe.active_view == "project" && probe.active_entity == PROJECT_ID,
     )
     .await;
@@ -2824,7 +2856,340 @@ async fn spa_body() {
         "a tab surface renders nothing in the routed area: {routes_under_tab:?}"
     );
 
+    // === The breadcrumb: a project chip restores its last task list ===
+    //
+    // Row one reads as projects and row two as the children of the active one. The chip of the
+    // project that owns the active task-list child carries `data-tab-ancestor`, a marker of its
+    // own, so the location and its parent never share one attribute. Clicking a project chip names
+    // that project: the task list it last showed, or its overview.
+
+    // Pin (the ancestor marker): the child is the location and its project the parent.
+    let strip = wait_for_strip(&page, "the kanban's child chip", |probe| {
+        has_strip_row(probe, "children") && strip_row(probe, "children").len() == 1
+    })
+    .await;
+    let fixture_chip = strip_row(&strip, "projects")[0].id.clone();
+    let fixture_child_chip = strip_row(&strip, "children")[0].id.clone();
+    let kanban_wrappers = container_probe(&page).await.wrappers;
+
+    assert!(
+        strip_row(&strip, "projects")[0].ancestor,
+        "the project that owns the active task-list child is its ancestor: {strip:?}"
+    );
+    assert!(
+        !strip_row(&strip, "projects")[0].active,
+        "the ancestor chip is not the active chip: {strip:?}"
+    );
+    let current = active_chips(&strip);
+    assert_eq!(
+        current.len(),
+        1,
+        "exactly one chip is the current location: {strip:?}"
+    );
+    assert_eq!(
+        current[0].id, fixture_child_chip,
+        "the location is the task-list child, not its project: {strip:?}"
+    );
+    assert_eq!(
+        kanban_wrappers, 2,
+        "the kanban is one wrapper beside its project tab, got {kanban_wrappers}"
+    );
+
+    // Pin (the project's own chip): while the child is the location, the project chip names the
+    // overview and keeps the child open beside it.
+    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the project chip should be clickable from the kanban");
+    let project_focus = wait_for_container(
+        &page,
+        "the project's own chip painted its overview",
+        |probe| probe.active_view == "project" && probe.active_entity == PROJECT_ID,
+    )
+    .await;
+    assert_eq!(
+        project_focus.wrappers, kanban_wrappers,
+        "the project chip opens and closes no tab, got {} wrappers",
+        project_focus.wrappers
+    );
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}"),
+        "the one writer names the overview the chip focused"
+    );
+
+    park_pointer(&page).await;
+    let strip = wait_for_strip(
+        &page,
+        "the project chip active with its child row",
+        |probe| {
+            strip_row(probe, "projects")
+                .first()
+                .is_some_and(|chip| chip.active)
+                && has_strip_row(probe, "children")
+        },
+    )
+    .await;
+    assert!(
+        ancestor_chips(&strip).is_empty(),
+        "the project tab itself is the location, so no ancestor marker: {strip:?}"
+    );
+    assert_eq!(
+        active_chips(&strip).len(),
+        1,
+        "exactly one chip is the current location: {strip:?}"
+    );
+    assert!(
+        !strip_row(&strip, "children")[0].active,
+        "the child chip stays open and inactive in row two: {strip:?}"
+    );
+    // The base surface of a child chip, read while the chip is inactive.
+    let child_base = strip_row(&strip, "children")[0].background.clone();
+
+    // Pin (the last task list): leaving a project and coming back restores the task list that
+    // project last showed.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should reach chrome home");
+    wait_for_container(&page, "no active tab on the projects overview", |probe| {
+        probe.active == 0
+    })
+    .await;
+
+    let second_card = page.locator(format!("[data-project-card=\"{SECOND_PROJECT_ID}\"]"));
+    expect(second_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the second fixture card");
+    second_card
+        .click(None)
+        .await
+        .expect("the second project card should open its own tab");
+    let two_projects = wait_for_container(&page, "the second project tab open", |probe| {
+        probe.wrappers == kanban_wrappers + 1
+            && probe.active_view == "project"
+            && probe.active_entity == SECOND_PROJECT_ID
+    })
+    .await;
+
+    park_pointer(&page).await;
+    let strip = wait_for_strip(&page, "both project chips", |probe| {
+        strip_row(probe, "projects").len() == 2
+    })
+    .await;
+    let plain_project = strip_row(&strip, "projects")
+        .iter()
+        .find(|chip| chip.id == fixture_chip)
+        .expect("the fixture project chip stays in row one");
+    assert!(
+        !plain_project.active && !plain_project.ancestor,
+        "a project that is neither the location nor its parent carries no marker: {strip:?}"
+    );
+    // The base surface of a project chip, read while the chip is inactive.
+    let project_base = plain_project.background.clone();
+    assert_ne!(
+        project_base, child_base,
+        "a project chip and a child chip never share one base surface"
+    );
+
+    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture project chip should be clickable from the second project");
+    let restored_child =
+        wait_for_container(&page, "the project chip restored its task list", |probe| {
+            probe.wrappers == two_projects.wrappers
+                && probe.active_view == "task-list"
+                && probe.active_entity == TASK_LIST_ID
+        })
+        .await;
+    assert_eq!(
+        restored_child.wrappers,
+        kanban_wrappers + 1,
+        "restoring a remembered child opens no tab, got {} wrappers",
+        restored_child.wrappers
+    );
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}/task-lists/{TASK_LIST_ID}"),
+        "the one writer names the restored task list"
+    );
+
+    park_pointer(&page).await;
+    let strip = wait_for_strip(&page, "the restored child chip active", |probe| {
+        strip_row(probe, "children")
+            .first()
+            .is_some_and(|chip| chip.active)
+    })
+    .await;
+    assert_eq!(
+        active_chips(&strip).len(),
+        1,
+        "exactly one chip is the current location: {strip:?}"
+    );
+    let ancestors = ancestor_chips(&strip);
+    assert_eq!(
+        ancestors.len(),
+        1,
+        "exactly one project chip is the parent of the location: {strip:?}"
+    );
+    assert_eq!(
+        ancestors[0].id, fixture_chip,
+        "the marker sits on the restored child's project: {strip:?}"
+    );
+    assert!(
+        !ancestors[0].active,
+        "the ancestor chip is not the active chip: {strip:?}"
+    );
+    let inactive_project = strip_row(&strip, "projects")
+        .iter()
+        .find(|chip| chip.id != fixture_chip)
+        .expect("the second project chip stays in row one");
+    assert!(
+        !inactive_project.active && !inactive_project.ancestor,
+        "the other project is neither the location nor an ancestor: {strip:?}"
+    );
+    assert_ne!(
+        ancestors[0].background, inactive_project.background,
+        "the ancestor chip paints a different background from an inactive non-ancestor chip"
+    );
+
     // === Update pill (one surface, app level, bottom right) ===
+
+    // Pin (the marker follows the location): a child of the other project moves the marker there.
+    let second_chip = inactive_project.id.clone();
+    page.locator(format!("[data-tab-activate=\"{second_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the second project chip should be clickable");
+    let second_project = wait_for_container(&page, "the second project's overview", |probe| {
+        probe.active_view == "project" && probe.active_entity == SECOND_PROJECT_ID
+    })
+    .await;
+    assert_eq!(
+        second_project.wrappers, restored_child.wrappers,
+        "the other project's chip opens and closes no tab, got {} wrappers",
+        second_project.wrappers
+    );
+
+    let second_task_list = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{SECOND_TASK_LIST_ID}\"]",
+    ));
+    expect(second_task_list.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the second project's dashboard should list its own task list");
+    second_task_list
+        .click(None)
+        .await
+        .expect("the second project's task list card should open its child tab");
+    let second_child_tab =
+        wait_for_container(&page, "the second project's task list open", |probe| {
+            probe.wrappers == second_project.wrappers + 1
+                && probe.active_view == "task-list"
+                && probe.active_entity == SECOND_TASK_LIST_ID
+        })
+        .await;
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{SECOND_PROJECT_ID}/task-lists/{SECOND_TASK_LIST_ID}"),
+        "the one writer names the second project's task list"
+    );
+
+    park_pointer(&page).await;
+    let strip = wait_for_strip(&page, "the marker moved to the second project", |probe| {
+        ancestor_chips(probe)
+            .first()
+            .is_some_and(|chip| chip.id == second_chip)
+    })
+    .await;
+    assert_eq!(
+        ancestor_chips(&strip).len(),
+        1,
+        "exactly one project chip is the parent of the location: {strip:?}"
+    );
+    assert!(
+        strip_row(&strip, "projects")
+            .iter()
+            .filter(|chip| chip.id == fixture_chip)
+            .all(|chip| !chip.ancestor && !chip.active),
+        "the fixture project carries no marker once its child left: {strip:?}"
+    );
+    assert_eq!(
+        active_chips(&strip).len(),
+        1,
+        "exactly one chip is the current location: {strip:?}"
+    );
+    assert_eq!(
+        active_chips(&strip)[0].id,
+        second_child_tab.active_id,
+        "the location is the second project's task list: {strip:?}"
+    );
+
+    // Pin (a closed child is forgotten): the close drops the project's memory, so its chip names
+    // the overview instead of a tab that is gone.
+    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture project chip should restore its task list once more");
+    wait_for_container(&page, "the fixture task list focused again", |probe| {
+        probe.active_entity == TASK_LIST_ID && probe.active_view == "task-list"
+    })
+    .await;
+
+    page.locator(format!("[data-tab-close=\"{fixture_child_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture task list should close from its own chip");
+    let closed_child = wait_for_container(&page, "the fixture task list closed", |probe| {
+        probe.wrappers == second_child_tab.wrappers - 1
+    })
+    .await;
+    assert_eq!(
+        closed_child.active_entity, SECOND_TASK_LIST_ID,
+        "the close hands focus to the next ring survivor, the other project's task list"
+    );
+
+    page.locator(format!("[data-tab-activate=\"{fixture_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the fixture project chip should be clickable after the close");
+    let forgotten = wait_for_container(&page, "the project chip named its overview", |probe| {
+        probe.wrappers == closed_child.wrappers
+            && probe.active_view == "project"
+            && probe.active_entity == PROJECT_ID
+    })
+    .await;
+    assert_eq!(
+        page_path(&page).await,
+        format!("/projects/{PROJECT_ID}"),
+        "a project with no remembered task list writes its overview"
+    );
+    assert_eq!(
+        forgotten.active, 1,
+        "exactly one surface paints: {forgotten:?}"
+    );
+
+    park_pointer(&page).await;
+    let strip = wait_for_strip(&page, "the project chip active again", |probe| {
+        strip_row(probe, "projects")
+            .iter()
+            .any(|chip| chip.id == fixture_chip && chip.active)
+    })
+    .await;
+    assert!(
+        ancestor_chips(&strip).is_empty(),
+        "the project tab itself is the location, so no ancestor marker: {strip:?}"
+    );
+    assert_eq!(
+        active_chips(&strip).len(),
+        1,
+        "exactly one chip is the current location: {strip:?}"
+    );
 
     // Pin (idle): nothing is announced, so nothing shows. The mount fetch has long landed.
     let idle = pill_probe(&page).await;
@@ -3319,6 +3684,31 @@ fn strip_chips(probe: &StripProbe) -> Vec<&StripChipProbe> {
     probe.rows.iter().flat_map(|row| &row.chips).collect()
 }
 
+/// The chips the strip marks as the current location.
+fn active_chips(probe: &StripProbe) -> Vec<&StripChipProbe> {
+    strip_chips(probe)
+        .into_iter()
+        .filter(|chip| chip.active)
+        .collect()
+}
+
+/// The chips the strip marks as the parent project of the current location.
+fn ancestor_chips(probe: &StripProbe) -> Vec<&StripChipProbe> {
+    strip_chips(probe)
+        .into_iter()
+        .filter(|chip| chip.ancestor)
+        .collect()
+}
+
+/// Parks the pointer away from the strip, so a `hover` rule cannot colour the chip a reading is
+/// about. The strip owns the top of the window, so the bottom-left corner is always clear of it.
+async fn park_pointer(page: &Page) {
+    page.mouse()
+        .move_to(4.0, 700.0, None)
+        .await
+        .expect("the pointer should park away from the strip");
+}
+
 /// Reads every tab wrapper in one round trip.
 async fn tabs_probe(page: &Page) -> Vec<TabEntry> {
     page.evaluate(TABS_PROBE, None::<&()>)
@@ -3598,7 +3988,7 @@ fn serve_connection(
         log.push(path.to_string());
     }
 
-    let response = route(path, dist, update);
+    let response = route(&target, dist, update);
     write_response(&mut stream, response);
     close_gracefully(&mut stream);
 }
@@ -4023,9 +4413,14 @@ fn update_phase_frame(status: &str) -> String {
     )
 }
 
-fn route(path: &str, dist: &Path, update: &UpdateStub) -> Response {
+/// Routes one request target: its API path, or an asset of `dist/`.
+///
+/// The query string is read, not dropped: a task-list panel asks for one project's lists, so the
+/// stub answers the list that project owns.
+fn route(target: &str, dist: &Path, update: &UpdateStub) -> Response {
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
     if let Some(api_path) = path.strip_prefix(API_PREFIX) {
-        return api_response(api_path, update);
+        return api_response(api_path, query, update);
     }
 
     // The SPA dials `ws://localhost:8080/dev/ws`, which the harness serves from its own listener
@@ -4038,10 +4433,10 @@ fn route(path: &str, dist: &Path, update: &UpdateStub) -> Response {
     static_response(dist, path)
 }
 
-fn api_response(path: &str, update: &UpdateStub) -> Response {
+fn api_response(path: &str, query: &str, update: &UpdateStub) -> Response {
     match path {
         "projects" => Response::json(200, &project_page()),
-        "task-lists" => Response::json(200, &task_list_page()),
+        "task-lists" => Response::json(200, &task_list_page(project_filter(query))),
         "notes" => Response::json(200, &note_page()),
         "repos" => Response::json(200, &empty_page()),
         "skills" => Response::json(200, &skill_page()),
@@ -4074,13 +4469,26 @@ fn record_by_path(path: &str) -> Option<String> {
         return Some(body);
     }
     if path == format!("task-lists/{TASK_LIST_ID}/stats") {
-        return Some(task_stats_record());
+        return Some(task_stats_record(TASK_LIST_ID));
     }
     if path == format!("task-lists/{TASK_LIST_ID}") {
-        return Some(task_list_record());
+        return Some(task_list_record(TASK_LIST_ID, PROJECT_ID, TASK_LIST_TITLE));
     }
     if path == format!("task-lists/{TASK_LIST_ID}/tasks") {
         return Some(task_page());
+    }
+    if path == format!("task-lists/{SECOND_TASK_LIST_ID}/stats") {
+        return Some(empty_task_stats_record(SECOND_TASK_LIST_ID));
+    }
+    if path == format!("task-lists/{SECOND_TASK_LIST_ID}") {
+        return Some(task_list_record(
+            SECOND_TASK_LIST_ID,
+            SECOND_PROJECT_ID,
+            SECOND_TASK_LIST_TITLE,
+        ));
+    }
+    if path == format!("task-lists/{SECOND_TASK_LIST_ID}/tasks") {
+        return Some(empty_page());
     }
     if path == format!("tasks/{TASK_ID}") {
         return Some(task_record());
@@ -4129,22 +4537,47 @@ fn empty_page() -> String {
     "{\"items\":[],\"total\":0,\"limit\":12,\"offset\":0}".to_string()
 }
 
-fn task_list_record() -> String {
+fn task_list_record(task_list_id: &str, project_id: &str, title: &str) -> String {
     format!(
-        "{{\"id\":\"{TASK_LIST_ID}\",\"project_id\":\"{PROJECT_ID}\",\"title\":\"{TASK_LIST_TITLE}\",\"description\":\"Fixture served by the e2e harness.\",\"status\":\"active\",\"external_refs\":[],\"notes\":null,\"tags\":[\"e2e\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+        "{{\"id\":\"{task_list_id}\",\"project_id\":\"{project_id}\",\"title\":\"{title}\",\"description\":\"Fixture served by the e2e harness.\",\"status\":\"active\",\"external_refs\":[],\"notes\":null,\"tags\":[\"e2e\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
     )
 }
 
-fn task_list_page() -> String {
+/// The `project_id` a query string names, when it names one.
+fn project_filter(query: &str) -> Option<&str> {
+    query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("project_id="))
+        .filter(|project| !project.is_empty())
+}
+
+/// The task-list page of one project, in the shape `task_list_record` deserializes.
+///
+/// A dashboard asks for its own project's lists, so each project answers with the one list it owns
+/// and a task-list tab of the second project can open. A request that names no project keeps the
+/// fixture list, which is what the notes view and every unfiltered caller read.
+fn task_list_page(project_id: Option<&str>) -> String {
+    let record = match project_id {
+        Some(SECOND_PROJECT_ID) => task_list_record(
+            SECOND_TASK_LIST_ID,
+            SECOND_PROJECT_ID,
+            SECOND_TASK_LIST_TITLE,
+        ),
+        _ => task_list_record(TASK_LIST_ID, PROJECT_ID, TASK_LIST_TITLE),
+    };
+    format!("{{\"items\":[{record}],\"total\":1,\"limit\":12,\"offset\":0}}")
+}
+
+fn task_stats_record(task_list_id: &str) -> String {
     format!(
-        "{{\"items\":[{}],\"total\":1,\"limit\":12,\"offset\":0}}",
-        task_list_record()
+        "{{\"list_id\":\"{task_list_id}\",\"total\":1,\"backlog\":0,\"todo\":1,\"in_progress\":0,\"review\":0,\"done\":0,\"cancelled\":0}}"
     )
 }
 
-fn task_stats_record() -> String {
+/// The stats of a task list that holds no task.
+fn empty_task_stats_record(task_list_id: &str) -> String {
     format!(
-        "{{\"list_id\":\"{TASK_LIST_ID}\",\"total\":1,\"backlog\":0,\"todo\":1,\"in_progress\":0,\"review\":0,\"done\":0,\"cancelled\":0}}"
+        "{{\"list_id\":\"{task_list_id}\",\"total\":0,\"backlog\":0,\"todo\":0,\"in_progress\":0,\"review\":0,\"done\":0,\"cancelled\":0}}"
     )
 }
 

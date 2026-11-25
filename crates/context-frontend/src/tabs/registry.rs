@@ -89,6 +89,19 @@ impl TabRegistry {
         activated
     }
 
+    /// Focus the surface a project chip names: the task list the project last showed, or its
+    /// overview.
+    ///
+    /// The whole rule runs inside one update, so no reader sees the remembered child and the focus
+    /// move apart. The returned id is the tab the update focused, or `None` when the project has no
+    /// open tab and no remembered child.
+    pub fn activate_project(&self, project_id: &str) -> Option<TabId> {
+        let mut activated = None;
+        self.state
+            .update(|tabs| activated = tabs.activate_project(project_id));
+        activated
+    }
+
     /// Clear focus and keep every tab open, which is what chrome navigation does.
     ///
     /// A strip that is already deactivated is left untouched, so a repeated chrome navigation
