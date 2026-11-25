@@ -285,7 +285,7 @@ debug build reads its API from `/dev/api/v1`, which is why the stub serves that
 prefix instead of a backend on port 3738.
 
 `cargo test -p context-frontend ...` does not work from the repository root:
-the package is excluded from the workspace (`Cargo.toml` line 10), so cargo
+the package is excluded from the workspace (root `Cargo.toml` line 12), so cargo
 cannot select it with `-p` and rejects features for it. Use `--manifest-path`.
 
 ### Backend Static Asset Tests
