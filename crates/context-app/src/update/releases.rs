@@ -136,6 +136,11 @@ pub(crate) async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<GitHu
 /// - a lower core is never offered, so a channel cannot downgrade the app
 /// - an equal core with a different build id is a newer build of the same version
 /// - an equal core with the same build id is this build, so nothing is offered
+/// - an equal core whose tag repeats a pre-release running version is this release,
+///   so nothing is offered: the tag carries the source-branch sha while the build
+///   id is the release-branch head, so the two never match
+/// - that version rule reads only a running pre-release version, so a bare-version
+///   dev build stays eligible for the stable release of its own core
 /// - an empty `current_build_id` cannot be told apart from another build of the
 ///   same core, so an equal core is treated as this build; offering the same
 ///   release on every check would loop forever
@@ -176,7 +181,9 @@ pub(crate) fn select_candidate(
         return None;
     }
     if winner_core == current_core
-        && (current_build_id.is_empty() || version.pre.as_str() == current_build_id)
+        && (current_build_id.is_empty()
+            || version.pre.as_str() == current_build_id
+            || (!current.pre.is_empty() && current == version))
     {
         return None;
     }

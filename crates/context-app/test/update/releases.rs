@@ -65,6 +65,7 @@ fn the_fixture_is_the_real_release_list() {
     assert_eq!(
         tags,
         [
+            "v0.8.0-340d170",
             "v0.8.0-4610dfd",
             "v0.8.0-a478046",
             "v0.8.0-8959cbd",
@@ -102,10 +103,10 @@ fn the_pre_release_channel_considers_every_release() {
         .expect("the pre-release build wins over the stable releases");
 
     assert_eq!(
-        candidate.tag, "v0.8.0-4610dfd",
+        candidate.tag, "v0.8.0-340d170",
         "the newest by publication time wins, though its sha sorts lower as text"
     );
-    assert_eq!(candidate.version, version("0.8.0-4610dfd"));
+    assert_eq!(candidate.version, version("0.8.0-340d170"));
     assert!(candidate.is_prerelease);
 }
 
@@ -161,9 +162,39 @@ fn a_candidate_that_is_not_newer_is_rejected() {
 #[test]
 fn the_running_build_is_not_offered_as_an_update() {
     assert!(
-        select_candidate(&fixture(), "pre-release", "0.8.0", "4610dfd").is_none(),
-        "the release this build runs must not be offered to itself"
+        select_candidate(&fixture(), "pre-release", "0.8.0", "340d170").is_none(),
+        "a dev build must not be offered the release of its own branch"
     );
+}
+
+#[test]
+fn a_release_binary_is_not_offered_its_own_release() {
+    let candidate = select_candidate(&fixture(), "pre-release", "0.8.0-340d170", "8263a60");
+
+    assert!(
+        candidate.is_none(),
+        "a release binary must not offer the release it was cut from, though the tag sha and \
+         the build id differ, got: {:?}",
+        candidate.map(|offered| offered.tag)
+    );
+}
+
+#[test]
+fn another_build_of_the_running_release_is_offered() {
+    let candidate = select_candidate(&fixture(), "pre-release", "0.8.0-4610dfd", "53b4331")
+        .expect("a newer build of the running release is an update");
+
+    assert_eq!(candidate.tag, "v0.8.0-340d170");
+}
+
+#[test]
+fn a_bare_version_is_not_suppressed_by_version_equality() {
+    let releases = vec![published("v0.8.0-340d170", true, "2026-11-26T10:43:22Z")];
+
+    let candidate = select_candidate(&releases, "pre-release", "0.8.0", "8263a60")
+        .expect("a dev binary of the same core is offered the pre-release build");
+
+    assert_eq!(candidate.tag, "v0.8.0-340d170");
 }
 
 #[test]
@@ -172,7 +203,7 @@ fn a_newer_build_of_the_running_core_is_offered() {
         .expect("another build of the running version is an update");
 
     assert_eq!(
-        candidate.tag, "v0.8.0-4610dfd",
+        candidate.tag, "v0.8.0-340d170",
         "the newest by publication time wins, though its sha sorts lower as text"
     );
 }
@@ -200,7 +231,7 @@ fn an_empty_build_id_still_accepts_a_higher_core() {
     let candidate = select_candidate(&fixture(), "pre-release", "0.7.0", "")
         .expect("a higher core is an update whatever the build id is");
 
-    assert_eq!(candidate.tag, "v0.8.0-4610dfd");
+    assert_eq!(candidate.tag, "v0.8.0-340d170");
 }
 
 #[test]
@@ -212,7 +243,7 @@ fn the_newest_by_publication_time_wins_whatever_the_list_order() {
         select_candidate(&releases, "pre-release", "0.7.0", "").expect("a release wins");
 
     assert_eq!(
-        candidate.tag, "v0.8.0-4610dfd",
+        candidate.tag, "v0.8.0-340d170",
         "selection reads publication time, not list position"
     );
 }
