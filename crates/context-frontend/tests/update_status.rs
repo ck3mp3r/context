@@ -101,10 +101,21 @@ fn a_dismissal_hides_one_candidate_version_only() {
 }
 
 #[test]
-fn a_dismissal_without_a_candidate_hides_the_bare_notice() {
-    assert!(update_dismissed(Some(""), None));
+fn a_dismissal_without_a_candidate_hides_nothing() {
+    assert!(
+        !update_dismissed(Some(""), None),
+        "an empty key names no version, so it hides no candidate-less payload"
+    );
     assert!(
         !update_dismissed(Some(""), Some("0.9.0")),
-        "a named candidate is a different key than the bare notice"
+        "an empty key hides no named candidate either"
+    );
+    assert!(
+        !update_dismissed(Some("   "), None),
+        "a blank key is not a version"
+    );
+    assert!(
+        update_dismissed(Some("0.9.0"), Some("0.9.0")),
+        "a real key still hides its own version"
     );
 }

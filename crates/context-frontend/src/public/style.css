@@ -1145,6 +1145,14 @@
     .hover\:border-ctp-green:hover {
       border-color: var(--ctp-green);
     }
+    .hover\:bg-ctp-blue\/20:hover {
+      background-color: var(--ctp-blue);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-ctp-blue\/20:hover {
+        background-color: color-mix(in oklab, var(--ctp-blue) 20%, transparent);
+      }
+    }
     .hover\:bg-ctp-green\/20:hover {
       background-color: var(--ctp-green);
     }

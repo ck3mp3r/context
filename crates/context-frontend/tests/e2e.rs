@@ -112,6 +112,9 @@ const OTHER_NOTE_ID: &str = "e2e00f02";
 const UPDATE_VERSION: &str = "0.9.0";
 const UPDATE_NEWER_VERSION: &str = "0.9.1";
 
+/// A candidate offered after a dismissed failure: the empty key must not shadow it.
+const UPDATE_LIVE_VERSION: &str = "0.9.2";
+
 // region:    --- Test
 
 /// Reads the container's observable state in one round trip.
@@ -401,6 +404,7 @@ const PILL_PROBE: &str = r#"() => {
             : 0,
         update_cta: pill ? pill.querySelectorAll('[data-update-install]').length : 0,
         restart_cta: pill ? pill.querySelectorAll('[data-update-restart]').length : 0,
+        check_cta: pill ? pill.querySelectorAll('[data-update-check]').length : 0,
         dismiss_cta: pill ? pill.querySelectorAll('[data-update-dismiss]').length : 0,
         position: pill ? getComputedStyle(pill).position : '',
         pill_z: depth(pill),
@@ -427,6 +431,7 @@ struct PillProbe {
     progress_bars: usize,
     update_cta: usize,
     restart_cta: usize,
+    check_cta: usize,
     dismiss_cta: usize,
     position: String,
     pill_z: Option<i32>,
@@ -3727,7 +3732,7 @@ async fn spa_body() {
     );
 
     // Pin (failure surface): the service's own failure message renders in the pill, with a dismiss
-    // control and no action, so no second error surface exists.
+    // control and one retry, so no second error surface exists and the failure is not a dead end.
     server.set_update_status("failed", None, Some("GitHub refused the manifest"));
     announce_update(&server, &socket, "failed", &update_phase_frame("failed"));
     let failed = wait_for_pill(&page, "a failed update", |probe| {
@@ -3744,7 +3749,117 @@ async fn spa_body() {
     assert_eq!(
         failed.update_cta + failed.restart_cta,
         0,
-        "a failure offers no action: {failed:?}"
+        "a failure offers no install and no restart: {failed:?}"
+    );
+    assert_eq!(
+        failed.check_cta, 1,
+        "a failure offers the one retry the state machine allows: {failed:?}"
+    );
+
+    // Pin (retry): the retry is a manual check, and the pill keeps reporting the failure until the
+    // next announcement arrives.
+    let check_calls = server.api_calls("update/check");
+    page.locator("[data-update-pill] [data-update-check]")
+        .click(None)
+        .await
+        .expect("the Check again control should be clickable");
+    wait_for_api_calls(&server, "update/check", check_calls + 1);
+    settle_frame();
+    let retried = pill_probe(&page).await;
+    assert!(
+        retried.present && retried.phase == "failed",
+        "a retry keeps the failed pill until the next announcement: {retried:?}"
+    );
+    assert_eq!(
+        server.api_calls("update/check"),
+        check_calls + 1,
+        "one click posts exactly one check"
+    );
+
+    // Pin (dismissed failure, ephemeral): the failed state names no candidate, so its dismissal
+    // writes no version key and the next announcement brings the pill back.
+    page.locator("[data-update-pill] [data-update-dismiss]")
+        .click(None)
+        .await
+        .expect("the failed pill should be dismissible");
+    let dismissed_failure =
+        wait_for_pill(&page, "a dismissed failure", |probe| !probe.present).await;
+    assert!(
+        !dismissed_failure.present,
+        "dismissing the failed pill hides it: {dismissed_failure:?}"
+    );
+    announce_update(
+        &server,
+        &socket,
+        "failed again",
+        &update_phase_frame("failed"),
+    );
+    let failed_again = wait_for_pill(
+        &page,
+        "the failed pill after another announcement",
+        |probe| probe.present && probe.phase == "failed",
+    )
+    .await;
+    assert_eq!(
+        failed_again.check_cta, 1,
+        "the re-shown failure still offers the retry: {failed_again:?}"
+    );
+
+    // Pin (a failure never shadows an offer): the candidate-less failure left no version key, so an
+    // offer announced afterwards is still the offer it is.
+    server.set_update_status("available", Some(UPDATE_LIVE_VERSION), None);
+    announce_update(
+        &server,
+        &socket,
+        "live offer",
+        &update_state_frame("available", UPDATE_LIVE_VERSION),
+    );
+    let live = wait_for_pill(&page, "the offer after a dismissed failure", |probe| {
+        probe.present && probe.text.contains(UPDATE_LIVE_VERSION)
+    })
+    .await;
+    assert_eq!(
+        live.update_cta, 1,
+        "an offer after a dismissed failure is installable: {live:?}"
+    );
+    assert_eq!(live.check_cta, 0, "an offer offers no retry: {live:?}");
+
+    // Pin (dismissed local failure): the stub answers the unstubbed install path with a 404, so the
+    // pill renders the local-failure view over a still-available payload. Its dismissal records no
+    // version, so the live offer comes back instead of staying dismissed forever.
+    page.locator("[data-update-pill] [data-update-install]")
+        .click(None)
+        .await
+        .expect("the Update control should be clickable");
+    let refused_install = wait_for_pill(&page, "a refused install", |probe| {
+        probe.present && probe.phase == "failed"
+    })
+    .await;
+    assert!(
+        refused_install.text.contains("The install failed"),
+        "a 404 ends at the failed pill state: {refused_install:?}"
+    );
+    assert_eq!(
+        refused_install.check_cta, 1,
+        "the local failure offers the retry too: {refused_install:?}"
+    );
+    assert_eq!(
+        refused_install.dismiss_cta, 1,
+        "the local failure is dismissible: {refused_install:?}"
+    );
+    page.locator("[data-update-pill] [data-update-dismiss]")
+        .click(None)
+        .await
+        .expect("the local failure should be dismissible");
+    let offer_back = wait_for_pill(
+        &page,
+        "the offer after a dismissed local failure",
+        |probe| probe.present && probe.text.contains(UPDATE_LIVE_VERSION),
+    )
+    .await;
+    assert_eq!(
+        offer_back.update_cta, 1,
+        "dismissing the local failure hands the live offer back: {offer_back:?}"
     );
 
     browser.close().await.expect("the browser should close");

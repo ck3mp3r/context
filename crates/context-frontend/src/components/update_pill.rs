@@ -2,7 +2,8 @@
 //!
 //! One surface reports an update: a pill fixed to the bottom right, mounted once in `app.rs`, so it
 //! is on every screen. It renders every [`crate::models::UpdateStatusPayload`] state, offers the one
-//! restart code path the service owns, and hides itself per candidate version.
+//! restart code path the service owns, retries a failure with a fresh check, and hides itself per
+//! candidate version.
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -28,6 +29,8 @@ struct PillContent {
     update: bool,
     /// Whether the **Restart** call to action shows.
     restart: bool,
+    /// Whether the **Check again** call to action shows.
+    check: bool,
     /// Whether the dismiss control shows.
     dismiss: bool,
 }
@@ -45,6 +48,9 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
     // A failure one of the calls to action reported. It outranks the state the service keeps, so a
     // rejected restart reads as a failure instead of a spinner that never ends.
     let local_failure = RwSignal::new(None::<String>);
+    // A view the user dismissed that names no candidate version. A dismissal is keyed to a
+    // version, and these views carry none, so the hide lasts only until the next announcement.
+    let hidden = RwSignal::new(false);
     let restart_pending = RwSignal::new(false);
     // The candidate the pill last saw named. An install announces `downloading` and `installing`
     // from a state with the candidate fields cleared, so this is how a dismissal stays attached to
@@ -60,8 +66,10 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
         }
     });
 
-    // Every announced change re-reads the state. The dismissal is untouched: an install ends at
-    // `ready` without restarting anything, so a dismissed candidate stays hidden through it.
+    // Every announced change re-reads the state. The version key is untouched: an install ends at
+    // `ready` without restarting anything, so a dismissed candidate stays hidden through it. The
+    // ephemeral hide ends here, because it belongs to the state that was on screen when it was
+    // made and that state is now history.
     let updates = use_websocket_updates();
     Effect::new(move |_| {
         if matches!(
@@ -70,18 +78,38 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
         ) {
             restart_pending.set(false);
             local_failure.set(None);
+            hidden.set(false);
             refetch(status);
         }
     });
 
     let on_dismiss = move |_| {
-        let version = status
-            .get_untracked()
-            .and_then(|payload| payload.candidate_version)
-            .unwrap_or_default();
-        dismissed.set(Some(version));
+        let dismissed_a_failure = local_failure.get_untracked().is_some();
         local_failure.set(None);
         restart_pending.set(false);
+
+        let payload = status.get_untracked();
+        // A failure names no candidate, so its hide cannot be keyed to a version: an empty key
+        // would hide every later payload that also names none. It lasts until the next
+        // announcement. Dismissing a local failure instead drops the report, which hands the pill
+        // back to the state the service keeps: an offer that is still live shows again at once.
+        if payload
+            .as_ref()
+            .is_some_and(|payload| payload.status == "failed")
+        {
+            hidden.set(true);
+            return;
+        }
+
+        if dismissed_a_failure {
+            return;
+        }
+
+        match payload.and_then(|payload| payload.candidate_version) {
+            Some(version) => dismissed.set(Some(version)),
+            // A bare notice has no version to key, so its hide is ephemeral too.
+            None => hidden.set(true),
+        }
     };
 
     let on_install = move |_| {
@@ -110,12 +138,23 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
         });
     };
 
+    // The one retry the state machine allows after a failure: a new check, the same call the boot
+    // path makes. An install is POST-and-forget, so nothing else can start one from `failed`.
+    let on_check = move |_| {
+        spawn_local(async move {
+            if let Err(error) = api::update::check(true).await {
+                report(&format!("Failed to start an update check: {error}"));
+            }
+        });
+    };
+
     let content = move || {
         pill_content(
             status.get(),
             last_candidate.get(),
             local_failure.get(),
             dismissed.get(),
+            hidden.get(),
         )
     };
 
@@ -170,6 +209,20 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
                                 }
                             })}
                         {pill
+                            .check
+                            .then(|| {
+                                view! {
+                                    <button
+                                        type="button"
+                                        data-update-check=""
+                                        on:click=on_check
+                                        class="rounded border border-ctp-blue px-2 py-1 text-xs text-ctp-blue transition-colors hover:bg-ctp-blue/20"
+                                    >
+                                        "Check again"
+                                    </button>
+                                }
+                            })}
+                        {pill
                             .dismiss
                             .then(|| {
                                 view! {
@@ -201,11 +254,14 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
 /// newest fact. A dismissal hides the pill for one candidate version. An install announces
 /// `downloading` and `installing` from a state with no candidate, so those two phases inherit the
 /// last candidate the pill saw named; every other phase is keyed by the version it carries.
+/// `hidden` is the dismissal of a view that names no version: a failure, or a bare notice. It ends
+/// at the next announcement, so it never outlives the state that produced it.
 fn pill_content(
     payload: Option<UpdateStatusPayload>,
     last_candidate: Option<String>,
     local_failure: Option<String>,
     dismissed: Option<String>,
+    hidden: bool,
 ) -> Option<PillContent> {
     if let Some(message) = local_failure {
         return Some(PillContent {
@@ -214,8 +270,13 @@ fn pill_content(
             spinner: false,
             update: false,
             restart: false,
+            check: true,
             dismiss: true,
         });
+    }
+
+    if hidden {
+        return None;
     }
 
     let payload = payload?;
@@ -236,6 +297,7 @@ fn pill_content(
             spinner: false,
             update: true,
             restart: false,
+            check: false,
             dismiss: true,
         },
         "checking" | "downloading" | "installing" => PillContent {
@@ -244,6 +306,7 @@ fn pill_content(
             spinner: true,
             update: false,
             restart: false,
+            check: false,
             dismiss: false,
         },
         "ready" => PillContent {
@@ -252,6 +315,7 @@ fn pill_content(
             spinner: false,
             update: false,
             restart: true,
+            check: false,
             dismiss: true,
         },
         "failed" => PillContent {
@@ -260,6 +324,7 @@ fn pill_content(
             spinner: false,
             update: false,
             restart: false,
+            check: true,
             dismiss: true,
         },
         _ => return None,

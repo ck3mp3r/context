@@ -42,12 +42,15 @@ pub fn update_failure(message: Option<&str>) -> String {
 
 /// Whether a dismissal hides the pill for this candidate version.
 ///
-/// The dismissal names one candidate version, so a different candidate — which is how a newer
-/// announcement arrives — brings the pill back. A payload that names no candidate is its own key,
-/// so a bare notice stays dismissed until the GUI restarts.
+/// Only a named version is a key. The dismissal names one candidate version, so a different
+/// candidate — which is how a newer announcement arrives — brings the pill back. An empty key
+/// names nothing and therefore hides nothing: a payload that carries no candidate must not match
+/// the empty string, or one dismissal of a candidate-less view would hide every later payload that
+/// also carries none.
 pub fn update_dismissed(dismissed: Option<&str>, candidate_version: Option<&str>) -> bool {
-    match dismissed {
-        Some(version) => version == candidate_version.unwrap_or_default(),
-        None => false,
-    }
+    let Some(key) = dismissed.filter(|key| !key.trim().is_empty()) else {
+        return false;
+    };
+
+    candidate_version == Some(key)
 }
