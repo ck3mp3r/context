@@ -90,11 +90,16 @@
     fi
 
     # The workspace version stamps the build: the tag, the version the app reports
-    # and the updater manifest must name one string. A version the release prep
-    # already stamped is kept — the branch under build carries the stamp its tag
-    # was cut from — and only a bare version is stamped here, with n the commit
-    # count of the built head. Semver orders a numeric build identifier by value,
-    # so a later release always ranks above an earlier one.
+    # and the updater manifest must name one string. A version that already
+    # carries a pre-release suffix is kept — the branch under build carries the
+    # stamp its tag was cut from, and a hand-stamped tree carries the string the
+    # operator chose — and only a bare version is stamped here, from the
+    # environment. The suffix is the workflow run number, the counter CI stamps,
+    # and the identifier is `pre`: semver compares non-numeric identifiers as
+    # ASCII text, `p` outranks every hex digit a short sha can start with, and
+    # `b` does not, so a branch build outranks every published sha build. A
+    # numeric identifier compares by value, so a later build always ranks above
+    # an earlier one.
     cargo_toml=Cargo.toml
     if [ ! -f "$cargo_toml" ] || [ ! -f Cargo.lock ]; then
       echo "release: run from the repository root — Cargo.toml and Cargo.lock must be here" >&2
@@ -120,30 +125,31 @@
     trap 'exit 143' TERM
 
     case "$stamped_version" in
-      *-build.[0-9]*)
+      *-pre.[0-9]*|*-build.[0-9]*)
         echo "release: version $stamped_version (stamped by the release prep)"
         ;;
       *)
         core="''${stamped_version%%-*}"
-        if ! count="$(git rev-list --count HEAD 2>&1)"; then
-          echo "release: git rev-list --count HEAD failed: $count" >&2
-          exit 1
-        fi
-        count="''${count//[[:space:]]/}"
-        case "$count" in
-          ""|*[!0-9]*|0)
-            echo "release: git rev-list --count HEAD returned '$count', not a commit count" >&2
+        run_number="''${GITHUB_RUN_NUMBER:-}"
+        case "$run_number" in
+          ""|*[!0-9]*)
+            echo "release: GITHUB_RUN_NUMBER is '$run_number', not a workflow run number" >&2
+            echo "release: a branch build is a pre-release of the next version, and its" >&2
+            echo "release: suffix is the run number the release workflow exports; a local" >&2
+            echo "release: shell does not set it" >&2
+            echo "release: stamp [workspace.package] version in Cargo.toml to" >&2
+            echo "release: '$core-pre.<n>' by hand, then rerun; release keeps that stamp" >&2
             exit 1
             ;;
         esac
-        stamped_version="$core-build.$count"
+        stamped_version="$core-pre.$run_number"
         awk -v version="$stamped_version" '
           /^\[workspace\.package\]/ { in_package = 1 }
           in_package && !stamped && /^version *=/ { sub(/"[^"]*"/, "\"" version "\""); stamped = 1 }
           { print }
         ' "$cargo_toml" > "$backup_dir/stamped.toml"
         cat "$backup_dir/stamped.toml" > "$cargo_toml"
-        echo "release: version $stamped_version (stamped from $count commits)"
+        echo "release: version $stamped_version (stamped with run number $run_number)"
         ;;
     esac
 

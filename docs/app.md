@@ -351,7 +351,7 @@ The app updates itself from GitHub releases. The service owns the flow, so an up
 
 ### How an update runs
 
-1. The service resolves the release that its channel allows — with the pre-release channel on, every release is a candidate; with it off, only stable releases — and takes the newest version. Versions follow semver, so a build-suffix pre-release such as `0.8.1-build.412` sorts below `0.8.1` and is never offered over it, and it sorts above `0.8.1-build.99`, because a numeric build identifier compares by value.
+1. The service resolves the release that its channel allows — with the pre-release channel on, every release is a candidate; with it off, only stable releases — and takes the newest version. Versions follow semver, so a pre-release such as `0.8.1-pre.412` sorts below `0.8.1` and is never offered over it, and it sorts above `0.8.1-pre.99`, because a numeric identifier compares by value.
 2. The SPA banner offers the candidate. Nothing downloads until Install is pressed.
 3. On consent the service downloads the signed `Context.app.tar.gz`, verifies it against the pinned public key, and swaps the bundle atomically. It stops there: the state becomes `ready`, the bundle waits on disk, and the running service keeps serving it.
 4. Restart, from the pill CTA, runs the sequence: the service starts the new service binary with a one-second delay, terminates and respawns the GUI, then exits. The old process releases port 3737 and the single-instance socket while the child still sleeps, so one instance always owns them. The launchd agent is not touched: the detached child owns the session, and at the next login the registered agent starts the new binary by itself.
@@ -420,28 +420,26 @@ A passwordless key works without the password secret; a protected key needs both
 
 #### Version scheme
 
-Every release is tagged `v<major>.<minor>.<patch>-build.<n>`, with `n` the commit count of the built head, and the app inside reports the same version without the leading `v`. A release cut from `0.8.1` at commit 412 is tagged `v0.8.1-build.412` and reports `0.8.1-build.412`. A stable release carries no suffix: `v0.8.2`.
+A release from `main` is plain semver: `v<major>.<minor>.<patch>`, no suffix. A release from any other branch is a pre-release of the **next** version: `v<major>.<minor>.<patch>-pre.<n>`, with `n` the workflow run number of the run that stamps it. The app inside reports the same version without the leading `v`. With `0.8.1` as the next version, a run on `main` ships `v0.8.1`, and a branch build from run 412 ships `v0.8.1-pre.412`.
 
-A numeric build identifier compares by value, so `0.8.1-build.412` ranks above `0.8.1-build.99`. That ordering is what makes the updater deliver builds: the plugin compares the manifest version with the version the app reports, and publication order now agrees with semver order. A short sha compared as ASCII text, so `0.8.0-4610dfd` ranked above `0.8.0-340d170` whatever the publication times, and a newer build of one core could not be delivered.
+The base version comes from the newest **stable** tag only: `v<major>.<minor>.<patch>`, with no `-` suffix. `ci scm semver` raises that tag's patch by one, and keeps the current workspace version when that is already ahead. A `pre` tag never feeds the computation, and the filter, not the sort, is what drops it: `git tag --sort -version:refname` ranks a pre-release above its own core, `v0.8.2-pre.900` before `v0.8.2`. Without the filter every branch run would ratchet the core — `0.8.2`, then `0.8.3` — and the release `main` is meant to ship would never be stamped at that version. The `prep-release` job fails the run when a suffixed tag reaches the base.
 
-`n` is the commit count of the built commit:
+`pre`, never `build`: semver compares a non-numeric identifier as ASCII text, `p` (0x70) outranks every hex digit a short sha can start with, and `b` (0x62) does not. So `0.8.0-pre.1` outranks `0.8.0-f0ffee`, and the first build under the scheme is offered to an install that runs any sha build of the same core. A numeric identifier compares by value, so `0.8.1-pre.12` ranks above `0.8.1-pre.5` although `"12"` sorts below `"5"` as text.
 
-```sh
-git rev-list --count HEAD
-```
+`n` is the workflow run number. `github.run_number` is one repository-wide counter that rises with every run of the workflow, whatever the branch, so a later branch build always ranks above an earlier one. The commit count it replaces was branch-local: a shorter branch building after a longer one carried a lower number. While the tag `v<base>-pre.<n>` already exists, `n` steps up by one, so a re-run of one run number cannot reuse a version.
 
-`release` stamps the version itself. It rewrites `[workspace.package] version` in `Cargo.toml` before `trunk build --release` starts, keeps the stamp for the whole build, and restores `Cargo.toml` and `Cargo.lock` byte-identical when the helper ends: on success, on a failed build and on an interrupt. A version that already carries `-build.<n>` is kept as it is, so the version the release workflow committed, the tag and the version the app reports name one string. The stamped version is also written to `target/release/context-version`, which `release-manifest` reads, so the manifest names the build that was compiled.
+`release` stamps the version itself. It rewrites `[workspace.package] version` in `Cargo.toml` before `trunk build --release` starts, keeps the stamp for the whole build, and restores `Cargo.toml` and `Cargo.lock` byte-identical when the helper ends: on success, on a failed build and on an interrupt. A version that already carries `-pre.<n>` or `-build.<n>` is kept as it is, so the version the release workflow committed, the tag and the version the app reports name one string. The stamped version is also written to `target/release/context-version`, which `release-manifest` reads, so the manifest names the build that was compiled.
 
-To build without the helper, stamp the tree yourself first: set `[workspace.package] version` in `Cargo.toml` to `<major>.<minor>.<patch>-build.<n>`, with `n` from the command above, and revert the file once the build ends.
+A bare version is stamped `<core>-pre.$GITHUB_RUN_NUMBER`, and the helper fails closed when that variable is unset or not a number: it names the value it read and tells you to hand-stamp. CI exports the variable; a local shell does not. To build locally, stamp the tree yourself first: set `[workspace.package] version` in `Cargo.toml` to `<major>.<minor>.<patch>-pre.<n>` with a number above the last published one. `release` keeps that stamp, and restores the file itself once the build ends.
 
 The release workflow stamps the version in its `prep-release` job, before any build runs, and tags that same version in `finalize-release`:
 
-1. `n` is the commit count of the released head. While the tag `v<base>-build.<n>` already exists, `n` moves up by one, so a second run from one head cannot reuse a version.
-2. The job writes `<base>-build.<n>` into `[workspace.package] version` in `Cargo.toml`, refreshes `Cargo.lock` and commits both on the release branch.
+1. `prep-release` marks the run a pre-release unless it runs on `main`, takes `<base>` from the newest stable tag, and takes `n` from `github.run_number`.
+2. The job writes the version into `[workspace.package] version` in `Cargo.toml`, refreshes `Cargo.lock` and commits both on the release branch.
 3. The build jobs check out that branch, so `cargo tauri build` compiles the stamped version and the running app reports it.
-4. `finalize-release` creates the release and its tag `v<base>-build.<n>` before any client can fetch a manifest: the manifest URL embeds the tag.
+4. `finalize-release` creates the release and its tag `v<version>` before any client can fetch a manifest: the manifest URL embeds the tag.
 
-Existing pre-releases keep their sha tags. `v0.8.0-340d170` and its kin stay published and untouched, and they are never selected again, because semver ranks every `0.8.1` core above `0.8.0`. The first build-numbered release must bump the core to `0.8.1`: `0.8.0-build.1` ranks below a running `0.8.0-<sha>`, since `build` compares below `f0ffee` as ASCII text and a numeric identifier compares below an alphanumeric one. From `0.8.1` on, the core orders first and every build number ranks above every `0.8.0` release, so an install that runs a sha-suffixed `0.8.0` still receives the update.
+Existing pre-releases keep their sha tags. `v0.8.0-340d170` and its kin stay published and untouched. `pre` outranks every sha of the same core, so the first `pre` build of a core reaches an install that runs a sha build of it, and semver ranks every `0.8.1` core above every `0.8.0` release.
 
 Export the key's contents before the build, then run the two helpers. The CLI reads the variable as key content, not as a path, and `.env` files do not work: the CLI reads the process environment only.
 
@@ -454,7 +452,7 @@ release            # builds, notarizes and staples the dmg
 release-manifest   # writes target/release/bundle/macos/latest.json
 ```
 
-`release-manifest` requires exactly one `target/release/bundle/macos/*.app.tar.gz` with its `.sig`, reads the version from `cargo metadata`, and writes the manifest the plugin fetches:
+`release-manifest` requires exactly one `target/release/bundle/macos/*.app.tar.gz` with its `.sig`, reads the version `release` wrote to `target/release/context-version` (a hand-stamped tree falls back to `cargo metadata`), and writes the manifest the plugin fetches:
 
 - `version`: the workspace version of the `context` package.
 - `pub_date`: the current UTC time in RFC 3339.
