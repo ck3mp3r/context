@@ -124,34 +124,36 @@ pub(crate) async fn fetch_releases(client: &reqwest::Client) -> Result<Vec<GitHu
         .map_err(|error| format!("Failed to parse the GitHub release list: {error}"))
 }
 
-/// Pick the release `channel` should install, given the running identity.
+/// Pick the release `channel` should install, given the running version.
 ///
 /// Drafts, releases the channel excludes, and tags that are not a version are
-/// ignored. What remains is ordered by numeric core, then by publication time.
-/// The tag's build id never orders anything: it is a short sha, and shas compare
-/// as text, not as time.
+/// ignored. What remains is ordered by numeric core, then by publication time;
+/// the tag's short sha never orders anything, because shas compare as text, not
+/// as time.
 ///
-/// The winner is offered only when it is newer than the running build:
+/// The winner is offered only when semver ranks its version above the running
+/// one. That is the same `release.version > current_version` test
+/// `tauri-plugin-updater` repeats before it installs, so the app never offers a
+/// release the plugin would refuse:
 ///
-/// - a lower core is never offered, so a channel cannot downgrade the app
-/// - an equal core with a different build id is a newer build of the same version
-/// - an equal core with the same build id is this build, so nothing is offered
-/// - an equal core whose tag repeats a pre-release running version is this release,
-///   so nothing is offered: the tag carries the source-branch sha while the build
-///   id is the release-branch head, so the two never match
-/// - that version rule reads only a running pre-release version, so a bare-version
-///   dev build stays eligible for the stable release of its own core
-/// - an empty `current_build_id` cannot be told apart from another build of the
-///   same core, so an equal core is treated as this build; offering the same
-///   release on every check would loop forever
+/// - a lower core ranks below the running one, so a channel cannot downgrade
+/// - a pre-release ranks below the bare version of its own core, so a bare
+///   running version is offered nothing from its own core
+/// - a tag whose version equals the running one is this release or this build,
+///   so nothing is offered
+/// - publication time only chooses among the releases, so it cannot widen the
+///   offer: a sha compared as text can rank a later release below the running
+///   build
+///
+/// The running build id is accepted but not read: semver precedence decides every
+/// case the same-core build-id rules used to guess at.
 pub(crate) fn select_candidate(
     releases: &[GitHubRelease],
     channel: &str,
     current_version: &str,
-    current_build_id: &str,
+    _current_build_id: &str,
 ) -> Option<Candidate> {
     let current = parse_version(current_version)?;
-    let current_core = core(&current);
     let mut winner: Option<(Version, &GitHubRelease, Option<DateTime<Utc>>)> = None;
 
     for release in releases {
@@ -175,16 +177,8 @@ pub(crate) fn select_candidate(
     }
 
     let (version, release, _) = winner?;
-    let winner_core = core(&version);
 
-    if winner_core < current_core {
-        return None;
-    }
-    if winner_core == current_core
-        && (current_build_id.is_empty()
-            || version.pre.as_str() == current_build_id
-            || (!current.pre.is_empty() && current == version))
-    {
+    if version <= current {
         return None;
     }
 

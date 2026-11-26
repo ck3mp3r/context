@@ -180,32 +180,37 @@ fn a_release_binary_is_not_offered_its_own_release() {
 }
 
 #[test]
-fn another_build_of_the_running_release_is_offered() {
-    let candidate = select_candidate(&fixture(), "pre-release", "0.8.0-4610dfd", "53b4331")
-        .expect("a newer build of the running release is an update");
+fn a_release_that_semver_ranks_below_the_running_build_is_not_offered() {
+    let candidate = select_candidate(&fixture(), "pre-release", "0.8.0-4610dfd", "53b4331");
 
-    assert_eq!(candidate.tag, "v0.8.0-340d170");
+    assert!(
+        candidate.is_none(),
+        "the plugin compares versions, not publication time: the newest publication is \
+         v0.8.0-340d170, whose sha ranks below 4610dfd as text, so the offer would be refused \
+         at install, got: {:?}",
+        candidate.map(|offered| offered.tag)
+    );
 }
 
 #[test]
-fn a_bare_version_is_not_suppressed_by_version_equality() {
+fn a_bare_version_outranks_every_prerelease_of_its_core() {
     let releases = vec![published("v0.8.0-340d170", true, "2026-11-26T10:43:22Z")];
 
-    let candidate = select_candidate(&releases, "pre-release", "0.8.0", "8263a60")
-        .expect("a dev binary of the same core is offered the pre-release build");
-
-    assert_eq!(candidate.tag, "v0.8.0-340d170");
+    assert!(
+        select_candidate(&releases, "pre-release", "0.8.0", "8263a60").is_none(),
+        "a bare 0.8.0 ranks above 0.8.0-340d170, so the plugin would refuse the offer"
+    );
 }
 
 #[test]
-fn a_newer_build_of_the_running_core_is_offered() {
-    let candidate = select_candidate(&fixture(), "pre-release", "0.8.0", "a478046")
-        .expect("another build of the running version is an update");
-
-    assert_eq!(
-        candidate.tag, "v0.8.0-340d170",
-        "the newest by publication time wins, though its sha sorts lower as text"
-    );
+fn the_real_feed_offers_nothing_to_a_bare_running_version() {
+    for build_id in ["a478046", "340d170", ""] {
+        assert!(
+            select_candidate(&fixture(), "pre-release", "0.8.0", build_id).is_none(),
+            "every tag of the running core is a pre-release the bare version outranks, \
+             build id {build_id:?} included"
+        );
+    }
 }
 
 #[test]
@@ -265,14 +270,61 @@ fn an_undated_release_sorts_below_a_dated_one() {
 }
 
 #[test]
-fn a_stable_release_of_the_running_core_is_offered_to_a_prerelease_build() {
+fn a_stable_release_is_offered_to_a_prerelease_build() {
     let releases = vec![published("v0.8.0", false, "2026-11-26T10:00:00Z")];
 
-    let candidate = select_candidate(&releases, "stable", "0.8.0", "4610dfd")
-        .expect("the stable release of the running version is an update to it");
+    let candidate = select_candidate(&releases, "stable", "0.8.0-4610dfd", "53b4331")
+        .expect("a bare 0.8.0 supersedes the pre-release the app runs");
 
     assert_eq!(candidate.tag, "v0.8.0");
     assert_eq!(candidate.version, version("0.8.0"));
+}
+
+#[test]
+fn a_sha_that_ranks_below_the_running_sha_is_not_offered() {
+    let releases = vec![published("v0.8.0-4610dfd", true, "2026-11-25T20:59:43Z")];
+
+    assert!(
+        select_candidate(&releases, "pre-release", "0.8.0-a478046", "8263a60").is_none(),
+        "a pre-release identifier with letters compares as ASCII text: \"4610dfd\" ranks \
+         below \"a478046\", so the plugin would refuse the offer"
+    );
+}
+
+#[test]
+fn a_higher_core_is_offered_whatever_the_build_scheme() {
+    let releases = vec![published("v0.8.1-build.1", true, "2026-11-27T09:00:00Z")];
+
+    let candidate = select_candidate(&releases, "pre-release", "0.8.0-4610dfd", "53b4331")
+        .expect("the next core outranks every build of the running one");
+
+    assert_eq!(candidate.tag, "v0.8.1-build.1");
+}
+
+#[test]
+fn a_numeric_build_identifier_is_ordered_numerically() {
+    let newer = vec![published("v0.8.1-build.12", true, "2026-11-27T09:00:00Z")];
+    let same = vec![published("v0.8.1-build.5", true, "2026-11-27T09:00:00Z")];
+
+    let candidate = select_candidate(&newer, "pre-release", "0.8.1-build.5", "53b4331")
+        .expect("build.12 outranks build.5 numerically, though \"12\" sorts below \"5\" as text");
+
+    assert_eq!(candidate.tag, "v0.8.1-build.12");
+    assert!(
+        select_candidate(&same, "pre-release", "0.8.1-build.5", "53b4331").is_none(),
+        "the tag repeats the running version, so nothing is offered"
+    );
+}
+
+#[test]
+fn a_core_reused_for_the_build_scheme_ranks_below_a_sha() {
+    let releases = vec![published("v0.8.0-build.1", true, "2026-11-27T09:00:00Z")];
+
+    assert!(
+        select_candidate(&releases, "pre-release", "0.8.0-f0ffee", "53b4331").is_none(),
+        "\"build\" ranks below \"f0ffee\" as ASCII text, so the first build-scheme release \
+         must bump the core"
+    );
 }
 
 #[test]
