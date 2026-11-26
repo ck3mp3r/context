@@ -241,8 +241,8 @@ jobs:
           nix develop -c release
 
           # The flow names assets context-<version>-<target>; the helper leaves
-          # tauri's context_<version>_aarch64.dmg under target/release/bundle.
-          cp "target/release/bundle/dmg/context_${VERSION}_aarch64.dmg" "context-${VERSION}-aarch64-darwin.dmg"
+          # tauri's Context_<version>_aarch64.dmg under target/release/bundle.
+          cp "target/release/bundle/dmg/Context_${VERSION}_aarch64.dmg" "context-${VERSION}-aarch64-darwin.dmg"
           shasum -a 256 "context-${VERSION}-aarch64-darwin.dmg" \
             | awk '{print $1}' > "context-${VERSION}-aarch64-darwin.dmg.sha256"
 
