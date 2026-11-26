@@ -293,38 +293,80 @@ fn a_sha_that_ranks_below_the_running_sha_is_not_offered() {
 }
 
 #[test]
-fn a_higher_core_is_offered_whatever_the_build_scheme() {
-    let releases = vec![published("v0.8.1-build.1", true, "2026-11-27T09:00:00Z")];
+fn a_higher_core_is_offered_whatever_the_suffix_scheme() {
+    let releases = vec![published("v0.8.1-pre.1", true, "2026-11-27T09:00:00Z")];
 
     let candidate = select_candidate(&releases, "pre-release", "0.8.0-4610dfd", "53b4331")
-        .expect("the next core outranks every build of the running one");
+        .expect("the next core outranks every pre-release of the running one");
 
-    assert_eq!(candidate.tag, "v0.8.1-build.1");
+    assert_eq!(candidate.tag, "v0.8.1-pre.1");
 }
 
 #[test]
-fn a_numeric_build_identifier_is_ordered_numerically() {
-    let newer = vec![published("v0.8.1-build.12", true, "2026-11-27T09:00:00Z")];
-    let same = vec![published("v0.8.1-build.5", true, "2026-11-27T09:00:00Z")];
+fn a_numeric_pre_release_identifier_is_ordered_numerically() {
+    let newer = vec![published("v0.8.1-pre.12", true, "2026-11-27T09:00:00Z")];
+    let same = vec![published("v0.8.1-pre.5", true, "2026-11-27T09:00:00Z")];
 
-    let candidate = select_candidate(&newer, "pre-release", "0.8.1-build.5", "53b4331")
-        .expect("build.12 outranks build.5 numerically, though \"12\" sorts below \"5\" as text");
+    let candidate = select_candidate(&newer, "pre-release", "0.8.1-pre.5", "53b4331")
+        .expect("pre.12 outranks pre.5 numerically, though \"12\" sorts below \"5\" as text");
 
-    assert_eq!(candidate.tag, "v0.8.1-build.12");
+    assert_eq!(candidate.tag, "v0.8.1-pre.12");
     assert!(
-        select_candidate(&same, "pre-release", "0.8.1-build.5", "53b4331").is_none(),
+        select_candidate(&same, "pre-release", "0.8.1-pre.5", "53b4331").is_none(),
         "the tag repeats the running version, so nothing is offered"
     );
 }
 
 #[test]
-fn a_core_reused_for_the_build_scheme_ranks_below_a_sha() {
-    let releases = vec![published("v0.8.0-build.1", true, "2026-11-27T09:00:00Z")];
+fn a_pre_release_outranks_the_shas_of_its_core() {
+    let releases = vec![published("v0.8.0-pre.1", true, "2026-11-27T09:00:00Z")];
 
-    assert!(
-        select_candidate(&releases, "pre-release", "0.8.0-f0ffee", "53b4331").is_none(),
-        "\"build\" ranks below \"f0ffee\" as ASCII text, so the first build-scheme release \
-         must bump the core"
+    let candidate = select_candidate(&releases, "pre-release", "0.8.0-f0ffee", "53b4331");
+
+    assert_eq!(
+        candidate.map(|offered| offered.tag).as_deref(),
+        Some("v0.8.0-pre.1"),
+        "\"pre\" ranks above \"f0ffee\" as ASCII text, so the first pre-scheme release \
+         outranks every sha of its core"
+    );
+}
+
+#[test]
+fn the_pre_release_truth_table_holds() {
+    let offered = |tag: &str, prerelease: bool, channel: &str, current: &str| {
+        let releases = vec![published(tag, prerelease, "2026-11-27T09:00:00Z")];
+        select_candidate(&releases, channel, current, "").map(|it| it.tag)
+    };
+
+    assert_eq!(
+        offered("v0.8.0-pre.1", true, "pre-release", "0.8.0-4610dfd").as_deref(),
+        Some("v0.8.0-pre.1"),
+        "pre.1 ranks above the sha 4610dfd of its own core"
+    );
+    assert_eq!(
+        offered("v0.8.0-pre.1", true, "pre-release", "0.8.0-f0ffee").as_deref(),
+        Some("v0.8.0-pre.1"),
+        "pre.1 ranks above the sha f0ffee of its own core"
+    );
+    assert_eq!(
+        offered("v0.8.0-pre.10", true, "pre-release", "0.8.0-pre.2").as_deref(),
+        Some("v0.8.0-pre.10"),
+        "pre.10 ranks above pre.2 numerically, though \"10\" sorts below \"2\" as text"
+    );
+    assert_eq!(
+        offered("v0.8.0-pre.2", true, "pre-release", "0.8.0-pre.10"),
+        None,
+        "pre.2 ranks below a running pre.10, so it is not offered"
+    );
+    assert_eq!(
+        offered("v0.8.1-pre.1", true, "pre-release", "0.8.0").as_deref(),
+        Some("v0.8.1-pre.1"),
+        "a pre-release of the next core is offered to the running core"
+    );
+    assert_eq!(
+        offered("v0.8.1", false, "stable", "0.8.1-pre.9").as_deref(),
+        Some("v0.8.1"),
+        "the bare release of a core is offered to its pre-release"
     );
 }
 

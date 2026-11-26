@@ -50,31 +50,37 @@ jobs:
 
           let current_version = (open Cargo.toml).workspace.package.version
           let latest_tag = (ci scm latest-tag)
-          # Pre-releases keep the current version (no semver bump) and append the
-          # suffix; full releases bump the patch from the latest tag.
-          let base_version = if $prerelease == "true" {
-            $current_version
-          } else {
-            (ci scm semver $latest_tag $current_version)
-          }
+          # Both arms take the same bump: a release from main stamps the next
+          # version plainly, a release from a branch stamps that same next
+          # version as a pre-release of it. `ci scm semver` drops the suffix of
+          # the latest tag, returns the current version when it is already ahead
+          # of that tag, and otherwise raises the tag's patch by one.
+          let base_version = (ci scm semver $latest_tag $current_version)
 
-          # The suffix is a build number, not the short SHA. The updater plugin
-          # compares versions with semver, and a numeric `build.<n>` orders by
-          # value, so a later build ranks above an earlier one. A short SHA
-          # compared as ASCII text, which agreed with neither the clock nor the
-          # release order. n is the commit count of the released head; it steps
-          # past a tag that already exists, so a second run from one head cannot
-          # reuse a version.
+          # The suffix is the workflow run number. `github.run_number` is one
+          # repository-wide counter that rises with every run of this workflow
+          # whatever the branch, so a later branch build always ranks above an
+          # earlier one; the commit count it replaces was branch-local and fell
+          # when a shorter branch released after a longer one. The identifier is
+          # `pre`, never `build`: semver compares non-numeric identifiers as
+          # ASCII, `p` (0x70) outranks every hex digit a short SHA can start
+          # with, and `b` (0x62) does not. `pre.<n>` orders numerically, and the
+          # loop below steps past a tag the number already names, so a re-run of
+          # one run number cannot reuse a version.
           let suffix = if $prerelease == "true" {
-            mut build = (git rev-list --count HEAD | str trim | into int)
-            while (git tag --list $"v($base_version)-build.($build)" | str trim | is-not-empty) {
-              $build = $build + 1
+            let run_number = ("${{ github.run_number }}" | str trim)
+            if not ($run_number =~ '^[0-9]+$') {
+              error make { msg: $"workflow run number is not a number: ($run_number)" }
             }
-            $"build.($build)"
+            mut n = ($run_number | into int)
+            while (git tag --list $"v($base_version)-pre.($n)" | str trim | is-not-empty) {
+              $n = $n + 1
+            }
+            $"pre.($n)"
           } else { "" }
           let version = if $prerelease == "true" { $"($base_version)-($suffix)" } else { $base_version }
 
-          # Release branch name: release/<version> for full, release/<version>-build.<n> for pre-release
+          # Release branch name: release/<version> for full, release/<version>-pre.<n> for pre-release
           let branch = $"release/($version)"
 
           # Create and push the release branch (from the run branch)
