@@ -11,8 +11,8 @@ fn main() {
 /// checkout.
 ///
 /// A Nix build or an unpacked archive has no `.git`, so a missing id is not
-/// fatal: the updater reads an empty id as "this build cannot be told apart from
-/// another build of the same version".
+/// fatal: the id is embedded but no longer read, semver precedence decides the
+/// offer.
 fn build_id() -> String {
     let output = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])

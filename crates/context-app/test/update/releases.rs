@@ -224,10 +224,11 @@ fn the_stable_channel_offers_nothing_newer_than_the_running_core() {
 }
 
 #[test]
-fn an_empty_build_id_treats_an_equal_core_as_the_running_build() {
+fn a_bare_version_refuses_its_own_core_with_the_build_id_unread() {
     assert!(
         select_candidate(&fixture(), "pre-release", "0.8.0", "").is_none(),
-        "without an id the builds of one version cannot be told apart, so offering one would loop"
+        "the gate reads semver precedence, not the build id: a bare 0.8.0 outranks every \
+         pre-release tag of its own core"
     );
 }
 

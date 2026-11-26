@@ -532,8 +532,7 @@ fn current_version() -> String {
 /// Build id this build runs: the short git sha embedded at build time, or an
 /// empty string when the build had no git checkout.
 ///
-/// The selection reads an empty id as "this build cannot be told apart from
-/// another build of the same version".
+/// The id is embedded but no longer read: semver precedence decides the offer.
 fn current_build_id() -> String {
     option_env!("CONTEXT_BUILD_ID")
         .unwrap_or_default()
