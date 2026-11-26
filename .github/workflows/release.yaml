@@ -59,8 +59,11 @@ jobs:
           # every branch run would ratchet the core (0.8.2, then 0.8.3) while
           # the release main is meant to ship was never stamped. A pre-release
           # tag is not an input to this computation. `git tag --sort
-          # -version:refname` ranks a pre-release below its own core, so the
-          # filter only has to drop the suffixed entries.
+          # -version:refname` ranks a pre-release above its own core
+          # (`v0.8.2-pre.900` before `v0.8.2`), so the sort alone would hand
+          # that tag first place: the filter below, not the sort, is what drops
+          # the suffixed entries, and the guard after it fails the run loudly
+          # if a loosened filter ever lets one through.
           let stable_tags = (
             git tag --sort "-version:refname"
             | lines
@@ -72,6 +75,8 @@ jobs:
           } else {
             $stable_tags | first | str replace --regex '^v' ''
           }
+          # An empty `latest_tag` makes `ci scm semver` keep the current
+          # version, so a repo whose tags are all shas still gets a sane base.
           # Invariant: a pre-release tag in the tag list does not change the
           # computed base, because the selection above never reads one. Guard the
           # invariant, so a loosened filter fails the run loudly instead of
