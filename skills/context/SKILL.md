@@ -387,7 +387,7 @@ note_create(
 - Hierarchical via `parent_id` — use subnotes for detail, parent notes for summary
 - Use `include_content: false` when you list notes to avoid context bloat
 - **TOON format is the default** — `note_read` returns line-numbered content for accurate patching (use `format="json"` to opt out)
-- **No H1 headings in note content** — the note `title` field renders as the heading; start content with `##` or lower
+- **No H1 that duplicates the note title** — the note viewer renders the `title` field as the heading, so an H1 repeating it is omitted; start the content with body text and use `##` or lower for subsections
 
 ### Note Editing - CRITICAL
 
