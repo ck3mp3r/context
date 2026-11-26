@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec cargo tauri dev --config '{"identifier":"c5t-dev.kemper.wtf"}'
