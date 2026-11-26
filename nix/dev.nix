@@ -89,6 +89,64 @@
       exit 1
     fi
 
+    # The workspace version stamps the build: the tag, the version the app reports
+    # and the updater manifest must name one string. A version the release prep
+    # already stamped is kept — the branch under build carries the stamp its tag
+    # was cut from — and only a bare version is stamped here, with n the commit
+    # count of the built head. Semver orders a numeric build identifier by value,
+    # so a later release always ranks above an earlier one.
+    cargo_toml=Cargo.toml
+    if [ ! -f "$cargo_toml" ] || [ ! -f Cargo.lock ]; then
+      echo "release: run from the repository root — Cargo.toml and Cargo.lock must be here" >&2
+      exit 1
+    fi
+    stamped_version="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' "$cargo_toml")"
+    if [ -z "$stamped_version" ]; then
+      echo "release: cannot read [workspace.package] version from $cargo_toml" >&2
+      exit 1
+    fi
+
+    # restore_workspace returns Cargo.toml and Cargo.lock byte-identical on every
+    # exit path, including a failed build, Ctrl-C and a CI cancellation
+    backup_dir="$(mktemp -d)"
+    cp -p "$cargo_toml" Cargo.lock "$backup_dir/"
+    restore_workspace() {
+      cp -p "$backup_dir/Cargo.toml" "$cargo_toml"
+      cp -p "$backup_dir/Cargo.lock" Cargo.lock
+      rm -rf "$backup_dir"
+    }
+    trap restore_workspace EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    case "$stamped_version" in
+      *-build.[0-9]*)
+        echo "release: version $stamped_version (stamped by the release prep)"
+        ;;
+      *)
+        core="''${stamped_version%%-*}"
+        if ! count="$(git rev-list --count HEAD 2>&1)"; then
+          echo "release: git rev-list --count HEAD failed: $count" >&2
+          exit 1
+        fi
+        count="''${count//[[:space:]]/}"
+        case "$count" in
+          ""|*[!0-9]*|0)
+            echo "release: git rev-list --count HEAD returned '$count', not a commit count" >&2
+            exit 1
+            ;;
+        esac
+        stamped_version="$core-build.$count"
+        awk -v version="$stamped_version" '
+          /^\[workspace\.package\]/ { in_package = 1 }
+          in_package && !stamped && /^version *=/ { sub(/"[^"]*"/, "\"" version "\""); stamped = 1 }
+          { print }
+        ' "$cargo_toml" > "$backup_dir/stamped.toml"
+        cat "$backup_dir/stamped.toml" > "$cargo_toml"
+        echo "release: version $stamped_version (stamped from $count commits)"
+        ;;
+    esac
+
     trunk build --release
     # the bundler copies the sidecar into Contents/MacOS and signs it with the app,
     # so it must exist before the build: a missing path fails the bundle. The
@@ -97,6 +155,13 @@
     cargo build --release -p context-cli
     cp target/release/c5t target/release/c5t-aarch64-apple-darwin
     cargo tauri build
+
+    # record what was built: release-manifest reads it once the stamp is gone, so
+    # the manifest names the version the app reports. Then put the tree back to the
+    # version the commit names before the dmg work starts.
+    printf '%s\n' "$stamped_version" > target/release/context-version
+    restore_workspace
+    trap - EXIT INT TERM
 
     # resolve the dmg before submitting anything to the notary service
     shopt -s nullglob
@@ -152,9 +217,18 @@
       exit 1
     fi
 
-    version="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "context") | .version')"
+    # release restores Cargo.toml once the build ends, so the version it compiled
+    # lives in target/release/context-version; a hand-stamped tree still reads
+    # cargo metadata, which names the same version
+    version_file=target/release/context-version
+    if [ -f "$version_file" ]; then
+      version="$(cat "$version_file")"
+    else
+      version="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "context") | .version')"
+    fi
     if [ -z "$version" ] || [ "$version" = "null" ]; then
       echo "release-manifest: cannot read the version of the 'context' package" >&2
+      echo "release-manifest: run 'release' first; it records the version it built" >&2
       exit 1
     fi
 
@@ -342,7 +416,7 @@ in
       echo "  clippy   - Run cargo clippy"
       echo "  build    - Build release binary (trunk build --release, then cargo build --release)"
       echo "  coverage - Run workspace coverage (HTML report in coverage/)"
-      echo "  release  - Build, notarize and staple the dmg (needs APPLE_API_* credentials)"
+      echo "  release  - Stamp the build version, build, notarize and staple the dmg (needs APPLE_API_* credentials)"
       echo "  release-manifest - Generate latest.json from the built updater artifacts (run after release)"
       echo "  dev      - Start the GUI as c5t-dev.kemper.wtf (needs 'dev-service' on 3738)"
       echo "  dev-service - Start the service: tray + API on 3738, c5t-dev.service.kemper.wtf"

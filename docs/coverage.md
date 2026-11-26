@@ -162,7 +162,7 @@ c5t has no `integration` cargo feature — integration test binaries under `crat
 
 ## CI integration
 
-No CI workflow exists yet (`.github/workflows/` is absent). When one is added, the LCOV path is the one to use:
+`.github/workflows/ci.yaml` runs the test suite and no coverage step. When a workflow runs coverage, the LCOV path is the one to use:
 
 ```bash
 cargo llvm-cov --workspace --ignore-filename-regex '(/test/|/test$)' --lcov --output-path lcov.info --fail-under-lines 80

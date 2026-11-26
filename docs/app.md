@@ -351,7 +351,7 @@ The app updates itself from GitHub releases. The service owns the flow, so an up
 
 ### How an update runs
 
-1. The service resolves the release that its channel allows — with the pre-release channel on, every release is a candidate; with it off, only stable releases — and takes the newest version. Versions follow semver, so a build-suffix pre-release such as `0.8.1-b118f3a` sorts below `0.8.1` and is never offered over it.
+1. The service resolves the release that its channel allows — with the pre-release channel on, every release is a candidate; with it off, only stable releases — and takes the newest version. Versions follow semver, so a build-suffix pre-release such as `0.8.1-build.412` sorts below `0.8.1` and is never offered over it, and it sorts above `0.8.1-build.99`, because a numeric build identifier compares by value.
 2. The SPA banner offers the candidate. Nothing downloads until Install is pressed.
 3. On consent the service downloads the signed `Context.app.tar.gz`, verifies it against the pinned public key, and swaps the bundle atomically. It stops there: the state becomes `ready`, the bundle waits on disk, and the running service keeps serving it.
 4. Restart, from the pill CTA, runs the sequence: the service starts the new service binary with a one-second delay, terminates and respawns the GUI, then exits. The old process releases port 3737 and the single-instance socket while the child still sleeps, so one instance always owns them. The launchd agent is not touched: the detached child owns the session, and at the next login the registered agent starts the new binary by itself.
@@ -417,6 +417,31 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 A passwordless key works without the password secret; a protected key needs both. The release workflow exports both and runs `release-manifest`, so CI publishes the updater assets from the first release that carries the key. A release dispatched with an empty `pubkey` in the confs fails the macOS job while signing the updater artifact.
 
 ### Per release
+
+#### Version scheme
+
+Every release is tagged `v<major>.<minor>.<patch>-build.<n>`, with `n` the commit count of the built head, and the app inside reports the same version without the leading `v`. A release cut from `0.8.1` at commit 412 is tagged `v0.8.1-build.412` and reports `0.8.1-build.412`. A stable release carries no suffix: `v0.8.2`.
+
+A numeric build identifier compares by value, so `0.8.1-build.412` ranks above `0.8.1-build.99`. That ordering is what makes the updater deliver builds: the plugin compares the manifest version with the version the app reports, and publication order now agrees with semver order. A short sha compared as ASCII text, so `0.8.0-4610dfd` ranked above `0.8.0-340d170` whatever the publication times, and a newer build of one core could not be delivered.
+
+`n` is the commit count of the built commit:
+
+```sh
+git rev-list --count HEAD
+```
+
+`release` stamps the version itself. It rewrites `[workspace.package] version` in `Cargo.toml` before `trunk build --release` starts, keeps the stamp for the whole build, and restores `Cargo.toml` and `Cargo.lock` byte-identical when the helper ends: on success, on a failed build and on an interrupt. A version that already carries `-build.<n>` is kept as it is, so the version the release workflow committed, the tag and the version the app reports name one string. The stamped version is also written to `target/release/context-version`, which `release-manifest` reads, so the manifest names the build that was compiled.
+
+To build without the helper, stamp the tree yourself first: set `[workspace.package] version` in `Cargo.toml` to `<major>.<minor>.<patch>-build.<n>`, with `n` from the command above, and revert the file once the build ends.
+
+The release workflow stamps the version in its `prep-release` job, before any build runs, and tags that same version in `finalize-release`:
+
+1. `n` is the commit count of the released head. While the tag `v<base>-build.<n>` already exists, `n` moves up by one, so a second run from one head cannot reuse a version.
+2. The job writes `<base>-build.<n>` into `[workspace.package] version` in `Cargo.toml`, refreshes `Cargo.lock` and commits both on the release branch.
+3. The build jobs check out that branch, so `cargo tauri build` compiles the stamped version and the running app reports it.
+4. `finalize-release` creates the release and its tag `v<base>-build.<n>` before any client can fetch a manifest: the manifest URL embeds the tag.
+
+Existing pre-releases keep their sha tags. `v0.8.0-340d170` and its kin stay published and untouched, and they are never selected again, because semver ranks every `0.8.1` core above `0.8.0`. The first build-numbered release must bump the core to `0.8.1`: `0.8.0-build.1` ranks below a running `0.8.0-<sha>`, since `build` compares below `f0ffee` as ASCII text and a numeric identifier compares below an alphanumeric one. From `0.8.1` on, the core orders first and every build number ranks above every `0.8.0` release, so an install that runs a sha-suffixed `0.8.0` still receives the update.
 
 Export the key's contents before the build, then run the two helpers. The CLI reads the variable as key content, not as a path, and `.env` files do not work: the CLI reads the process environment only.
 

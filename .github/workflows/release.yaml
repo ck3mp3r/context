@@ -46,10 +46,7 @@ jobs:
           echo '<!DOCTYPE html><html><body>Placeholder for rust-embed</body></html>' | save crates/context-server/dist/index.html
 
           # A release run from a non-main branch is always a pre-release.
-          # Use the short SHA as the suffix so it never collides with the real
-          # release line and is distinguishable from other pre-releases.
           let prerelease = if "${{ github.ref_name }}" == "main" { "false" } else { "true" }
-          let suffix = if $prerelease == "true" { (git rev-parse --short HEAD | str trim) } else { "" }
 
           let current_version = (open Cargo.toml).workspace.package.version
           let latest_tag = (ci scm latest-tag)
@@ -60,9 +57,24 @@ jobs:
           } else {
             (ci scm semver $latest_tag $current_version)
           }
+
+          # The suffix is a build number, not the short SHA. The updater plugin
+          # compares versions with semver, and a numeric `build.<n>` orders by
+          # value, so a later build ranks above an earlier one. A short SHA
+          # compared as ASCII text, which agreed with neither the clock nor the
+          # release order. n is the commit count of the released head; it steps
+          # past a tag that already exists, so a second run from one head cannot
+          # reuse a version.
+          let suffix = if $prerelease == "true" {
+            mut build = (git rev-list --count HEAD | str trim | into int)
+            while (git tag --list $"v($base_version)-build.($build)" | str trim | is-not-empty) {
+              $build = $build + 1
+            }
+            $"build.($build)"
+          } else { "" }
           let version = if $prerelease == "true" { $"($base_version)-($suffix)" } else { $base_version }
 
-          # Release branch name: release/<version> for full, release/<version>-<sha> for pre-release
+          # Release branch name: release/<version> for full, release/<version>-build.<n> for pre-release
           let branch = $"release/($version)"
 
           # Create and push the release branch (from the run branch)
