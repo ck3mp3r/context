@@ -93,8 +93,11 @@
     # and the updater manifest must name one string. A version that already
     # carries a pre-release suffix is kept — the branch under build carries the
     # stamp its tag was cut from, and a hand-stamped tree carries the string the
-    # operator chose — and only a bare version is stamped here, from the
-    # environment. The suffix is the workflow run number, the counter CI stamps,
+    # operator chose. A bare version follows RELEASE_PRERELEASE: true stamps it
+    # here, from the environment, for a branch build; false keeps it bare for a
+    # main release; anything else fails closed before any build, because a local
+    # shell is indistinguishable from a main release by absence alone. The
+    # suffix is the workflow run number, the counter CI stamps,
     # and the identifier is `pre`: semver compares non-numeric identifiers as
     # ASCII text, `p` outranks every hex digit a short sha can start with, and
     # `b` does not, so a branch build outranks every published sha build. A
@@ -129,27 +132,45 @@
         echo "release: version $stamped_version (stamped by the release prep)"
         ;;
       *)
-        core="''${stamped_version%%-*}"
-        run_number="''${GITHUB_RUN_NUMBER:-}"
-        case "$run_number" in
-          ""|*[!0-9]*)
-            echo "release: GITHUB_RUN_NUMBER is '$run_number', not a workflow run number" >&2
-            echo "release: a branch build is a pre-release of the next version, and its" >&2
-            echo "release: suffix is the run number the release workflow exports; a local" >&2
-            echo "release: shell does not set it" >&2
-            echo "release: stamp [workspace.package] version in Cargo.toml to" >&2
-            echo "release: '$core-pre.<n>' by hand, then rerun; release keeps that stamp" >&2
+        channel="''${RELEASE_PRERELEASE:-}"
+        case "$channel" in
+          true)
+            core="''${stamped_version%%-*}"
+            run_number="''${GITHUB_RUN_NUMBER:-}"
+            case "$run_number" in
+              ""|*[!0-9]*)
+                echo "release: GITHUB_RUN_NUMBER is '$run_number', not a workflow run number" >&2
+                echo "release: a branch build is a pre-release of the next version, and its" >&2
+                echo "release: suffix is the run number the release workflow exports; a local" >&2
+                echo "release: shell does not set it" >&2
+                echo "release: stamp [workspace.package] version in Cargo.toml to" >&2
+                echo "release: '$core-pre.<n>' by hand, then rerun; release keeps that stamp" >&2
+                exit 1
+                ;;
+            esac
+            stamped_version="$core-pre.$run_number"
+            awk -v version="$stamped_version" '
+              /^\[workspace\.package\]/ { in_package = 1 }
+              in_package && !stamped && /^version *=/ { sub(/"[^"]*"/, "\"" version "\""); stamped = 1 }
+              { print }
+            ' "$cargo_toml" > "$backup_dir/stamped.toml"
+            cat "$backup_dir/stamped.toml" > "$cargo_toml"
+            echo "release: version $stamped_version (stamped with run number $run_number)"
+            ;;
+          false)
+            echo "release: version $stamped_version (kept bare: a main release ships plain semver)"
+            ;;
+          *)
+            echo "release: RELEASE_PRERELEASE is '$channel', not the release channel of this build" >&2
+            echo "release: the release workflow exports 'true' for a branch build, which stamps" >&2
+            echo "release: '$stamped_version' to '<core>-pre.<n>' from GITHUB_RUN_NUMBER, and" >&2
+            echo "release: 'false' for a main release, which keeps the version bare; a local" >&2
+            echo "release: shell sets neither, so choose one and rerun" >&2
+            echo "release: export RELEASE_PRERELEASE=true   # branch build" >&2
+            echo "release: export RELEASE_PRERELEASE=false  # main release" >&2
             exit 1
             ;;
         esac
-        stamped_version="$core-pre.$run_number"
-        awk -v version="$stamped_version" '
-          /^\[workspace\.package\]/ { in_package = 1 }
-          in_package && !stamped && /^version *=/ { sub(/"[^"]*"/, "\"" version "\""); stamped = 1 }
-          { print }
-        ' "$cargo_toml" > "$backup_dir/stamped.toml"
-        cat "$backup_dir/stamped.toml" > "$cargo_toml"
-        echo "release: version $stamped_version (stamped with run number $run_number)"
         ;;
     esac
 
@@ -422,7 +443,7 @@ in
       echo "  clippy   - Run cargo clippy"
       echo "  build    - Build release binary (trunk build --release, then cargo build --release)"
       echo "  coverage - Run workspace coverage (HTML report in coverage/)"
-      echo "  release  - Stamp the build version, build, notarize and staple the dmg (needs APPLE_API_* credentials)"
+      echo "  release  - Build, notarize and staple the dmg; stamp only a branch build (needs APPLE_API_* credentials)"
       echo "  release-manifest - Generate latest.json from the built updater artifacts (run after release)"
       echo "  dev      - Start the GUI as c5t-dev.kemper.wtf (needs 'dev-service' on 3738)"
       echo "  dev-service - Start the service: tray + API on 3738, c5t-dev.service.kemper.wtf"
