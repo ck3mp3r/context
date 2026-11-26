@@ -215,30 +215,62 @@ A plist or `launchctl` failure is logged and non-fatal: the service keeps servin
 
 ## Release build
 
-The release build produces `Context.app` and the dmg `Context_<version>_aarch64.dmg`. Both land under `target/release/bundle/`. `Contents/MacOS/` holds three binaries: `Context` (the bundle main: `mainBinaryName` renames the cargo binary `context`), `context-service`, and `c5t` (the CLI, staged as an `externalBin` sidecar); the bundler signs all three.
+The release build produces `Context.app` and the dmg `Context_<version>_aarch64.dmg`. Both land under `target/release/bundle/`. `<version>` is the version the helper stamps for the channel you state, so a branch build produces `Context_<core>-pre.<n>_aarch64.dmg` and a main-style build produces the bare `Context_<core>_aarch64.dmg`. `Contents/MacOS/` holds three binaries: `Context` (the bundle main: `mainBinaryName` renames the cargo binary `context`), `context-service`, and `c5t` (the CLI, staged as an `externalBin` sidecar); the bundler signs all three.
 
 The CLI sidecar is `bundle.externalBin` in `crates/context-app/tauri.conf.json`. The bundler looks for `<path>-aarch64-apple-darwin` and copies it into `Contents/MacOS/` under its own name, so the `release` helper builds and stages it before `cargo tauri build`.
 
 A release build binds 3737 for its in-process server unless `config.toml` stores another port. The port must be free, or answered by a healthy server the service can attach to. A debug build uses 3738.
 
-Run the `release` helper from the development shell. It builds, notarizes, and staples in one step:
+The helper stamps the version it builds, and the channel decides the stamp. It never guesses: state `RELEASE_PRERELEASE`, or it exits 1 before any build.
+
+| `RELEASE_PRERELEASE` | Version in `Cargo.toml` | dmg |
+| --- | --- | --- |
+| `true` | `<core>-pre.<n>`, `n` from `GITHUB_RUN_NUMBER` | `Context_<core>-pre.<n>_aarch64.dmg` |
+| `false` | the bare workspace version | `Context_<core>_aarch64.dmg` |
+
+Run the `release` helper from the development shell. It builds, notarizes, and staples in one step. A branch build is a pre-release, so export both version variables as well as the Apple ones:
 
 ```sh
 export APPLE_API_KEY=<key id>
 export APPLE_API_ISSUER=<issuer id>
 export APPLE_API_KEY_PATH=<path to the .p8 key>
 
+export RELEASE_PRERELEASE=true          # branch build: stamps <core>-pre.<n>
+export GITHUB_RUN_NUMBER=<run number>   # n: a number above the last published one
+
 release
+```
+
+The helper prints the stamped version before it builds:
+
+```
+release: version 0.8.0-pre.412 (stamped with run number 412)
 ```
 
 Expected output tail:
 
 ```
-dmg: target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
+dmg: target/release/bundle/dmg/Context_0.8.0-pre.412_aarch64.dmg
 Verify:
-  xcrun stapler validate target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
-  spctl --assess --type open --verbose --context context:primary-signature target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
+  xcrun stapler validate target/release/bundle/dmg/Context_0.8.0-pre.412_aarch64.dmg
+  spctl --assess --type open --verbose --context context:primary-signature target/release/bundle/dmg/Context_0.8.0-pre.412_aarch64.dmg
 ```
+
+For a main-style build, export `RELEASE_PRERELEASE=false` and drop `GITHUB_RUN_NUMBER`. The helper keeps the version bare, prints `release: version 0.8.0 (kept bare: a main release ships plain semver)`, and the dmg is `Context_0.8.0_aarch64.dmg`. A branch build never produces that bare name.
+
+With no `RELEASE_PRERELEASE`, or with any value other than `true` or `false`, the helper exits 1 before any build and prints the value it read plus the exports to use:
+
+```
+release: RELEASE_PRERELEASE is '', not the release channel of this build
+release: the release workflow exports 'true' for a branch build, which stamps
+release: '0.8.0' to '<core>-pre.<n>' from GITHUB_RUN_NUMBER, and
+release: 'false' for a main release, which keeps the version bare; a local
+release: shell sets neither, so choose one and rerun
+release: export RELEASE_PRERELEASE=true   # branch build
+release: export RELEASE_PRERELEASE=false  # main release
+```
+
+With `RELEASE_PRERELEASE=true` and no `GITHUB_RUN_NUMBER`, it stops the same way and tells you to hand-stamp `[workspace.package] version` as `<core>-pre.<n>`.
 
 The helper runs these steps in order:
 
@@ -246,13 +278,16 @@ The helper runs these steps in order:
 2. Refuse to start when `APPLE_API_KEY`, `APPLE_API_ISSUER`, or `APPLE_API_KEY_PATH` is missing.
 3. Refuse to start when `lsof` is not on `PATH`.
 4. Refuse to start when port 8080 has a listener (a live `trunk serve`).
-5. Run `trunk build --release`.
-6. Run `cargo build --release -p context-cli`.
-7. Copy `target/release/c5t` to `target/release/c5t-aarch64-apple-darwin` (the name the bundler looks for).
-8. Run `cargo tauri build`.
-9. Resolve exactly one `target/release/bundle/dmg/Context*_aarch64.dmg`.
-10. Run `xcrun notarytool submit <dmg> --key <key path> --key-id <key id> --issuer <issuer id> --wait`.
-11. Run `xcrun stapler staple <dmg>`.
+5. Read `[workspace.package] version` from `Cargo.toml`, copy `Cargo.toml` and `Cargo.lock` to a temporary directory, and install an exit trap that restores both byte-identical.
+6. Keep a version that already carries `-pre.<n>` or `-build.<n>`. For a bare version, follow `RELEASE_PRERELEASE`: `true` rewrites the version to `<core>-pre.$GITHUB_RUN_NUMBER` and fails closed when the run number is unset or not a number; `false` keeps the version bare; any other value, unset included, fails closed.
+7. Run `trunk build --release`.
+8. Run `cargo build --release -p context-cli`.
+9. Copy `target/release/c5t` to `target/release/c5t-aarch64-apple-darwin` (the name the bundler looks for).
+10. Run `cargo tauri build`.
+11. Write the stamped version to `target/release/context-version`, then restore `Cargo.toml` and `Cargo.lock` byte-identical and drop the trap.
+12. Resolve exactly one `target/release/bundle/dmg/Context*_aarch64.dmg`.
+13. Run `xcrun notarytool submit <dmg> --key <key path> --key-id <key id> --issuer <issuer id> --wait`.
+14. Run `xcrun stapler staple <dmg>`.
 
 `cargo tauri build` signs the app with the Developer ID identity. When the three `APPLE_API_*` variables are exported, it also notarizes and staples the `.app` **only**. It codesigns the dmg but never submits it to the notary service. Without the helper's submit and staple steps the dmg is signed but not notarized, and `xcrun stapler validate` fails on it.
 
@@ -302,17 +337,17 @@ Create a key in App Store Connect under Users and Access → Integrations. Expor
 
 ### Check the result
 
-Run both checks on the produced dmg after a successful `release`:
+Run both checks on the produced dmg after a successful `release`. The path is the one the helper printed; these examples use `0.8.0-pre.412`, a branch build:
 
 ```sh
-xcrun stapler validate target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
-# Processing: /path/to/Context_0.8.0_aarch64.dmg
+xcrun stapler validate target/release/bundle/dmg/Context_0.8.0-pre.412_aarch64.dmg
+# Processing: /path/to/Context_0.8.0-pre.412_aarch64.dmg
 # The validate action worked!
 ```
 
 ```sh
-spctl --assess --type open --verbose --context context:primary-signature target/release/bundle/dmg/Context_0.8.0_aarch64.dmg
-# /path/to/Context_0.8.0_aarch64.dmg: accepted
+spctl --assess --type open --verbose --context context:primary-signature target/release/bundle/dmg/Context_0.8.0-pre.412_aarch64.dmg
+# /path/to/Context_0.8.0-pre.412_aarch64.dmg: accepted
 # source=Notarized Developer ID
 ```
 
@@ -430,7 +465,7 @@ The base version comes from the newest **stable** tag only: `v<major>.<minor>.<p
 
 `release` stamps the version itself. It rewrites `[workspace.package] version` in `Cargo.toml` before `trunk build --release` starts, keeps the stamp for the whole build, and restores `Cargo.toml` and `Cargo.lock` byte-identical when the helper ends: on success, on a failed build and on an interrupt. A version that already carries `-pre.<n>` or `-build.<n>` is kept as it is, so the version the release workflow committed, the tag and the version the app reports name one string. The stamped version is also written to `target/release/context-version`, which `release-manifest` reads, so the manifest names the build that was compiled.
 
-A bare version is stamped `<core>-pre.$GITHUB_RUN_NUMBER`, and the helper fails closed when that variable is unset or not a number: it names the value it read and tells you to hand-stamp. CI exports the variable; a local shell does not. To build locally, stamp the tree yourself first: set `[workspace.package] version` in `Cargo.toml` to `<major>.<minor>.<patch>-pre.<n>` with a number above the last published one. `release` keeps that stamp, and restores the file itself once the build ends.
+A bare version follows `RELEASE_PRERELEASE`. `true` stamps it `<core>-pre.$GITHUB_RUN_NUMBER`, and the helper fails closed when the run number is unset or not a number: it names the value it read and tells you to hand-stamp. `false` keeps the version bare, because a main release ships plain semver. Any other value fails closed before any build, unset included, because a local shell is indistinguishable from a main release by absence alone; it names the value it read and the two exports to use. CI exports the channel and the run number. To build locally, export both, or stamp the tree yourself first: set `[workspace.package] version` in `Cargo.toml` to `<major>.<minor>.<patch>-pre.<n>` with a number above the last published one. `release` keeps that stamp, and restores the file itself once the build ends.
 
 The release workflow stamps the version in its `prep-release` job, before any build runs, and tags that same version in `finalize-release`:
 
@@ -447,6 +482,10 @@ Export the key's contents before the build, then run the two helpers. The CLI re
 export TAURI_SIGNING_PRIVATE_KEY="$(cat "$HOME/.tauri/context.key")"
 # the generated key carries a password, so export it too:
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="<the key's password>"
+
+# the channel, as in [Release build](#release-build): 'true' for a branch build
+export RELEASE_PRERELEASE=true
+export GITHUB_RUN_NUMBER=<run number>   # 'true' only; omit for a main-style build
 
 release            # builds, notarizes and staples the dmg
 release-manifest   # writes target/release/bundle/macos/latest.json
@@ -497,7 +536,7 @@ The GUI probes the configured port, spawns the sibling `context-service` when no
 
 ### The window is blank or shows "The frontend assets are not embedded in this build"
 
-The binary embedded the stub `dist/index.html` that `crates/context-server/build.rs` creates for fresh clones. Stop `trunk serve`, run `trunk build --release`, then rebuild the app (`release`, or `cargo tauri build`). A debug build reads `dist/` at runtime, but its window loads the SPA from `trunk serve` on 8080, so keep the dev server running for debug work.
+The binary embedded the stub `dist/index.html` that `crates/context-server/build.rs` creates for fresh clones. Stop `trunk serve`, run `trunk build --release`, then rebuild the app (`release` with `RELEASE_PRERELEASE` exported, see [Release build](#release-build), or `cargo tauri build`). A debug build reads `dist/` at runtime, but its window loads the SPA from `trunk serve` on 8080, so keep the dev server running for debug work.
 
 ### The release build fails intermittently while `trunk serve` runs
 
