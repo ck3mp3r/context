@@ -3,6 +3,9 @@
 
 use super::*;
 
+use context_core::update::{UpdateState, UpdateStatus};
+use tempfile::TempDir;
+
 #[test]
 fn show_launches_without_arguments() {
     assert!(gui_launch_args(None).is_empty());
@@ -215,8 +218,151 @@ fn replace_spawns_at_once_without_a_running_gui() {
     kill_process(spawned_pid.expect("the spawn should report its pid"));
 }
 
+#[test]
+fn an_update_restart_replaces_the_old_gui_before_it_spawns_the_replacement() {
+    let old_gui_pid = spawn_orphan_sleep();
+
+    let run = restart_with_a_real_gui(old_gui_pid);
+
+    assert_eq!(
+        run.log,
+        vec!["spawn", "replace gui", "exit"],
+        "the restart records one step per half — service, GUI, exit"
+    );
+    assert_eq!(run.spawns, 1, "the replace path spawns exactly one GUI");
+    assert!(
+        !run.old_gui_survived_the_kill,
+        "the old GUI {old_gui_pid} must be gone before the replacement spawns"
+    );
+    assert!(
+        !process_alive(old_gui_pid),
+        "the old GUI {old_gui_pid} must not survive the restart"
+    );
+
+    let exit_after = run.exit_after.expect("the exit closes the sequence");
+    assert!(
+        exit_after < Duration::from_secs(1),
+        "the exit must land inside the shell's 1 s head start, took {exit_after:?}"
+    );
+
+    kill_process(
+        run.spawned_pid
+            .expect("the replacement should report its pid"),
+    );
+}
+
+#[test]
+fn an_update_restart_force_kills_an_old_gui_that_ignores_sigterm() {
+    let old_gui_pid = spawn_orphan_survivor();
+
+    let run = restart_with_a_real_gui(old_gui_pid);
+
+    assert_eq!(
+        run.log,
+        vec!["spawn", "replace gui", "exit"],
+        "a survivor must not change the shape of the restart"
+    );
+    assert_eq!(run.spawns, 1, "a survivor must not stop the replacement");
+    assert!(
+        !run.old_gui_survived_the_kill,
+        "the old GUI {old_gui_pid} ignored SIGTERM and must be killed before the replacement spawns"
+    );
+    assert!(
+        !process_alive(old_gui_pid),
+        "the old GUI {old_gui_pid} must not survive the restart"
+    );
+
+    let exit_after = run.exit_after.expect("the exit closes the sequence");
+    assert!(
+        exit_after < Duration::from_secs(1),
+        "the forced kill must still exit inside the shell's 1 s head start, took {exit_after:?}"
+    );
+
+    kill_process(
+        run.spawned_pid
+            .expect("the replacement should report its pid"),
+    );
+}
+
 /// Deadline the whole replace step must stay inside.
 const REPLACE_DEADLINE: Duration = Duration::from_millis(800);
+/// How long the kernel may take to publish a SIGKILL to a pid probe.
+const KILL_PUBLICATION_WAIT: Duration = Duration::from_millis(100);
+
+/// What one restart run observed, in the order it happened.
+#[derive(Default)]
+struct RestartRun {
+    log: Vec<&'static str>,
+    spawns: usize,
+    spawned_pid: Option<u32>,
+    old_gui_survived_the_kill: bool,
+    service_spawned_at: Option<std::time::Instant>,
+    exit_after: Option<Duration>,
+}
+
+impl RestartRun {
+    /// Start the stand-in for the replacement GUI and record it.
+    fn spawn_stand_in(&mut self) -> Result<Child, String> {
+        spawn_gui_stand_in(&mut self.spawns, &mut self.spawned_pid)
+    }
+}
+
+/// Drive the real restart sequence with a real old GUI and the real replace step.
+///
+/// The launcher's probe and spawn are seams, so the run never touches a real GUI
+/// binary: the probe reports the orphan this test started, and the spawn starts a
+/// `/bin/sleep` stand-in.
+fn restart_with_a_real_gui(old_gui_pid: u32) -> RestartRun {
+    let dir = TempDir::new().expect("Failed to create test temp dir");
+    let path = dir.path().join("update.json");
+    let state = UpdateState {
+        status: UpdateStatus::Ready,
+        current_version: "0.9.0".to_string(),
+        candidate_version: Some("0.9.0".to_string()),
+        candidate_tag: Some("v0.9.0".to_string()),
+        ..UpdateState::default()
+    };
+    context_core::update::write(&path, &state).expect("the state file writes");
+
+    let gui_state = ServiceState::new();
+    let run = Mutex::new(RestartRun::default());
+
+    let outcome = crate::update::restart_sequence(
+        &path,
+        |_service| {
+            let mut run = run.lock().expect("run lock");
+            run.service_spawned_at = Some(std::time::Instant::now());
+            run.log.push("spawn");
+            Ok(())
+        },
+        || {
+            // The real replacement: end the tracked and the discovered GUIs, wait
+            // for them, escalate, then spawn.
+            gui_state.replace_gui_with(
+                || vec![old_gui_pid],
+                || {
+                    let mut run = run.lock().expect("run lock");
+                    run.old_gui_survived_the_kill = survives_the_kill(old_gui_pid);
+                    run.spawn_stand_in()
+                },
+            );
+            run.lock().expect("run lock").log.push("replace gui");
+        },
+        || {
+            let mut run = run.lock().expect("run lock");
+            let elapsed = run
+                .service_spawned_at
+                .expect("the service spawn opens the sequence")
+                .elapsed();
+            run.exit_after = Some(elapsed);
+            run.log.push("exit");
+        },
+    );
+
+    assert!(outcome.is_ok(), "the staged update restarts: {outcome:?}");
+
+    run.into_inner().expect("run lock")
+}
 
 /// Spawn the stand-in for the replacement GUI and record it.
 fn spawn_gui_stand_in(spawns: &mut usize, spawned_pid: &mut Option<u32>) -> Result<Child, String> {
@@ -244,6 +390,41 @@ fn spawn_orphan_sleep() -> u32 {
         .trim()
         .parse()
         .expect("the shell should print one pid")
+}
+
+/// Start a `/bin/sleep` that ignores SIGTERM and whose parent exits: the shape
+/// of a GUI that only a forced kill can clear.
+#[cfg(unix)]
+fn spawn_orphan_survivor() -> u32 {
+    let output = Command::new("/bin/sh")
+        .args(["-c", "trap '' TERM; sleep 30 >/dev/null 2>&1 & echo $!"])
+        .output()
+        .expect("the shell should report the survivor pid");
+
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .expect("the shell should print one pid")
+}
+
+/// Whether a GUI process still answers a probe after the launcher's kill.
+///
+/// SIGKILL stops the victim at once, but its pid can still answer `kill -0` for a
+/// moment, until the parent that reaps it runs. The replace path kills and spawns
+/// back to back, so this check waits that window out and reports what is left: a
+/// zombie holds no window, no port and no socket.
+#[cfg(unix)]
+fn survives_the_kill(pid: u32) -> bool {
+    let deadline = std::time::Instant::now() + KILL_PUBLICATION_WAIT;
+
+    while process_alive(pid) {
+        if std::time::Instant::now() >= deadline {
+            return true;
+        }
+        std::thread::sleep(REPLACE_POLL_INTERVAL);
+    }
+
+    false
 }
 
 /// End a process this test started.

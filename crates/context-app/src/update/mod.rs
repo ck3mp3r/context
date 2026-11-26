@@ -467,7 +467,13 @@ where
     Ok(())
 }
 
-/// End the GUIs this service spawned, then bring a fresh one up.
+/// Replace the GUI: end every running GUI of this profile, then start one.
+///
+/// The tray's launch-or-focus is the wrong tool here: it treats any running GUI
+/// as already open and only focuses it, and the GUI a restart has to replace is
+/// usually one this service never spawned — a Finder launch, or the survivor of
+/// the previous restart, re-parented to launchd. The launcher's replace path
+/// ends those too, then spawns the swapped binary untracked.
 ///
 /// A missing service state or a GUI that will not start is logged and the
 /// restart goes on: the new service keeps serving, and a close and reopen of
@@ -478,8 +484,7 @@ fn respawn_gui(app: &tauri::AppHandle) {
         return;
     };
 
-    gui.terminate_children();
-    gui.launch_gui(None);
+    gui.replace_gui();
 }
 
 /// Read the state file, reporting the default state when it cannot be read.

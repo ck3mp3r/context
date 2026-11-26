@@ -508,17 +508,38 @@ fn a_restart_gate_holds_the_claim_for_a_staged_bundle() {
 fn a_restart_spawns_the_service_then_respawns_the_gui_then_exits() {
     let (_dir, path) = state_file(&ready_state());
     let log = Mutex::new(Vec::new());
+    let spawned_at = Mutex::new(None);
+    let replaced = AtomicBool::new(false);
+    let replaced_before_exit = AtomicBool::new(false);
+    let exit_after = Mutex::new(None);
 
     let outcome = restart_sequence(
         &path,
         |service| {
+            *spawned_at.lock().expect("spawn clock lock") = Some(std::time::Instant::now());
             log.lock()
                 .expect("log lock")
                 .push(format!("spawn {}", service.display()));
             Ok(())
         },
-        || log.lock().expect("log lock").push("gui".to_string()),
-        || log.lock().expect("log lock").push("exit".to_string()),
+        || {
+            // Stands in for ServiceState::replace_gui, which returns only after
+            // every GUI of the profile is gone and the replacement is spawned.
+            log.lock()
+                .expect("log lock")
+                .push("replace gui".to_string());
+            replaced.store(true, Ordering::SeqCst);
+        },
+        || {
+            replaced_before_exit.store(replaced.load(Ordering::SeqCst), Ordering::SeqCst);
+            let elapsed = spawned_at
+                .lock()
+                .expect("spawn clock lock")
+                .expect("the service spawn opens the sequence")
+                .elapsed();
+            *exit_after.lock().expect("exit clock lock") = Some(elapsed);
+            log.lock().expect("log lock").push("exit".to_string());
+        },
     );
 
     assert!(outcome.is_ok(), "the staged update restarts: {outcome:?}");
@@ -534,12 +555,25 @@ fn a_restart_spawns_the_service_then_respawns_the_gui_then_exits() {
         "the sequence starts the swapped service first, got: {log:?}"
     );
     assert_eq!(
-        log[1], "gui",
-        "the GUI respawns before the old process exits, so the new window sees a healthy origin"
+        log[1], "replace gui",
+        "the GUI step replaces every running GUI of the profile before the old process exits, so the new window sees a healthy origin"
     );
     assert_eq!(
         log[2], "exit",
         "the shell's sleep 1 lets the old process release the port and the single-instance socket"
+    );
+    assert!(
+        replaced_before_exit.load(Ordering::SeqCst),
+        "the GUI step must run to completion before the exit, got: {log:?}"
+    );
+
+    let exit_after = exit_after
+        .lock()
+        .expect("exit clock lock")
+        .expect("the exit runs last");
+    assert!(
+        exit_after < std::time::Duration::from_secs(1),
+        "the exit must land inside the shell's 1 s head start, took {exit_after:?}"
     );
 
     assert_eq!(
