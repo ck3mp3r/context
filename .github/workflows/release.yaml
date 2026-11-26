@@ -49,12 +49,38 @@ jobs:
           let prerelease = if "${{ github.ref_name }}" == "main" { "false" } else { "true" }
 
           let current_version = (open Cargo.toml).workspace.package.version
-          let latest_tag = (ci scm latest-tag)
           # Both arms take the same bump: a release from main stamps the next
           # version plainly, a release from a branch stamps that same next
-          # version as a pre-release of it. `ci scm semver` drops the suffix of
-          # the latest tag, returns the current version when it is already ahead
-          # of that tag, and otherwise raises the tag's patch by one.
+          # version as a pre-release of it. The base is drawn from the newest
+          # STABLE tag only, `v<major>.<minor>.<patch>` with no `-` suffix (the
+          # `v` is optional, as `ci scm latest-tag` treated it).
+          # `ci scm semver` strips any suffix and then bumps, so a
+          # `v0.8.1-pre.<n>` in the tag list would be the version-newest tag and
+          # every branch run would ratchet the core (0.8.2, then 0.8.3) while
+          # the release main is meant to ship was never stamped. A pre-release
+          # tag is not an input to this computation. `git tag --sort
+          # -version:refname` ranks a pre-release below its own core, so the
+          # filter only has to drop the suffixed entries.
+          let stable_tags = (
+            git tag --sort "-version:refname"
+            | lines
+            | str trim
+            | where {|tag| $tag =~ '^v?[0-9]+\.[0-9]+\.[0-9]+$' }
+          )
+          let latest_tag = if ($stable_tags | is-empty) {
+            ""
+          } else {
+            $stable_tags | first | str replace --regex '^v' ''
+          }
+          # Invariant: a pre-release tag in the tag list does not change the
+          # computed base, because the selection above never reads one. Guard the
+          # invariant, so a loosened filter fails the run loudly instead of
+          # silently reintroducing the ratchet.
+          if ($latest_tag | str contains "-") {
+            error make { msg: $"pre-release tag selected as the release base: ($latest_tag)" }
+          }
+          # `ci scm semver` returns the current version when it is already ahead
+          # of the stable tag, and otherwise raises that tag's patch by one.
           let base_version = (ci scm semver $latest_tag $current_version)
 
           # The suffix is the workflow run number. `github.run_number` is one
