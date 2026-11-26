@@ -9,10 +9,12 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use super::install::{
-    BundleExecutor, InstallError, install, install_target, restart_command, shell_quote,
+    BundleExecutor, InstallError, check_outcome, install, install_target, restart_command,
+    shell_quote,
 };
 use crate::update::releases::manifest_url;
 use context_core::update::{UpdateState, UpdateStatus, load as load_state, write as write_state};
+use tauri_plugin_updater::{Error, Update};
 use tempfile::TempDir;
 
 /// Executor that records what it was asked to swap and reports two phases.
@@ -291,5 +293,61 @@ fn restart_command_quotes_a_path_that_carries_a_single_quote() {
         String::from_utf8(output.stdout).expect("the shell emits UTF-8"),
         service.display().to_string(),
         "the shell must read back the exact path"
+    );
+}
+
+/// Message a check outcome yields, failing when the outcome installs an update.
+fn check_message(outcome: Result<Update, String>) -> String {
+    match outcome {
+        Ok(_) => panic!("an installable update yields no message"),
+        Err(message) => message,
+    }
+}
+
+#[test]
+fn a_check_with_no_newer_release_names_the_version_and_not_the_platform() {
+    let message = check_message(check_outcome(Ok(None)));
+
+    assert_eq!(
+        message, "The manifest offers no release newer than the running version",
+        "Ok(None) reports a version comparison, not a missing artifact"
+    );
+    assert!(
+        !message.to_lowercase().contains("platform"),
+        "the plugin never reports a platform problem through Ok(None), got: {message}"
+    );
+}
+
+#[test]
+fn a_missing_artifact_names_the_target_keys_the_plugin_searched() {
+    let searched = Error::TargetsNotFound(vec![
+        "darwin-aarch64-app".to_string(),
+        "darwin-aarch64".to_string(),
+    ]);
+    let single = Error::TargetNotFound("darwin-aarch64-app".to_string());
+
+    assert_eq!(
+        check_message(check_outcome(Err(searched))),
+        "The release carries no artifact for this platform: the manifest has no entry for \
+         'darwin-aarch64-app' or 'darwin-aarch64'",
+        "the message names every target key the plugin searched, in its order"
+    );
+    assert_eq!(
+        check_message(check_outcome(Err(single))),
+        "The release carries no artifact for this platform: the manifest has no entry for \
+         'darwin-aarch64-app'",
+        "the single-target message names the key the plugin searched"
+    );
+}
+
+#[test]
+fn any_other_manifest_error_keeps_the_manifest_wording() {
+    let error = Error::ReleaseNotFound;
+    let expected = format!("Failed to read the update manifest: {error}");
+
+    assert_eq!(
+        check_message(check_outcome(Err(error))),
+        expected,
+        "an error the platform does not explain still blames the manifest"
     );
 }

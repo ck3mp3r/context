@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 
 use chrono::Utc;
 use context_core::update::{UpdateState, UpdateStatus, load as load_state};
-use tauri_plugin_updater::UpdaterExt;
+use tauri_plugin_updater::{Error, Update, UpdaterExt};
 
 use super::releases::manifest_url;
 use super::state_with;
@@ -71,11 +71,7 @@ impl BundleExecutor for TauriExecutor {
                 .build()
                 .map_err(|error| format!("Failed to build the updater: {error}"))?;
 
-            let update = updater
-                .check()
-                .await
-                .map_err(|error| format!("Failed to read the update manifest: {error}"))?
-                .ok_or_else(|| "The release offers no update for this platform".to_string())?;
+            let update = check_outcome(updater.check().await)?;
 
             on_phase("downloading");
 
@@ -85,6 +81,48 @@ impl BundleExecutor for TauriExecutor {
                 .map_err(|error| format!("Failed to download and install the update: {error}"))
         })
     }
+}
+
+/// Classify a check outcome into the update to install, or the message that says
+/// why this run installs nothing.
+///
+/// The plugin answers two variants for three conditions: `Ok(None)` means the
+/// manifest version is not greater than the running version, while a manifest
+/// with no artifact for this platform arrives as `Err(TargetsNotFound)`. Every
+/// other failure stays under the manifest wording. Each condition gets its own
+/// text, so a drift between the plugin and the release selection names its real
+/// cause instead of blaming another one.
+pub(crate) fn check_outcome(outcome: Result<Option<Update>, Error>) -> Result<Update, String> {
+    match outcome {
+        Ok(Some(update)) => Ok(update),
+        Ok(None) => Err(no_newer_release_message()),
+        Err(Error::TargetsNotFound(targets)) => Err(missing_platform_message(&targets)),
+        Err(Error::TargetNotFound(target)) => {
+            Err(missing_platform_message(std::slice::from_ref(&target)))
+        }
+        Err(error) => Err(format!("Failed to read the update manifest: {error}")),
+    }
+}
+
+/// Message for a check that found no release newer than the running version.
+///
+/// An older or equal manifest version is the only thing `Ok(None)` reports, so
+/// the text names the version comparison and leaves the platform out of it.
+fn no_newer_release_message() -> String {
+    "The manifest offers no release newer than the running version".to_string()
+}
+
+/// Message for a manifest that carries no artifact for this platform.
+///
+/// `keys` are the target keys the plugin searched, in its own order, so an
+/// operator reads which entry the manifest lacks instead of guessing at it.
+fn missing_platform_message(keys: &[String]) -> String {
+    let keys: Vec<String> = keys.iter().map(|key| format!("'{key}'")).collect();
+
+    format!(
+        "The release carries no artifact for this platform: the manifest has no entry for {}",
+        keys.join(" or ")
+    )
 }
 
 /// Manifest the state offers to install, or why it offers none.
