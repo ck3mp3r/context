@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "context"
-version = "0.8.0"
+version = "0.8.0-pre.83"
 dependencies = [
  "chrono",
  "context-core",
@@ -804,7 +804,7 @@ dependencies = [
 
 [[package]]
 name = "context-cli"
-version = "0.8.0"
+version = "0.8.0-pre.83"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -838,7 +838,7 @@ dependencies = [
 
 [[package]]
 name = "context-core"
-version = "0.8.0"
+version = "0.8.0-pre.83"
 dependencies = [
  "chrono",
  "miette",
@@ -853,7 +853,7 @@ dependencies = [
 
 [[package]]
 name = "context-db"
-version = "0.8.0"
+version = "0.8.0-pre.83"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -870,7 +870,7 @@ dependencies = [
 
 [[package]]
 name = "context-server"
-version = "0.8.0"
+version = "0.8.0-pre.83"
 dependencies = [
  "axum",
  "context-core",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "context-skills"
-version = "0.8.0"
+version = "0.8.0-pre.83"
 dependencies = [
  "base64 0.23.1",
  "context-core",
@@ -914,7 +914,7 @@ dependencies = [
 
 [[package]]
 name = "context-sync"
-version = "0.8.0"
+version = "0.8.0-pre.83"
 dependencies = [
  "chrono",
  "context-core",

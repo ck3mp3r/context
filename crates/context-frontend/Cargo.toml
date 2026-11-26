@@ -1,6 +1,6 @@
 [package]
 name = "context-frontend"
-version = "0.8.0"
+version = "0.8.0-pre.83"
 edition = "2024"
 license = "GPL-2.0"
 authors = ["Christian Kemper"]
@@ -12,9 +12,6 @@ crate-type = [
 ]
 
 [features]
-# Marker for the browser end-to-end harness. playwright-rs arrives through
-# dev-dependencies, which cargo compiles only for test and example targets;
-# the e2e targets additionally carry `required-features = ["e2e"]`.
 e2e = []
 
 [dependencies]
@@ -78,11 +75,6 @@ features = [
     "rt-multi-thread",
 ]
 
-# Only the e2e test and the browser installer use this. Dev-dependencies are
-# exempt from the cargo `unused_dependencies` lint, and a plain lib build does
-# not compile them. Default features are off: `native-tls` pulls openssl,
-# which this repo does not build against, and the harness only talks to a
-# local driver over stdio.
 [dev-dependencies.playwright-rs]
 version = "0.21.1"
 default-features = false
