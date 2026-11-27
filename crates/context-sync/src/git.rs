@@ -38,6 +38,9 @@ pub trait GitOps {
     /// Get the URL of a remote.
     fn remote_get_url(&self, path: &Path, name: &str) -> Result<Output, GitError>;
 
+    /// Replace the URL of an existing remote.
+    fn set_url(&self, path: &Path, name: &str, url: &str) -> Result<Output, GitError>;
+
     /// Get repository status in porcelain format.
     fn status_porcelain(&self, path: &Path) -> Result<Output, GitError>;
 
@@ -121,6 +124,11 @@ impl GitOps for RealGit {
 
     fn remote_get_url(&self, path: &Path, name: &str) -> Result<Output, GitError> {
         let output = self.run_git(path, &["remote", "get-url", name])?;
+        self.check_output(output)
+    }
+
+    fn set_url(&self, path: &Path, name: &str, url: &str) -> Result<Output, GitError> {
+        let output = self.run_git(path, &["remote", "set-url", name, url])?;
         self.check_output(output)
     }
 

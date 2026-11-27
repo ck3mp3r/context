@@ -41,6 +41,132 @@ fn test_is_initialized_true() {
     assert!(manager.is_initialized());
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_uninit_removes_sync_directory() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+    std::fs::write(sync_dir.join("projects.jsonl"), "").unwrap();
+    std::fs::write(sync_dir.join("sync_meta.json"), "{}").unwrap();
+
+    let mock_git = MockGitOps::new();
+    let manager = SyncManager::with_sync_dir(mock_git, sync_dir.clone());
+
+    let removed = manager.uninit().await.unwrap();
+
+    assert!(removed, "uninit on an initialized sync returns true");
+    assert!(
+        !sync_dir.exists(),
+        "the entire sync directory must be removed"
+    );
+    assert!(
+        !manager.is_initialized(),
+        "sync must report itself uninitialized after uninit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_uninit_twice_returns_false() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+
+    let mock_git = MockGitOps::new();
+    let manager = SyncManager::with_sync_dir(mock_git, sync_dir);
+
+    assert!(manager.uninit().await.unwrap(), "first uninit removes");
+    assert!(
+        !manager.uninit().await.unwrap(),
+        "a second uninit finds nothing to remove"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_uninit_uninitialized_returns_false() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(&sync_dir).unwrap();
+    std::fs::write(sync_dir.join("projects.jsonl"), "").unwrap();
+
+    let mock_git = MockGitOps::new();
+    let manager = SyncManager::with_sync_dir(mock_git, sync_dir.clone());
+
+    let removed = manager.uninit().await.unwrap();
+
+    assert!(
+        !removed,
+        "uninit without a .git entry must report nothing removed"
+    );
+    assert!(
+        sync_dir.join("projects.jsonl").exists(),
+        "an uninitialized sync directory must be left unchanged"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_remote_uninitialized_returns_not_initialized() {
+    let temp_dir = TempDir::new().unwrap();
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), temp_dir.path().to_path_buf());
+
+    let result = manager
+        .set_remote("git@example.com:new.git".to_string())
+        .await;
+
+    assert!(
+        matches!(result, Err(SyncError::NotInitialized)),
+        "set_remote must refuse an uninitialized sync, got: {:?}",
+        result
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_remote_adds_remote_when_absent() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .times(1)
+        .returning(|_, _| Err(GitError::GitNotFound));
+    mock_git
+        .expect_add_remote()
+        .withf(|_, name, url| name == "origin" && url == "git@example.com:new.git")
+        .times(1)
+        .returning(|_, _, _| Ok(mock_output(0, "", "")));
+    mock_git.expect_set_url().times(0);
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    manager
+        .set_remote("git@example.com:new.git".to_string())
+        .await
+        .expect("set_remote should add the missing remote");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_remote_replaces_url_when_present() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .times(1)
+        .returning(|_, _| Ok(mock_output(0, "git@example.com:old.git\n", "")));
+    mock_git
+        .expect_set_url()
+        .withf(|_, name, url| name == "origin" && url == "git@example.com:new.git")
+        .times(1)
+        .returning(|_, _, _| Ok(mock_output(0, "", "")));
+    mock_git.expect_add_remote().times(0);
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    manager
+        .set_remote("git@example.com:new.git".to_string())
+        .await
+        .expect("set_remote should replace the existing remote URL");
+}
+
 #[test]
 fn test_entity_counts_includes_skills_field() {
     // Test that EntityCounts struct has skills field

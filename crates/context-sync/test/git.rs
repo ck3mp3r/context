@@ -310,6 +310,30 @@ fn test_real_git_pull_merges_without_signing() {
 }
 
 #[test]
+fn test_real_git_set_url_replaces_origin() {
+    let root = TempDir::new().expect("test temp dir should be created");
+    let repo = root.path().join("repo");
+    fs::create_dir_all(&repo).expect("repo dir should be created");
+
+    let old_url = "https://example.com/old.git";
+    let new_url = "https://example.com/new.git";
+
+    let git = RealGit::new();
+    git.init(&repo).expect("git init should succeed");
+    git.add_remote(&repo, "origin", old_url)
+        .expect("git remote add should succeed");
+
+    git.set_url(&repo, "origin", new_url)
+        .expect("git remote set-url should succeed");
+
+    assert_eq!(
+        run_test_git(&repo, &["remote", "get-url", "origin"]),
+        new_url,
+        "a later remote get-url must print the new URL"
+    );
+}
+
+#[test]
 #[serial]
 fn test_real_git_commit_with_hostile_global_signing() {
     let repo = TempDir::new().expect("test temp dir should be created");

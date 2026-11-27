@@ -9,7 +9,7 @@ use utoipa::ToSchema;
 use crate::api::state::AppState;
 use context_core::Database;
 use context_core::update::UpdateFlow;
-use context_sync::GitOps;
+use context_sync::{GitOps, SyncError};
 
 use super::ErrorResponse;
 
@@ -41,6 +41,14 @@ pub struct ImportSyncRequest {
     #[serde(default)]
     #[schema(example = false)]
     pub remote: bool,
+}
+
+/// Request to change the sync remote URL
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetSyncRemoteRequest {
+    /// New git remote URL
+    #[schema(example = "git@github.com:user/c5t-sync.git")]
+    pub remote_url: String,
 }
 
 /// Response from sync operations
@@ -276,5 +284,104 @@ pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync, U: UpdateFlow
         status: "success".to_string(),
         message: "Sync status retrieved".to_string(),
         data: Some(data),
+    }))
+}
+
+/// Disable sync by deleting the local sync directory
+#[utoipa::path(
+    delete,
+    path = "/api/v1/sync",
+    tag = "sync",
+    responses(
+        (status = 200, description = "Sync disabled or not initialized", body = SyncResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn disable_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
+) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let removed = state.sync_manager().uninit().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    if !removed {
+        return Ok(Json(SyncResponse {
+            status: "not_initialized".to_string(),
+            message: "Sync not initialized".to_string(),
+            data: Some(serde_json::json!({
+                "initialized": false,
+                "removed": false,
+            })),
+        }));
+    }
+
+    Ok(Json(SyncResponse {
+        status: "success".to_string(),
+        message: "Sync disabled".to_string(),
+        data: Some(serde_json::json!({
+            "initialized": false,
+            "removed": true,
+        })),
+    }))
+}
+
+/// Replace the remote URL of the initialized sync repository
+#[utoipa::path(
+    post,
+    path = "/api/v1/sync/remote",
+    tag = "sync",
+    request_body = SetSyncRemoteRequest,
+    responses(
+        (status = 200, description = "Remote updated", body = SyncResponse),
+        (status = 400, description = "Blank remote URL", body = ErrorResponse),
+        (status = 409, description = "Sync not initialized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn set_sync_remote<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
+    Json(req): Json<SetSyncRemoteRequest>,
+) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let remote_url = req.remote_url.trim().to_string();
+
+    if remote_url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "remote_url must not be empty".to_string(),
+            }),
+        ));
+    }
+
+    state
+        .sync_manager()
+        .set_remote(remote_url.clone())
+        .await
+        .map_err(|e| match e {
+            SyncError::NotInitialized => (
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "Sync not initialized. Run init operation first.".to_string(),
+                }),
+            ),
+            other => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: other.to_string(),
+                }),
+            ),
+        })?;
+
+    Ok(Json(SyncResponse {
+        status: "success".to_string(),
+        message: "Remote updated".to_string(),
+        data: Some(serde_json::json!({
+            "remote_url": remote_url,
+        })),
     }))
 }

@@ -175,6 +175,58 @@ impl<G: GitOps> SyncManager<G> {
         Ok(result)
     }
 
+    /// Disable sync by deleting the entire sync directory.
+    ///
+    /// Removes the git repository (`.git`), the JSONL mirror, and
+    /// `sync_meta.json`. The c5t database is untouched, and the configured git
+    /// remote is untouched.
+    ///
+    /// Local git history and unpushed commits are lost, but the content
+    /// re-derives: export rewrites every row, and init + export + import
+    /// restores the mirror. A dirty work tree is therefore recoverable, so this
+    /// operation never refuses dirty state.
+    ///
+    /// Returns `Ok(false)` when sync is not initialized, leaving the
+    /// filesystem unchanged. Returns `Ok(true)` after the directory is removed.
+    pub async fn uninit(&self) -> Result<bool, SyncError> {
+        if !self.is_initialized() {
+            tracing::info!("Sync not initialized, nothing to remove");
+            return Ok(false);
+        }
+
+        tracing::debug!("Removing sync directory {:?}", self.sync_dir);
+        std::fs::remove_dir_all(&self.sync_dir)?;
+        tracing::info!("Sync directory removed");
+
+        Ok(true)
+    }
+
+    /// Replace the remote URL of the initialized sync repository.
+    ///
+    /// Adds `origin` when the repository has no remote yet, so a sync
+    /// initialized without a remote can gain one. Replacing the remote with
+    /// the URL it already carries is a no-op, so the operation is idempotent.
+    pub async fn set_remote(&self, url: String) -> Result<(), SyncError> {
+        if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
+            return Err(SyncError::NotInitialized);
+        }
+
+        match self.git.remote_get_url(&self.sync_dir, "origin") {
+            Err(_) => {
+                tracing::info!("Adding remote 'origin': {}", url);
+                self.git.add_remote(&self.sync_dir, "origin", &url)?;
+            }
+            Ok(_) => {
+                tracing::info!("Replacing remote 'origin': {}", url);
+                self.git.set_url(&self.sync_dir, "origin", &url)?;
+            }
+        }
+
+        tracing::info!("Remote 'origin' updated");
+        Ok(())
+    }
+
     /// Export database to JSONL and optionally push to remote.
     ///
     /// # Parameters

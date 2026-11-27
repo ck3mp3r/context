@@ -104,6 +104,8 @@ macro_rules! routes {
         super::v1::export_sync,
         super::v1::import_sync,
         super::v1::get_sync_status,
+        super::v1::disable_sync,
+        super::v1::set_sync_remote,
         super::v1::get_settings,
         super::v1::put_settings,
         super::v1::get_update_status,
@@ -144,6 +146,7 @@ macro_rules! routes {
             super::v1::PaginatedNotes,
             super::v1::InitSyncRequest,
             super::v1::ExportSyncRequest,
+            super::v1::SetSyncRemoteRequest,
             super::v1::SyncResponse,
              ErrorResponse,
               // --- Skills ---
@@ -266,6 +269,8 @@ pub fn create_router<
         post "/sync/export" => super::v1::export_sync,
         post "/sync/import" => super::v1::import_sync,
         get "/sync/status" => super::v1::get_sync_status,
+        delete "/sync" => super::v1::disable_sync,
+        post "/sync/remote" => super::v1::set_sync_remote,
         // Settings
         get "/settings" => super::v1::get_settings,
         put "/settings" => super::v1::put_settings,

@@ -13,6 +13,7 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{ExitStatus, Output};
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
@@ -296,4 +297,213 @@ async fn test_sync_export_reports_incremental_count() {
         data
     );
     assert_eq!(data["exported"]["total"], 0);
+}
+
+// =============================================================================
+// Criterion: DELETE /api/v1/sync removes the sync directory
+// =============================================================================
+
+async fn delete_sync(app: &axum::Router) -> (StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/sync")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    (status, json_body(response).await)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_disable_sync_removes_directory() {
+    let db = setup_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+    std::fs::write(sync_dir.join("projects.jsonl"), "").unwrap();
+
+    let app = test_app(db, &sync_dir);
+
+    let (status, body) = delete_sync(&app).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "success");
+    assert_eq!(body["data"]["removed"], true);
+    assert_eq!(body["data"]["initialized"], false);
+    assert!(
+        !sync_dir.exists(),
+        "disable must remove the sync directory from disk"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_disable_sync_uninitialized_reports_not_removed() {
+    let db = setup_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+
+    let app = test_app(db, &sync_dir);
+
+    let (status, body) = delete_sync(&app).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "not_initialized");
+    assert_eq!(body["data"]["removed"], false);
+    assert_eq!(body["data"]["initialized"], false);
+}
+
+// =============================================================================
+// Criterion: POST /api/v1/sync/remote replaces the configured remote
+// =============================================================================
+
+async fn post_remote(app: &axum::Router, payload: Value) -> (StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/sync/remote")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    (status, json_body(response).await)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_sync_remote_replaces_url_and_status_reports_it() {
+    let db = setup_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+
+    let current = Arc::new(Mutex::new("git@example.com:old.git".to_string()));
+    let read_state = Arc::clone(&current);
+    let write_state = Arc::clone(&current);
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .times(2)
+        .returning(move |_, _| {
+            let url = read_state.lock().unwrap().clone();
+            Ok(mock_output(0, &format!("{url}\n"), ""))
+        });
+    mock_git
+        .expect_set_url()
+        .withf(|_, name, url| name == "origin" && url == "git@example.com:new.git")
+        .times(1)
+        .returning(move |_, _, url| {
+            *write_state.lock().unwrap() = url.to_string();
+            Ok(mock_output(0, "", ""))
+        });
+    mock_git
+        .expect_status_porcelain()
+        .returning(|_| Ok(mock_output(0, "", "")));
+
+    let state = AppState::new(
+        db,
+        SyncManager::with_sync_dir(mock_git, sync_dir),
+        crate::api::notifier::ChangeNotifier::new(),
+        temp_dir.path().join("skills"),
+    );
+    let app = routes::create_router(state, false);
+
+    let (status, body) =
+        post_remote(&app, json!({ "remote_url": "  git@example.com:new.git  " })).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "success");
+    assert_eq!(
+        body["data"]["remote_url"], "git@example.com:new.git",
+        "the response must carry the trimmed URL, got: {}",
+        body
+    );
+
+    let status_body = get_status(&app).await;
+    assert_eq!(
+        status_body["data"]["remote_url"], "git@example.com:new.git",
+        "the status endpoint must report the new remote URL, got: {}",
+        status_body
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_sync_remote_adds_remote_to_sync_without_origin() {
+    let db = setup_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .times(1)
+        .returning(|_, _| Err(GitError::GitNotFound));
+    mock_git
+        .expect_add_remote()
+        .withf(|_, name, url| name == "origin" && url == "git@example.com:new.git")
+        .times(1)
+        .returning(|_, _, _| Ok(mock_output(0, "", "")));
+    mock_git.expect_set_url().times(0);
+
+    let state = AppState::new(
+        db,
+        SyncManager::with_sync_dir(mock_git, sync_dir),
+        crate::api::notifier::ChangeNotifier::new(),
+        temp_dir.path().join("skills"),
+    );
+    let app = routes::create_router(state, false);
+
+    let (status, body) =
+        post_remote(&app, json!({ "remote_url": "git@example.com:new.git" })).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["remote_url"], "git@example.com:new.git");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_sync_remote_uninitialized_returns_conflict() {
+    let db = setup_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let app = test_app(db, &temp_dir.path().join("sync"));
+
+    let (status, body) =
+        post_remote(&app, json!({ "remote_url": "git@example.com:new.git" })).await;
+
+    assert_eq!(status, StatusCode::CONFLICT);
+    let error = body["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains("initialized"),
+        "the conflict body must name initialization, got: {}",
+        body
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_sync_remote_blank_url_returns_bad_request() {
+    let db = setup_db().await;
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+
+    let app = test_app(db, &sync_dir);
+
+    let (status, body) = post_remote(&app, json!({ "remote_url": "   " })).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let error = body["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains("remote_url"),
+        "the error body must name the field, got: {}",
+        body
+    );
 }
