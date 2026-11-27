@@ -46,9 +46,10 @@ pub struct ImportSyncRequest {
 /// Request to change the sync remote URL
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetSyncRemoteRequest {
-    /// New git remote URL
+    /// New git remote URL; null or absent removes the remote
+    #[serde(default)]
     #[schema(example = "git@github.com:user/c5t-sync.git")]
-    pub remote_url: String,
+    pub remote_url: Option<String>,
 }
 
 /// Response from sync operations
@@ -120,6 +121,7 @@ pub async fn init_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
     request_body = ExportSyncRequest,
     responses(
         (status = 200, description = "Export completed successfully", body = SyncResponse),
+        (status = 409, description = "Sync not initialized or disabled", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -131,14 +133,7 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
         .sync_manager()
         .export(state.db(), req.message, req.remote)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+        .map_err(sync_error)?;
 
     Ok(Json(SyncResponse {
         status: "success".to_string(),
@@ -167,6 +162,7 @@ pub async fn export_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
     request_body = ImportSyncRequest,
     responses(
         (status = 200, description = "Import completed successfully", body = SyncResponse),
+        (status = 409, description = "Sync not initialized or disabled", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -178,14 +174,7 @@ pub async fn import_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
         .sync_manager()
         .import(state.db(), req.remote)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
+        .map_err(sync_error)?;
 
     Ok(Json(SyncResponse {
         status: "success".to_string(),
@@ -241,6 +230,7 @@ pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync, U: UpdateFlow
 
     let data = serde_json::json!({
         "initialized": true,
+        "enabled": status.enabled,
         "remote_url": status.remote_url,
         "last_synced_at": status.last_synced_at,
         "schema_version": status.schema_version,
@@ -287,59 +277,92 @@ pub async fn get_sync_status<D: Database, G: GitOps + Send + Sync, U: UpdateFlow
     }))
 }
 
-/// Disable sync by deleting the local sync directory
+/// Map a sync error to the HTTP response the API returns for it.
+fn sync_error(error: SyncError) -> (StatusCode, Json<ErrorResponse>) {
+    match error {
+        SyncError::NotInitialized => (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                error: "Sync not initialized. Run init operation first.".to_string(),
+            }),
+        ),
+        SyncError::SyncDisabled => (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse {
+                error: "Sync is disabled on this machine".to_string(),
+            }),
+        ),
+        other => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: other.to_string(),
+            }),
+        ),
+    }
+}
+
+/// Disable sync without removing local files
 #[utoipa::path(
-    delete,
-    path = "/api/v1/sync",
+    post,
+    path = "/api/v1/sync/disable",
     tag = "sync",
     responses(
-        (status = 200, description = "Sync disabled or not initialized", body = SyncResponse),
+        (status = 200, description = "Sync disabled", body = SyncResponse),
+        (status = 409, description = "Sync not initialized", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn disable_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
     State(state): State<AppState<D, G, U>>,
 ) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let removed = state.sync_manager().uninit().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    if !removed {
-        return Ok(Json(SyncResponse {
-            status: "not_initialized".to_string(),
-            message: "Sync not initialized".to_string(),
-            data: Some(serde_json::json!({
-                "initialized": false,
-                "removed": false,
-            })),
-        }));
-    }
+    state.sync_manager().disable().map_err(sync_error)?;
 
     Ok(Json(SyncResponse {
         status: "success".to_string(),
         message: "Sync disabled".to_string(),
         data: Some(serde_json::json!({
-            "initialized": false,
-            "removed": true,
+            "initialized": true,
+            "enabled": state.sync_manager().is_enabled(),
         })),
     }))
 }
 
-/// Replace the remote URL of the initialized sync repository
+/// Enable sync without recreating local files
+#[utoipa::path(
+    post,
+    path = "/api/v1/sync/enable",
+    tag = "sync",
+    responses(
+        (status = 200, description = "Sync enabled", body = SyncResponse),
+        (status = 409, description = "Sync not initialized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn enable_sync<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
+) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
+    state.sync_manager().enable().map_err(sync_error)?;
+
+    Ok(Json(SyncResponse {
+        status: "success".to_string(),
+        message: "Sync enabled".to_string(),
+        data: Some(serde_json::json!({
+            "initialized": true,
+            "enabled": state.sync_manager().is_enabled(),
+        })),
+    }))
+}
+
+/// Replace or remove the remote URL of the initialized sync repository
 #[utoipa::path(
     post,
     path = "/api/v1/sync/remote",
     tag = "sync",
     request_body = SetSyncRemoteRequest,
     responses(
-        (status = 200, description = "Remote updated", body = SyncResponse),
+        (status = 200, description = "Remote updated, or removed when remote_url is null", body = SyncResponse),
         (status = 400, description = "Blank remote URL", body = ErrorResponse),
-        (status = 409, description = "Sync not initialized", body = ErrorResponse),
+        (status = 409, description = "Sync not initialized or disabled", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
@@ -347,7 +370,19 @@ pub async fn set_sync_remote<D: Database, G: GitOps + Send + Sync, U: UpdateFlow
     State(state): State<AppState<D, G, U>>,
     Json(req): Json<SetSyncRemoteRequest>,
 ) -> Result<Json<SyncResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let remote_url = req.remote_url.trim().to_string();
+    let Some(requested) = req.remote_url else {
+        state.sync_manager().clear_remote().map_err(sync_error)?;
+
+        return Ok(Json(SyncResponse {
+            status: "success".to_string(),
+            message: "Remote removed".to_string(),
+            data: Some(serde_json::json!({
+                "remote_url": serde_json::Value::Null,
+            })),
+        }));
+    };
+
+    let remote_url = requested.trim().to_string();
 
     if remote_url.is_empty() {
         return Err((
@@ -362,20 +397,7 @@ pub async fn set_sync_remote<D: Database, G: GitOps + Send + Sync, U: UpdateFlow
         .sync_manager()
         .set_remote(remote_url.clone())
         .await
-        .map_err(|e| match e {
-            SyncError::NotInitialized => (
-                StatusCode::CONFLICT,
-                Json(ErrorResponse {
-                    error: "Sync not initialized. Run init operation first.".to_string(),
-                }),
-            ),
-            other => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: other.to_string(),
-                }),
-            ),
-        })?;
+        .map_err(sync_error)?;
 
     Ok(Json(SyncResponse {
         status: "success".to_string(),

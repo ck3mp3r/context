@@ -105,6 +105,7 @@ macro_rules! routes {
         super::v1::import_sync,
         super::v1::get_sync_status,
         super::v1::disable_sync,
+        super::v1::enable_sync,
         super::v1::set_sync_remote,
         super::v1::get_settings,
         super::v1::put_settings,
@@ -269,7 +270,8 @@ pub fn create_router<
         post "/sync/export" => super::v1::export_sync,
         post "/sync/import" => super::v1::import_sync,
         get "/sync/status" => super::v1::get_sync_status,
-        delete "/sync" => super::v1::disable_sync,
+        post "/sync/disable" => super::v1::disable_sync,
+        post "/sync/enable" => super::v1::enable_sync,
         post "/sync/remote" => super::v1::set_sync_remote,
         // Settings
         get "/settings" => super::v1::get_settings,

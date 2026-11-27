@@ -334,6 +334,51 @@ fn test_real_git_set_url_replaces_origin() {
 }
 
 #[test]
+fn test_real_git_remove_remote_deletes_origin_config_only() {
+    let root = TempDir::new().expect("test temp dir should be created");
+    let repo = root.path().join("repo");
+    fs::create_dir_all(&repo).expect("repo dir should be created");
+
+    let git = RealGit::new();
+    git.init(&repo).expect("git init should succeed");
+    git.add_remote(&repo, "origin", "https://example.com/old.git")
+        .expect("git remote add should succeed");
+
+    set_identity(&repo);
+    fs::write(repo.join("projects.jsonl"), "{\"id\":\"test0000\"}\n")
+        .expect("projects.jsonl should be written");
+    git.add_files(&repo, &[".".to_string()])
+        .expect("git add should succeed");
+    git.commit(&repo, "seed")
+        .expect("seed commit should succeed");
+    let commits_before = rev_list_count(&repo);
+
+    git.remove_remote(&repo, "origin")
+        .expect("git remote remove should succeed");
+
+    assert_eq!(
+        run_test_git(&repo, &["remote", "-v"]),
+        "",
+        "a later remote listing must print nothing"
+    );
+    assert_eq!(
+        rev_list_count(&repo),
+        commits_before,
+        "removing the remote must keep the commit history"
+    );
+    assert!(
+        repo.join("projects.jsonl").exists(),
+        "removing the remote must keep the sync files"
+    );
+
+    let absent = git.remove_remote(&repo, "origin");
+    assert!(
+        matches!(absent, Err(GitError::NonZeroExit { .. })),
+        "removing an absent remote must map to NonZeroExit, got: {absent:?}"
+    );
+}
+
+#[test]
 #[serial]
 fn test_real_git_commit_with_hostile_global_signing() {
     let repo = TempDir::new().expect("test temp dir should be created");
