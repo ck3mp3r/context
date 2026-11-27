@@ -9,6 +9,8 @@ mod hooks;
 mod mermaid;
 mod models;
 mod pages;
+/// Sync state: the phases and the sentences the indicator renders, kept free of the view layer.
+pub mod sync_status;
 pub mod tabs;
 mod theme;
 /// Update wording: the phrases the banner renders, kept free of the view layer.

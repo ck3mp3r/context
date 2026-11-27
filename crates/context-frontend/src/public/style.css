@@ -15,6 +15,8 @@
     --text-sm--line-height: calc(1.25 / 0.875);
     --text-base: 1rem;
     --text-base--line-height: calc(1.5 / 1);
+    --text-lg: 1.125rem;
+    --text-lg--line-height: calc(1.75 / 1.125);
     --text-xl: 1.25rem;
     --text-xl--line-height: calc(1.75 / 1.25);
     --text-2xl: 1.5rem;
@@ -883,6 +885,9 @@
   .py-12 {
     padding-block: calc(var(--spacing) * 12);
   }
+  .pt-4 {
+    padding-top: calc(var(--spacing) * 4);
+  }
   .pt-6 {
     padding-top: calc(var(--spacing) * 6);
   }
@@ -933,6 +938,10 @@
   .text-base {
     font-size: var(--text-base);
     line-height: var(--tw-leading, var(--text-base--line-height));
+  }
+  .text-lg {
+    font-size: var(--text-lg);
+    line-height: var(--tw-leading, var(--text-lg--line-height));
   }
   .text-sm {
     font-size: var(--text-sm);
@@ -1171,6 +1180,14 @@
     }
     .hover\:bg-ctp-overlay0:hover {
       background-color: var(--ctp-overlay0);
+    }
+    .hover\:bg-ctp-red\/20:hover {
+      background-color: var(--ctp-red);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-ctp-red\/20:hover {
+        background-color: color-mix(in oklab, var(--ctp-red) 20%, transparent);
+      }
     }
     .hover\:bg-ctp-sapphire:hover {
       background-color: var(--ctp-sapphire);

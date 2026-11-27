@@ -169,6 +169,46 @@ pub struct UpdateStatusPayload {
     pub updated_at: Option<String>,
 }
 
+/// Sync state as `GET /api/v1/sync/status` reports it.
+///
+/// The body is the server's `SyncResponse` envelope: `status` is `"success"` when sync is
+/// initialized and `"not_initialized"` before the first `init`, which is the flag the app reads to
+/// decide whether to render the sync surface at all.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SyncResponseEnvelope {
+    pub status: String,
+    pub message: String,
+    pub data: Option<SyncStatusData>,
+}
+
+/// Payload the status envelope carries.
+///
+/// An uninitialized status carries `initialized: false` and nothing else of value. An initialized
+/// one carries the remote and the last sync time. `git` and the two count pairs are absent when the
+/// status read could not produce them.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SyncStatusData {
+    pub initialized: bool,
+    pub remote_url: Option<String>,
+    pub last_synced_at: Option<String>,
+    pub git: Option<SyncGitState>,
+    pub database: Option<SyncCounts>,
+    pub sync_files: Option<SyncCounts>,
+}
+
+/// Working-tree state of the sync directory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SyncGitState {
+    pub clean: bool,
+    pub status: String,
+}
+
+/// Row count for one side of sync: the server sends the per-entity counts plus their total.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SyncCounts {
+    pub total: u64,
+}
+
 /// Outcome of one manual update check that reported no state of its own.
 ///
 /// A settled `idle` state renders nothing and a rejected call renders nothing either, so the pill

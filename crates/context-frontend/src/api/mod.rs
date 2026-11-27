@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
 use crate::models::{
-    ApiError, Note, Paginated, Project, Repo, SettingsPayload, SettingsValues, Skill, Task,
-    TaskList, TaskStats, UpdateStatusPayload,
+    ApiError, Note, Paginated, Project, Repo, SettingsPayload, SettingsValues, Skill,
+    SyncResponseEnvelope, Task, TaskList, TaskStats, UpdateStatusPayload,
 };
 
 // Development: Trunk proxy strips /dev prefix, forwards /api/v1/* to backend
@@ -455,6 +455,110 @@ pub mod update {
     }
 
     /// Report success for an empty response, or the server error envelope.
+    async fn expect_success(response: gloo_net::http::Response) -> Result<()> {
+        if (200..300).contains(&response.status()) {
+            return Ok(());
+        }
+
+        let error = response
+            .json::<ApiError>()
+            .await
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        Err(ApiClientError::Server(error))
+    }
+}
+
+/// Sync API
+pub mod sync {
+    use super::*;
+
+    /// Read the sync status: whether sync is set up, and the state of both sides.
+    ///
+    /// `status` is `"not_initialized"` before the first init, which is the flag that decides
+    /// whether the app renders the sync surface at all.
+    pub async fn status() -> Result<SyncResponseEnvelope> {
+        let url = format!("{}/sync/status", API_BASE);
+        handle_response(Request::get(&url)).await
+    }
+
+    /// Set up the sync repository; `remote_url` names `origin` when it is absent.
+    ///
+    /// The call is idempotent: 201 on the first init, 200 when sync is already set up. Both are
+    /// success. An existing `origin` with a different URL is refused by the server, never changed.
+    pub async fn init(remote_url: Option<String>) -> Result<()> {
+        let url = format!("{}/sync/init", API_BASE);
+        let request = Request::post(&url)
+            .json(&serde_json::json!({ "remote_url": remote_url }))
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Import the sync files into the database, pulling from the remote first.
+    ///
+    /// The pull is skipped when no remote exists, so a local-only setup imports fine.
+    pub async fn import() -> Result<()> {
+        let url = format!("{}/sync/import", API_BASE);
+        let request = Request::post(&url)
+            .json(&serde_json::json!({ "remote": true }))
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Export the database to the sync files, pushing to the remote afterwards.
+    ///
+    /// The push is skipped when no remote exists, so a local-only setup exports fine. The body the
+    /// server returns holds the per-entity change counts, which the indicator does not read.
+    pub async fn export() -> Result<()> {
+        let url = format!("{}/sync/export", API_BASE);
+        let request = Request::post(&url)
+            .json(&serde_json::json!({ "remote": true }))
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Remove the local sync directory; the database and its entities stay.
+    ///
+    /// The server answers 200 with `data.removed` true when a directory was there, and the
+    /// not-initialized envelope when it was not. Both mean sync is off, so the caller renders the
+    /// setup view for either.
+    pub async fn disable() -> Result<SyncResponseEnvelope> {
+        let url = format!("{}/sync", API_BASE);
+        handle_response(Request::delete(&url)).await
+    }
+
+    /// Point `origin` at a new remote URL.
+    ///
+    /// The server refuses a blank URL with 400 and an uninitialized sync with 409; both arrive as
+    /// the error envelope the caller renders.
+    pub async fn set_remote(url: &str) -> Result<()> {
+        let endpoint = format!("{}/sync/remote", API_BASE);
+        let request = Request::post(&endpoint)
+            .json(&serde_json::json!({ "remote_url": url }))
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Report success for a response the caller ignores, or the server error envelope.
     async fn expect_success(response: gloo_net::http::Response) -> Result<()> {
         if (200..300).contains(&response.status()) {
             return Ok(());

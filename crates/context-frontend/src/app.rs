@@ -8,9 +8,10 @@ use leptos_router::{
 use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
-use crate::components::{ThemeSwitcher, UpdatePill};
+use crate::components::{SyncIndicator, ThemeSwitcher, UpdatePill};
 use crate::models::{UpdateCheckOutcome, UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
+use crate::sync_status::SyncIndicator as SyncState;
 use crate::tabs::{
     TabContainer, TabKey, TabRegistry, TabStrip, TabTitles, adopt_owned_url, boot_surface,
     finish_boot, restore_or_boot, route_kind, start_keyboard, start_session_persistence,
@@ -85,6 +86,12 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     // that finds nothing or fails no longer ends silently.
     let check_outcome = RwSignal::new(None::<UpdateCheckOutcome>);
     provide_context(check_outcome);
+
+    // Git-sync state shared by the header indicator and the settings sync section: one state
+    // machine drives both surfaces. `None` means the app does not know the state yet, or sync is
+    // not set up, so no surface renders.
+    let sync_state = RwSignal::new(None::<SyncState>);
+    provide_context(sync_state);
 
     // One tab registry for the whole shell: the cards open tabs into it and the container renders
     // them, so both read the same state.
@@ -283,6 +290,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                                     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
                                 </svg>
                             </a>
+                            <SyncIndicator/>
                         </div>
                         <ThemeSwitcher theme=catppuccin_theme/>
                     </div>
