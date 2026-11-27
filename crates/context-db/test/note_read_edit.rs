@@ -215,3 +215,45 @@ async fn test_edit_applies_patches_in_reverse_order() {
     let expected = "AAA\nX\nCCC\nY\nEEE";
     assert_eq!(updated.content, expected);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_edit_stores_multiline_replacement_verbatim() {
+    let db = setup_db().await;
+    let notes = db.notes();
+
+    let note = Note {
+        id: generate_id(),
+        title: "Multi-line Replacement".to_string(),
+        content: "Alpha\nBeta\nGamma\nDelta".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        created_at: None,
+        updated_at: None,
+        deleted_at: None,
+    };
+    let created = notes.create(&note).await.expect("Create should succeed");
+
+    let replacement = "First replacement\nSecond replacement".to_string();
+    let patches = vec![((2, 3), replacement)];
+
+    notes
+        .apply_line_patches(&created.id, &patches)
+        .await
+        .expect("A multi-line replacement should apply");
+
+    let updated = notes.get(&created.id).await.expect("Get should succeed");
+
+    assert_eq!(
+        updated.content, "Alpha\nFirst replacement\nSecond replacement\nDelta",
+        "a multi-line replacement must be spliced in verbatim"
+    );
+    assert!(
+        !updated.content.contains("\\n"),
+        "the stored content must not contain literal backslash-n sequences, got: {:?}",
+        updated.content
+    );
+}

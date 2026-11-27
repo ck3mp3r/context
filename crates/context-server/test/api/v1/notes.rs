@@ -20,6 +20,9 @@ use tempfile::TempDir;
 /// Content longer than 100 chars so a blanked placeholder is distinguishable.
 const NOTE_CONTENT: &str = "This note body is deliberately longer than one hundred characters so that a blanked response field is easy to tell apart from the stored value.";
 
+/// Multi-line content with real newlines, including a blank line.
+const MULTILINE_CONTENT: &str = "First line\nSecond line\n\nFourth line";
+
 /// Create a test app backed by an in-memory SQLite database.
 async fn test_app() -> axum::Router {
     let db = SqliteDatabase::in_memory()
@@ -164,5 +167,103 @@ async fn get_note_still_returns_content() {
         body["content"],
         json!(NOTE_CONTENT),
         "single-entity GET must keep the stored content"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn create_note_round_trips_multiline_content() {
+    let app = test_app().await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/notes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Multi-line note",
+                        "content": MULTILINE_CONTENT
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["content"],
+        json!(MULTILINE_CONTENT),
+        "create_note must return the multi-line content verbatim"
+    );
+    assert!(
+        body["content"]
+            .as_str()
+            .expect("content must be a string")
+            .contains('\n'),
+        "create_note must keep U+000A characters in the response"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn update_note_round_trips_multiline_content() {
+    let app = test_app().await;
+    let note_id = create_note(&app, "Updated note").await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/notes/{note_id}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "title": "Updated note",
+                        "content": MULTILINE_CONTENT
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(
+        body["content"],
+        json!(MULTILINE_CONTENT),
+        "update_note must return the multi-line content verbatim"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes/{note_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched = json_body(response).await;
+    assert_eq!(
+        fetched["content"],
+        json!(MULTILINE_CONTENT),
+        "GET after update must return the exact multi-line content"
+    );
+    assert!(
+        fetched["content"]
+            .as_str()
+            .expect("content must be a string")
+            .contains('\n'),
+        "GET must keep U+000A characters"
     );
 }

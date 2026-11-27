@@ -647,3 +647,31 @@ async fn test_purge_deleted_preserves_recent_tombstones() {
         "a tombstone inside the retention period must be kept"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_create_and_get_round_trip_multiline_content() {
+    let db = setup_db().await;
+    let notes = db.notes();
+    let content = "First line\nSecond line\n\nFourth line";
+
+    let created = notes
+        .create(&make_note(&generate_id(), "Multi-line Note", content))
+        .await
+        .expect("Create should succeed");
+
+    let retrieved = notes.get(&created.id).await.expect("Get should succeed");
+
+    assert_eq!(
+        retrieved.content, content,
+        "create then get must return the input content unchanged"
+    );
+    assert!(
+        retrieved.content.contains('\n'),
+        "the stored content must keep U+000A characters"
+    );
+    assert!(
+        !retrieved.content.contains("\\n"),
+        "the stored content must not contain literal backslash-n sequences, got: {:?}",
+        retrieved.content
+    );
+}

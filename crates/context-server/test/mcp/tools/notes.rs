@@ -9,8 +9,8 @@ use rmcp::model::{CallToolResult, ContentBlock, ErrorCode};
 use serde_json::{Value, json};
 
 use super::{
-    EditNoteParams, LinePatch, LineRange, NoteTools, ReadNoteParams, compute_range_etag,
-    compute_section_etag,
+    CreateNoteParams, EditNoteParams, LinePatch, LineRange, NoteTools, ReadNoteParams,
+    compute_range_etag, compute_section_etag,
 };
 use crate::api::notifier::ChangeNotifier;
 
@@ -1156,4 +1156,81 @@ async fn anchor_read_rejects_empty_and_whitespace_only_anchors() {
         assert_eq!(data["note_id"], note_id);
         assert_eq!(data["anchor"], anchor);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_create_stores_multiline_content_verbatim() {
+    let (db, tools) = setup_tools().await;
+    let content = "First line\nSecond line\n\nFourth line";
+
+    let params = CreateNoteParams {
+        title: "Multi-line Note".to_string(),
+        content: content.to_string(),
+        tags: None,
+        parent_id: None,
+        idx: None,
+        repo_ids: None,
+        project_ids: None,
+    };
+
+    let result = tools
+        .note_create(Parameters(params))
+        .await
+        .expect("note_create should succeed");
+    let response = text_json(&result);
+
+    assert_eq!(
+        response["content"],
+        json!(content),
+        "note_create must return the multi-line content verbatim"
+    );
+
+    let note_id = response["id"]
+        .as_str()
+        .expect("created note must carry an id");
+    let stored = db.notes().get(note_id).await.expect("Get should succeed");
+
+    assert_eq!(
+        stored.content, content,
+        "stored content must equal the input string byte for byte"
+    );
+    assert!(
+        stored.content.contains('\n'),
+        "stored content must keep U+000A characters"
+    );
+    assert!(
+        !stored.content.contains("\\n"),
+        "stored content must not contain literal backslash-n sequences, got: {:?}",
+        stored.content
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_edit_stores_multiline_replacement_verbatim() {
+    let (db, tools) = setup_tools().await;
+    let note_id = create_note(&db, "Alpha\nBeta\nGamma").await;
+
+    let etag = full_etag(&tools, &note_id).await;
+    let params = edit_params(
+        &note_id,
+        Some(etag),
+        vec![patch(2, 2, "First replacement\nSecond replacement", None)],
+    );
+
+    tools
+        .note_edit(Parameters(params))
+        .await
+        .expect("a multi-line replacement must succeed");
+
+    let stored = db.notes().get(&note_id).await.expect("Get should succeed");
+
+    assert_eq!(
+        stored.content, "Alpha\nFirst replacement\nSecond replacement\nGamma",
+        "a multi-line replacement must be stored with real newlines"
+    );
+    assert!(
+        !stored.content.contains("\\n"),
+        "stored content must not contain literal backslash-n sequences, got: {:?}",
+        stored.content
+    );
 }
