@@ -21,6 +21,7 @@
 //! ```
 
 use std::fs;
+use std::future::Future;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use playwright_rs::protocol::{ClickOptions, MouseButton};
-use playwright_rs::{Page, Playwright, expect};
+use playwright_rs::{Browser, Page, Playwright, expect};
 use serde::Deserialize;
 
 /// Project the stubbed API serves, so a real card exists to click.
@@ -457,69 +458,121 @@ struct PillProbe {
     hit_in_surface: bool,
 }
 
-/// Stack the harness body runs on.
+/// Stack each scenario runs on.
 ///
-/// The whole async state machine of the e2e body lives in `block_on`'s frame, and a debug build
-/// makes it big: the body of this test needs about 1 MiB before the deepest interaction runs. A
-/// libtest test thread gets 2 MiB, so the harness sat close to its own limit and a rebuild could
-/// tip it over. An explicit stack keeps the margin independent of the toolchain's frame sizes.
+/// The whole async state machine of one scenario lives in `block_on`'s frame, and a debug build
+/// makes it big: a scenario body needs about 1 MiB before the deepest interaction runs. A libtest
+/// test thread gets 2 MiB, so the harness sat close to its own limit and a rebuild could tip it
+/// over. An explicit stack keeps the margin independent of the toolchain's frame sizes.
 const HARNESS_STACK: usize = 32 * 1024 * 1024;
 
-#[test]
-fn spa_boots_and_project_card_navigation_reaches_project_detail() {
-    let body = thread::Builder::new()
-        .name("spa-e2e".to_string())
+/// One scenario's server, browser, and page.
+///
+/// Every scenario starts its own server and browser, so no scenario reads or mutates another
+/// scenario's session state. The fields drop in declaration order: the page and the browser first,
+/// then `_playwright`, whose drop closes every browser the driver owns, including after a failing
+/// scenario unwinds.
+struct Harness {
+    page: Page,
+    browser: Browser,
+    /// Kept alive for the whole scenario: dropping it shuts the driver and its browsers down.
+    _playwright: Playwright,
+    socket: WebSocketStub,
+    server: StaticServer,
+    origin: String,
+}
+
+impl Harness {
+    /// Builds the SPA, serves `dist/`, and opens one page on it.
+    async fn start() -> Self {
+        let root = repo_root();
+        build_spa_once(&root);
+
+        let dist = root.join("crates/context-server/dist");
+        let index = dist.join("index.html");
+        assert!(
+            index.is_file(),
+            "trunk build did not emit {}: the SPA cannot be served",
+            index.display()
+        );
+
+        // One ephemeral port carries the app and its websocket stub, so a preview holding 8080 is
+        // a neighbour, not a collision.
+        let server = StaticServer::start(dist);
+        let socket = server.socket();
+        let origin = server.origin();
+        wait_for_origin(&server.addr, &origin);
+        println!("e2e origin ready: {origin}");
+
+        let playwright = Playwright::launch()
+            .await
+            .expect("Playwright driver should start");
+        let browser = playwright
+            .chromium()
+            .launch()
+            .await
+            .expect("Chromium should launch (run the install-browsers example first)");
+        let page = browser
+            .new_page()
+            .await
+            .expect("browser should open a page");
+
+        page.goto(&origin, None)
+            .await
+            .expect("the SPA origin should load in the browser");
+
+        // The page dials the stub on mount. Waiting for that first socket here keeps the count a
+        // scenario reads after its own reload settled, instead of counting the boot's connection
+        // as the scenario's.
+        socket.wait_for_connection_after(0);
+
+        Self {
+            page,
+            browser,
+            _playwright: playwright,
+            socket,
+            server,
+            origin,
+        }
+    }
+}
+
+/// Runs one scenario on its own thread, runtime, server, and browser.
+///
+/// The panic message names the scenario, because a panic crosses a thread boundary and the name is
+/// the only site identifier left in it.
+fn run_scenario<F, Fut>(name: &'static str, scenario: F)
+where
+    F: FnOnce(Harness) -> Fut + Send + 'static,
+    Fut: Future<Output = ()>,
+{
+    let thread = thread::Builder::new()
+        .name(format!("spa-e2e-{name}"))
         .stack_size(HARNESS_STACK)
-        .spawn(|| {
+        .spawn(move || {
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("the e2e runtime should build")
-                .block_on(spa_body());
+                .block_on(async move {
+                    let harness = Harness::start().await;
+                    scenario(harness).await;
+                });
         })
         .expect("the e2e harness thread should start");
 
-    if body.join().is_err() {
-        panic!("the spa e2e body panicked");
+    if thread.join().is_err() {
+        panic!("the {name} e2e scenario panicked");
     }
 }
 
-async fn spa_body() {
-    let root = repo_root();
-    build_spa(&root);
+#[test]
+fn boot_navigation_and_container_pins() {
+    run_scenario("boot", scenario_boot_navigation_and_container_pins);
+}
 
-    let dist = root.join("crates/context-server/dist");
-    let index = dist.join("index.html");
-    assert!(
-        index.is_file(),
-        "trunk build did not emit {}: the SPA cannot be served",
-        index.display()
-    );
-
-    // One ephemeral port carries the app and its websocket stub, so a preview holding 8080 is a
-    // neighbour, not a collision.
-    let server = StaticServer::start(dist);
-    let socket = server.socket();
-    let origin = server.origin();
-    wait_for_origin(&server.addr, &origin);
-    println!("e2e origin ready: {origin}");
-
-    let playwright = Playwright::launch()
-        .await
-        .expect("Playwright driver should start");
-    let browser = playwright
-        .chromium()
-        .launch()
-        .await
-        .expect("Chromium should launch (run the install-browsers example first)");
-    let page = browser
-        .new_page()
-        .await
-        .expect("browser should open a page");
-
-    page.goto(&origin, None)
-        .await
-        .expect("the SPA origin should load in the browser");
+async fn scenario_boot_navigation_and_container_pins(harness: Harness) {
+    let Harness { page, .. } = harness;
 
     // Smoke 1: the Projects chrome view renders.
     expect(page.locator("[data-page=\"projects\"]"))
@@ -1117,6 +1170,31 @@ async fn spa_body() {
             && !has_strip_row(&labelled, "children"),
         "a note tab surface outside a project panel hides every project row: {labelled:?}"
     );
+}
+
+#[test]
+fn inline_surfaces() {
+    run_scenario("inline surfaces", scenario_inline_surfaces);
+}
+
+async fn scenario_inline_surfaces(harness: Harness) {
+    let Harness { page, origin, .. } = harness;
+
+    // Setup: a fresh boot, and the body baseline the surface pins compare against. The scenario's
+    // own opening clicks open the project tab and its task list child.
+    clear_session(&page).await;
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load for the inline surface pins");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render before the inline surface pins");
+    let body_children_before: usize = page
+        .evaluate("() => document.body.childElementCount", None::<&()>)
+        .await
+        .expect("the page should report its body child count");
 
     // === Inline surfaces (decision 12): a surface renders inside its tab wrapper ===
 
@@ -1418,6 +1496,20 @@ async fn spa_body() {
         closed_after_return.scroll_locks, 0,
         "closing the restored surface must release the page scroll"
     );
+}
+
+#[test]
+fn websocket_deletion() {
+    run_scenario("websocket deletion", scenario_websocket_deletion);
+}
+
+async fn scenario_websocket_deletion(harness: Harness) {
+    let Harness {
+        page,
+        socket,
+        origin,
+        ..
+    } = harness;
 
     // === The websocket deletion reaction ===
 
@@ -1794,6 +1886,21 @@ async fn spa_body() {
             && !has_strip_row(&linked_repo_strip, "children"),
         "a linked repo opens into the repos bar with no project row: {linked_repo_strip:?}"
     );
+}
+
+#[test]
+fn session_restore() {
+    run_scenario("session restore", scenario_session_restore);
+}
+
+async fn scenario_session_restore(harness: Harness) {
+    let Harness {
+        page,
+        server,
+        socket,
+        origin,
+        ..
+    } = harness;
 
     // Decision 14, corrupt: one garbage value under the namespaced key drops to chrome, with no
     // error, no toast, and no tab. The last close left the URL on chrome home.
@@ -2012,6 +2119,21 @@ async fn spa_body() {
         vec![NOTE_PARENT_PROJECT_TITLE],
         "a fresh boot labels the parent project it opened, not its id: {boot_strip:?}"
     );
+}
+
+#[test]
+fn scoped_liveness() {
+    run_scenario("scoped liveness", scenario_scoped_liveness);
+}
+
+async fn scenario_scoped_liveness(harness: Harness) {
+    let Harness {
+        page,
+        server,
+        socket,
+        origin,
+        ..
+    } = harness;
 
     // === Decision 15: scoped liveness ===
     //
@@ -2204,6 +2326,23 @@ async fn spa_body() {
         sockets_with_no_tab,
         "a refetch opens no second websocket"
     );
+}
+
+#[test]
+fn strip_and_keyboard() {
+    run_scenario("strip and keyboard", scenario_strip_and_keyboard);
+}
+
+async fn scenario_strip_and_keyboard(harness: Harness) {
+    let Harness {
+        page,
+        server,
+        socket,
+        origin,
+        ..
+    } = harness;
+
+    let project_path = format!("projects/{PROJECT_ID}");
 
     // === The strip and its keyboard (decisions 2, 5, 9, 10, 16, 17) ===
     //
@@ -2846,6 +2985,20 @@ async fn spa_body() {
         "/settings",
         "Ctrl+, navigates nowhere"
     );
+}
+
+#[test]
+fn notes_bar() {
+    run_scenario("notes bar", scenario_notes_bar);
+}
+
+async fn scenario_notes_bar(harness: Harness) {
+    let Harness {
+        page,
+        socket,
+        origin,
+        ..
+    } = harness;
 
     // === The notes bar (decisions 2, 5, and 19) ===
     //
@@ -3016,6 +3169,20 @@ async fn spa_body() {
             .any(|chip| chip.active),
         "the active project chip marks the location: {projects_strip:?}"
     );
+}
+
+#[test]
+fn repos_bar() {
+    run_scenario("repos bar", scenario_repos_bar);
+}
+
+async fn scenario_repos_bar(harness: Harness) {
+    let Harness {
+        page,
+        socket,
+        origin,
+        ..
+    } = harness;
 
     // === The repos bar (decisions 2, 5, and 19) ===
     //
@@ -3167,6 +3334,20 @@ async fn spa_body() {
             .any(|chip| chip.active),
         "the active project chip marks the location: {projects_without_repos:?}"
     );
+}
+
+#[test]
+fn subnote_gate() {
+    run_scenario("subnote gate", scenario_subnote_gate);
+}
+
+async fn scenario_subnote_gate(harness: Harness) {
+    let Harness {
+        page,
+        server,
+        origin,
+        ..
+    } = harness;
 
     // === Subnote deep links open no tab (the notes tab system) ===
     //
@@ -3272,6 +3453,20 @@ async fn spa_body() {
         "the gate's payload labels the tab, so no label request follows the open: {boot_note_calls} \
          request(s) for {boot_note_api}, and the gate plus the note surface cost three"
     );
+}
+
+#[test]
+fn chrome_navigation() {
+    run_scenario("chrome navigation", scenario_chrome_navigation);
+}
+
+async fn scenario_chrome_navigation(harness: Harness) {
+    let Harness {
+        page,
+        socket,
+        origin,
+        ..
+    } = harness;
 
     // === Chrome navigation deactivates the strip (decisions 5 and 6) ===
     //
@@ -3513,6 +3708,59 @@ async fn spa_body() {
         routes_under_tab.children, 0,
         "a tab surface renders nothing in the routed area: {routes_under_tab:?}"
     );
+}
+
+#[test]
+fn breadcrumb() {
+    run_scenario("breadcrumb", scenario_breadcrumb);
+}
+
+async fn scenario_breadcrumb(harness: Harness) {
+    let Harness { page, origin, .. } = harness;
+
+    // Setup: a fresh boot, then the project tab and its task list child open with the child active,
+    // which is the state the breadcrumb pins read.
+    clear_session(&page).await;
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load for the breadcrumb pins");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render before the breadcrumb pins");
+    let crumb_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(crumb_project.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card");
+    crumb_project
+        .click(None)
+        .await
+        .expect("the project card should open its tab");
+    wait_for_container(
+        &page,
+        "the project tab open for the breadcrumb pins",
+        |probe| probe.wrappers == 1 && probe.active_view == "project",
+    )
+    .await;
+    let crumb_task_list = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-task-list-card=\"{TASK_LIST_ID}\"]",
+    ));
+    expect(crumb_task_list.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the project dashboard should list the fixture task list");
+    crumb_task_list
+        .click(None)
+        .await
+        .expect("the task list card should open its child tab");
+    wait_for_container(&page, "the task list child tab open", |probe| {
+        probe.wrappers == 2 && probe.active_view == "task-list"
+    })
+    .await;
 
     // === The breadcrumb: a project chip restores the project's last selected surface ===
     //
@@ -3968,6 +4216,25 @@ async fn spa_body() {
         second_child_tab.active_id,
         "the location is the second project's task list: {strip:?}"
     );
+}
+
+#[test]
+fn update_pill() {
+    run_scenario("update pill", scenario_update_pill);
+}
+
+async fn scenario_update_pill(harness: Harness) {
+    let Harness {
+        page,
+        server,
+        socket,
+        browser,
+        ..
+    } = harness;
+
+    // Setup: let the mount's own update check land, so no answer still in flight can overwrite the
+    // state the pins announce.
+    wait_for_api_calls(&server, "update/status", 1);
 
     // === Update pill (one surface, app level, bottom right) ===
 
@@ -4775,6 +5042,22 @@ fn build_spa(root: &Path) {
         output.status,
         tail.join("\n")
     );
+}
+
+/// Builds the SPA once per process, because every scenario shares the one `dist/` tree.
+///
+/// A build per scenario would let one scenario rewrite `dist/` while another scenario serves it.
+/// The flag stays false after a failed build, so every scenario reports trunk's own message
+/// instead of inheriting a latch another scenario poisoned.
+fn build_spa_once(root: &Path) {
+    static BUILT: Mutex<bool> = Mutex::new(false);
+    let mut built = BUILT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !*built {
+        build_spa(root);
+        *built = true;
+    }
 }
 
 fn wait_for_origin(addr: &SocketAddr, origin: &str) {
