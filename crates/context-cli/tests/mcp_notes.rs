@@ -125,6 +125,7 @@ async fn test_get_note() {
         note_id: "note0001".to_string(),
         format: None,
         ranges: None,
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -149,6 +150,7 @@ async fn test_get_note_not_found() {
         note_id: "nonexist".to_string(),
         format: None,
         ranges: None,
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -233,6 +235,7 @@ async fn test_note_edit() {
         note_id: "note0001".to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
     let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
@@ -244,7 +247,7 @@ async fn test_note_edit() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag,
+        etag: Some(etag),
         title: Some("Updated".to_string()),
         tags: Some(vec!["updated".to_string()]),
         project_ids: None,
@@ -269,7 +272,7 @@ async fn test_note_edit_not_found() {
 
     let params = EditNoteParams {
         note_id: "nonexist".to_string(),
-        etag: "some-etag".to_string(),
+        etag: Some("some-etag".to_string()),
         title: Some("Updated".to_string()),
         tags: None,
         project_ids: None,
@@ -741,6 +744,7 @@ async fn test_note_read_toon_format() {
         note_id: "note0001".to_string(),
         format: Some("toon".to_string()),
         ranges: None,
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -781,6 +785,7 @@ async fn test_note_read_json_format() {
         note_id: "note0001".to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -822,6 +827,7 @@ async fn test_note_read_with_ranges() {
         note_id: "note0001".to_string(),
         format: Some("toon".to_string()),
         ranges: Some(vec![LineRange { start: 2, end: 3 }]),
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -855,6 +861,7 @@ async fn test_note_edit_with_patches() {
         note_id: "note0001".to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
     let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
@@ -866,7 +873,7 @@ async fn test_note_edit_with_patches() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag,
+        etag: Some(etag),
         title: None,
         tags: None,
         project_ids: None,
@@ -907,6 +914,7 @@ async fn test_note_edit_with_etag() {
         note_id: "note0001".to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
     let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
@@ -918,7 +926,7 @@ async fn test_note_edit_with_etag() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag,
+        etag: Some(etag),
         title: Some("Updated".to_string()),
         tags: None,
         project_ids: None,

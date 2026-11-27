@@ -23,6 +23,7 @@ async fn read_etag<D: HasNotes + 'static>(tools: &NoteTools<D>, note_id: &str) -
         note_id: note_id.to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
     let result = tools
         .note_read(Parameters(params))
@@ -138,7 +139,7 @@ async fn test_note_edit_rejects_stale_etag() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag: "deadbeef".to_string(),
+        etag: Some("deadbeef".to_string()),
         title: Some("Updated".to_string()),
         tags: None,
         project_ids: None,
@@ -185,6 +186,7 @@ async fn test_note_read_rejects_empty_ranges() {
         note_id: "note0001".to_string(),
         format: None,
         ranges: Some(vec![]),
+        anchor: None,
     };
 
     let error = tools
@@ -221,7 +223,7 @@ async fn test_note_edit_error_payload_omits_expected_etag() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag: "deadbeef".to_string(),
+        etag: Some("deadbeef".to_string()),
         title: Some("Updated".to_string()),
         tags: None,
         project_ids: None,

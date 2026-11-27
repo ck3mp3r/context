@@ -348,7 +348,7 @@ impl<D: Database + 'static> McpServer<D> {
     }
 
     #[tool(
-        description = "Read a note. Omit ranges for full content, use empty array [] for metadata only, or specify ranges for specific lines."
+        description = "Read note. Full read returns the whole-note etag; a range read returns one etag per range (etag_scope='range'); an anchor read resolves a heading like '## Foo' or a unique text line to one section (etag_scope='section'). Content is TOON (line numbers) unless format='json'. Ranges: omit=full; an empty array is an error. Mutually exclusive with anchor."
     )]
     pub async fn note_read(
         &self,
@@ -358,7 +358,7 @@ impl<D: Database + 'static> McpServer<D> {
     }
 
     #[tool(
-        description = "Edit a note - update metadata (title, tags, relationships) and/or apply line-range patches to content. All fields optional. Patches are automatically sorted, validated, and applied in reverse order to maintain accurate line numbers."
+        description = "Edit note. Requires a whole-note etag from note_read, or one range etag (range read) or section etag (anchor read) per patch. Each patch targets either a line range ('start' and 'end') or an 'anchor', never both and never neither. Metadata-only edits require the whole-note etag. Patches are validated before any write and applied in reverse order."
     )]
     pub async fn note_edit(
         &self,
