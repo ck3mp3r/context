@@ -9,7 +9,7 @@ use leptos_use::core::ConnectionReadyState;
 use thaw::*;
 
 use crate::components::{ThemeSwitcher, UpdatePill};
-use crate::models::{UpdateMessage, UpdateStatusPayload};
+use crate::models::{UpdateCheckOutcome, UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
 use crate::tabs::{
     TabContainer, TabKey, TabRegistry, TabStrip, TabTitles, adopt_owned_url, boot_surface,
@@ -80,6 +80,11 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     // Update state shared by the pill and the settings check.
     let update_status = RwSignal::new(None::<UpdateStatusPayload>);
     provide_context(update_status);
+
+    // Outcome of a manual check that reported no state of its own: the pill renders it, so a click
+    // that finds nothing or fails no longer ends silently.
+    let check_outcome = RwSignal::new(None::<UpdateCheckOutcome>);
+    provide_context(check_outcome);
 
     // One tab registry for the whole shell: the cards open tabs into it and the container renders
     // them, so both read the same state.
@@ -215,7 +220,7 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
                     class:bg-ctp-red=move || matches!(ws_state.get(), ConnectionReadyState::Closed)>
                 </div>
             </Tooltip>
-            <UpdatePill status=update_status/>
+            <UpdatePill status=update_status outcome=check_outcome/>
             <nav class="bg-ctp-surface0 border-b border-ctp-surface1 relative">
                 <div class="container mx-auto flex justify-between items-center px-6 py-4">
                     <a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">

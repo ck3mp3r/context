@@ -2,16 +2,16 @@
 //!
 //! One surface reports an update: a pill fixed to the bottom right, mounted once in `app.rs`, so it
 //! is on every screen. It renders every [`crate::models::UpdateStatusPayload`] state, offers the one
-//! restart code path the service owns, retries a failure with a fresh check, and hides itself per
-//! candidate version.
+//! restart code path the service owns, retries a failure with a fresh check, reports the outcome of
+//! a manual check that left no state to render, and hides itself per candidate version.
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use thaw::{Spinner, SpinnerSize};
 
 use crate::api;
-use crate::models::{UpdateMessage, UpdateStatusPayload};
-use crate::update_status::{update_dismissed, update_failure, update_phrase};
+use crate::models::{UpdateCheckOutcome, UpdateMessage, UpdateStatusPayload};
+use crate::update_status::{check_outcome_phrase, update_dismissed, update_failure, update_phrase};
 use crate::websocket::use_websocket_updates;
 
 // region:    --- Types
@@ -41,7 +41,12 @@ struct PillContent {
 
 /// The one update surface: fixed bottom right, above the app chrome and below an open surface.
 #[component]
-pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoView {
+pub fn UpdatePill(
+    /// The state the service keeps.
+    status: RwSignal<Option<UpdateStatusPayload>>,
+    /// The outcome of a manual check that reported no state of its own.
+    outcome: RwSignal<Option<UpdateCheckOutcome>>,
+) -> impl IntoView {
     // The candidate version the user dismissed. In memory, so a GUI relaunch clears it, and keyed
     // to the version, so an install's Ready state stays dismissed and a newer version comes back.
     let dismissed = RwSignal::new(None::<String>);
@@ -58,7 +63,7 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
     let last_candidate = RwSignal::new(None::<String>);
 
     // Seed once on mount: the service owns the state, the pill only reads it.
-    Effect::new(move |_| refetch(status));
+    Effect::new(move |_| refetch(status, local_failure));
 
     Effect::new(move |_| {
         if let Some(version) = status.get().and_then(|payload| payload.candidate_version) {
@@ -69,7 +74,8 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
     // Every announced change re-reads the state. The version key is untouched: an install ends at
     // `ready` without restarting anything, so a dismissed candidate stays hidden through it. The
     // ephemeral hide ends here, because it belongs to the state that was on screen when it was
-    // made and that state is now history.
+    // made and that state is now history. A check outcome belongs to the click that produced it,
+    // so an announcement supersedes it too.
     let updates = use_websocket_updates();
     Effect::new(move |_| {
         if matches!(
@@ -78,8 +84,9 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
         ) {
             restart_pending.set(false);
             local_failure.set(None);
+            outcome.set(None);
             hidden.set(false);
-            refetch(status);
+            refetch(status, local_failure);
         }
     });
 
@@ -87,6 +94,12 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
         let dismissed_a_failure = local_failure.get_untracked().is_some();
         local_failure.set(None);
         restart_pending.set(false);
+
+        // A check outcome names no candidate either, so its hide cannot be keyed to a version.
+        // Dismissing it drops the report, which hands the pill back to the state the service
+        // keeps: a settled `idle` state renders nothing, so the pill goes away.
+        let dismissed_an_outcome = outcome.get_untracked().is_some();
+        outcome.set(None);
 
         let payload = status.get_untracked();
         // A failure names no candidate, so its hide cannot be keyed to a version: an empty key
@@ -101,7 +114,7 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
             return;
         }
 
-        if dismissed_a_failure {
+        if dismissed_a_failure || dismissed_an_outcome {
             return;
         }
 
@@ -128,10 +141,10 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
         restart_pending.set(true);
 
         spawn_local(async move {
-            let outcome = api::update::restart().await;
+            let result = api::update::restart().await;
             restart_pending.set(false);
             local_failure.set(
-                outcome
+                result
                     .err()
                     .map(|error| format!("The restart failed: {error}")),
             );
@@ -140,10 +153,15 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
 
     // The one retry the state machine allows after a failure: a new check, the same call the boot
     // path makes. An install is POST-and-forget, so nothing else can start one from `failed`.
+    // A rejection is a result the user asked for, so it renders as a failure instead of a
+    // console line nobody reads.
     let on_check = move |_| {
+        // The retry supersedes whatever the last click reported.
+        outcome.set(None);
+
         spawn_local(async move {
             if let Err(error) = api::update::check(true).await {
-                report(&format!("Failed to start an update check: {error}"));
+                local_failure.set(Some(format!("Failed to start an update check: {error}")));
             }
         });
     };
@@ -153,6 +171,7 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
             status.get(),
             last_candidate.get(),
             local_failure.get(),
+            outcome.get(),
             dismissed.get(),
             hidden.get(),
         )
@@ -255,11 +274,16 @@ pub fn UpdatePill(status: RwSignal<Option<UpdateStatusPayload>>) -> impl IntoVie
 /// `downloading` and `installing` from a state with no candidate, so those two phases inherit the
 /// last candidate the pill saw named; every other phase is keyed by the version it carries.
 /// `hidden` is the dismissal of a view that names no version: a failure, or a bare notice. It ends
-/// at the next announcement, so it never outlives the state that produced it.
+/// at the next announcement, so it never outlives the state that produced it. A check outcome
+/// carries what the user's own click reported, so it outranks the state the service keeps: a
+/// rejected trigger answers "already running" while an older `available` or `checking` state is
+/// still on screen, and that answer is the click's result. It outranks `hidden` for the same
+/// reason.
 fn pill_content(
     payload: Option<UpdateStatusPayload>,
     last_candidate: Option<String>,
     local_failure: Option<String>,
+    outcome: Option<UpdateCheckOutcome>,
     dismissed: Option<String>,
     hidden: bool,
 ) -> Option<PillContent> {
@@ -273,6 +297,10 @@ fn pill_content(
             check: true,
             dismiss: true,
         });
+    }
+
+    if let Some(outcome) = outcome {
+        return Some(outcome_content(outcome));
     }
 
     if hidden {
@@ -333,19 +361,40 @@ fn pill_content(
     Some(content)
 }
 
+/// What the pill shows for a manual check that reported no state of its own.
+///
+/// A failure keeps the `failed` phase and offers the one retry the state machine allows. A check
+/// that found nothing keeps its own `no-update` phase: it is a result, and a Dismiss control ends
+/// it without pretending the update failed.
+fn outcome_content(outcome: UpdateCheckOutcome) -> PillContent {
+    let (phase, text, check) = match &outcome {
+        UpdateCheckOutcome::Failed(detail) => {
+            ("failed", check_outcome_phrase(Some(detail.as_str())), true)
+        }
+        UpdateCheckOutcome::NoUpdate => ("no-update", check_outcome_phrase(None), false),
+    };
+
+    PillContent {
+        phase: phase.to_string(),
+        text,
+        spinner: false,
+        update: false,
+        restart: false,
+        check,
+        dismiss: true,
+    }
+}
+
 /// Read the persisted update state into the shared signal the pill reads.
-fn refetch(status: RwSignal<Option<UpdateStatusPayload>>) {
+fn refetch(status: RwSignal<Option<UpdateStatusPayload>>, local_failure: RwSignal<Option<String>>) {
     spawn_local(async move {
         match api::update::status().await {
             Ok(payload) => status.set(Some(payload)),
-            Err(error) => report(&format!("Failed to read the update state: {error}")),
+            Err(error) => {
+                local_failure.set(Some(format!("Failed to read the update state: {error}")))
+            }
         }
     });
-}
-
-/// Log a client-side failure the way the websocket module does.
-fn report(message: &str) {
-    web_sys::console::error_1(&message.into());
 }
 
 // endregion: --- Support

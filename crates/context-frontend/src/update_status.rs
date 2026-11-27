@@ -40,6 +40,19 @@ pub fn update_failure(message: Option<&str>) -> String {
     }
 }
 
+/// Phrase for the outcome of a manual check: the failure detail, or the no-update sentence.
+///
+/// `failure` carries the detail of a rejected trigger or a failed status read. `None` means the
+/// check finished and found nothing newer, which is a result and must say so: an `idle` status
+/// renders no phrase, so without this sentence a successful check looks exactly like a failure the
+/// pill swallowed.
+pub fn check_outcome_phrase(failure: Option<&str>) -> String {
+    match failure {
+        Some(detail) => update_failure(Some(detail)),
+        None => "No update available.".to_string(),
+    }
+}
+
 /// Whether a dismissal hides the pill for this candidate version.
 ///
 /// Only a named version is a key. The dismissal names one candidate version, so a different

@@ -7,7 +7,7 @@
 #[allow(dead_code)]
 mod update_status;
 
-use update_status::{update_dismissed, update_failure, update_phrase};
+use update_status::{check_outcome_phrase, update_dismissed, update_failure, update_phrase};
 
 #[test]
 fn the_busy_phases_read_as_progress() {
@@ -118,4 +118,29 @@ fn a_dismissal_without_a_candidate_hides_nothing() {
         update_dismissed(Some("0.9.0"), Some("0.9.0")),
         "a real key still hides its own version"
     );
+}
+
+#[test]
+fn a_failed_check_shows_the_client_wording() {
+    assert_eq!(
+        check_outcome_phrase(Some("GitHub API returned 403")),
+        "GitHub API returned 403"
+    );
+    assert_eq!(
+        check_outcome_phrase(Some(
+            "Server error: An update check or install is already running"
+        )),
+        "Server error: An update check or install is already running",
+        "a rejected trigger keeps the reason the server named"
+    );
+    assert_eq!(
+        check_outcome_phrase(Some("  the read timed out  ")),
+        "the read timed out",
+        "surrounding whitespace never reaches the pill"
+    );
+}
+
+#[test]
+fn a_check_that_found_nothing_says_so() {
+    assert_eq!(check_outcome_phrase(None), "No update available.");
 }

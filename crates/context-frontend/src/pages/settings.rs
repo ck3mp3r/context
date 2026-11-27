@@ -4,7 +4,8 @@ use thaw::{Spinner, SpinnerSize};
 
 use crate::api::{self, ApiClientError};
 use crate::models::{
-    SettingsDefaults, SettingsPayload, SettingsRunning, SettingsValues, UpdateStatusPayload,
+    SettingsDefaults, SettingsPayload, SettingsRunning, SettingsValues, UpdateCheckOutcome,
+    UpdateStatusPayload,
 };
 
 /// `/settings` page: edit the stored configuration, defaults in view.
@@ -41,10 +42,13 @@ fn SettingsEditor() -> impl IntoView {
     let auto_update = RwSignal::new(true);
     let pre_release = RwSignal::new(false);
 
-    // Manual check: the request is in flight. The button shows that, and the banner reports every
-    // state: the page renders no status text at all.
+    // Manual check: the request is in flight. The button shows that, and the pill reports every
+    // outcome: the page renders no status text at all.
     let check_pending = RwSignal::new(false);
     let update_status = expect_context::<RwSignal<Option<UpdateStatusPayload>>>();
+    // Outcome of a check that leaves no state to render: the pill shows it, because the page
+    // renders no status of its own.
+    let check_outcome = expect_context::<RwSignal<Option<UpdateCheckOutcome>>>();
 
     // One payload update refreshes the draft and the restart markers.
     let apply_payload = move |payload: SettingsPayload| {
@@ -234,21 +238,33 @@ fn SettingsEditor() -> impl IntoView {
         });
     });
 
-    // Manual check: trigger it, then read the state into the shared banner signal.
+    // Manual check: trigger it, then read the state into the shared pill signals.
     //
-    // The banner is the one status surface, so this flow writes the signal the banner reads: the
+    // The pill is the one status surface, so this flow writes the signals the pill reads: the
     // first read may still say "checking" and shows that at once, and one bounded second read
-    // settles the state, so the banner cannot freeze on the interim one. At most two reads per
-    // click, and no timer. A transport failure console-reports and only re-enables the button.
+    // settles the state, so the pill cannot freeze on the interim one. At most two reads per
+    // click, and no timer. A settled `idle` state renders no payload worth seeing, so it becomes
+    // the shared no-update outcome: a check that found nothing must say so, or it looks exactly
+    // like a failure the client swallowed. A transport failure goes to the pill's failure view
+    // with the client's own wording.
     let on_check = Callback::new(move |()| {
         if check_pending.get_untracked() {
             return;
         }
 
         check_pending.set(true);
+        // The click supersedes whatever the last one reported.
+        check_outcome.set(None);
 
         // The button returns to its idle label.
         let settle = move || check_pending.set(false);
+
+        // Show a settled payload, or record that the check found nothing to install.
+        let apply_settled = move |payload: UpdateStatusPayload| {
+            let idle = payload.status == "idle";
+            update_status.set(Some(payload));
+            check_outcome.set(idle.then_some(UpdateCheckOutcome::NoUpdate));
+        };
 
         // Read the status once: show it, or follow a still-running check once.
         let read_status = move || {
@@ -261,8 +277,10 @@ fn SettingsEditor() -> impl IntoView {
                             move || {
                                 spawn_local(async move {
                                     match api::update::status().await {
-                                        Ok(payload) => update_status.set(Some(payload)),
-                                        Err(error) => report_check_failure(&error),
+                                        Ok(payload) => apply_settled(payload),
+                                        Err(error) => {
+                                            report_check_failure(check_outcome, &error);
+                                        }
                                     }
 
                                     settle();
@@ -272,11 +290,11 @@ fn SettingsEditor() -> impl IntoView {
                         );
                     }
                     Ok(payload) => {
-                        update_status.set(Some(payload));
+                        apply_settled(payload);
                         settle();
                     }
                     Err(error) => {
-                        report_check_failure(&error);
+                        report_check_failure(check_outcome, &error);
                         settle();
                     }
                 }
@@ -287,7 +305,7 @@ fn SettingsEditor() -> impl IntoView {
             match api::update::check(true).await {
                 Ok(()) => set_timeout(read_status, CHECK_SETTLE_DELAY),
                 Err(error) => {
-                    report_check_failure(&error);
+                    report_check_failure(check_outcome, &error);
                     settle();
                 }
             }
@@ -598,12 +616,13 @@ const STABLE_CHANNEL: &str = "stable";
 /// How long the service gets to advance the check before each status read.
 const CHECK_SETTLE_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Report a transport failure of the manual check.
+/// Report a dropped manual check on the pill.
 ///
-/// The page renders no status: the banner owns that. A failure the client cannot turn into a
-/// payload goes to the console, exactly as the banner reports its own transport errors.
-fn report_check_failure(error: &ApiClientError) {
-    web_sys::console::error_1(&format!("Failed to read the update state: {error}").into());
+/// The page renders no status: the pill owns that. A failure the client cannot turn into a payload
+/// is still an answer to the click, so it takes the pill's failure view with the client's own
+/// wording — the reject causes name the reason, such as a check that is already running.
+fn report_check_failure(outcome: RwSignal<Option<UpdateCheckOutcome>>, error: &ApiClientError) {
+    outcome.set(Some(UpdateCheckOutcome::Failed(error.to_string())));
 }
 
 /// Stored channel the checkbox drafts.

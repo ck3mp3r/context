@@ -169,6 +169,19 @@ pub struct UpdateStatusPayload {
     pub updated_at: Option<String>,
 }
 
+/// Outcome of one manual update check that reported no state of its own.
+///
+/// A settled `idle` state renders nothing and a rejected call renders nothing either, so the pill
+/// cannot tell a check that found nothing from one that failed. The settings page writes one of
+/// these so the pill can say which happened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateCheckOutcome {
+    /// The trigger or a status read failed; the text is the detail to show.
+    Failed(String),
+    /// The check finished and no newer release is published.
+    NoUpdate,
+}
+
 /// Settings the running server process started with.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SettingsRunning {
