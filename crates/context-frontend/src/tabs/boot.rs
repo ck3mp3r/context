@@ -50,8 +50,20 @@ pub fn start_session_persistence(tabs: TabRegistry, titles: TabTitles) {
 
 // region:    --- Boot
 
-/// Boot: read the session once, restore or open the boot surface, and return the identities whose
-/// labels still need resolving.
+/// What boot leaves pending once the stored session is installed: the labels the restore owes, and
+/// the surface the boot URL names.
+///
+/// The boot surface is not opened at once, because a `/notes/{note_id}` deep link must learn whether
+/// the note is a subnote before it may open a tab. [`finish_boot`] settles it.
+pub struct BootPending {
+    /// The labels the restored strip still needs.
+    pub labels: Vec<TabKey>,
+    /// The surface to open, when the plan opens one.
+    pub surface: Option<BootSurface>,
+}
+
+/// Boot: read the session once and install it, and report the labels to resolve and the surface to
+/// open.
 ///
 /// Nothing here writes a URL. The one writer adopts the boot URL as the URL it owns, so a restore
 /// repeats no navigation and cannot overwrite a deep link (decisions 11 and 14).
@@ -59,26 +71,38 @@ pub fn restore_or_boot(
     tabs: TabRegistry,
     titles: TabTitles,
     boot: Option<BootSurface>,
-) -> Vec<TabKey> {
+) -> BootPending {
     let session = load();
     let plan = plan_boot(session.as_ref(), boot.as_ref());
 
     let Some(session) = session else {
-        return match boot {
-            Some(boot) => open_boot(tabs, titles, &boot),
-            None => Vec::new(),
+        return BootPending {
+            labels: Vec::new(),
+            surface: boot,
         };
     };
 
-    let mut unresolved = install_restored(tabs, &session, focus_of(&plan));
+    let labels = install_restored(tabs, &session, focus_of(&plan));
     for stored in &session.tabs {
         titles.set(stored.key.key(), stored.title.clone());
     }
 
-    if let BootPlan::RestorePlusBoot { boot } = plan {
-        unresolved.extend(open_boot(tabs, titles, &boot));
-    }
-    unresolved
+    let surface = match plan {
+        BootPlan::RestorePlusBoot { boot } => Some(boot),
+        BootPlan::Fresh | BootPlan::Restore { .. } => None,
+    };
+    BootPending { labels, surface }
+}
+
+/// Finish the boot once the page can await: resolve the labels the restore owes, then open and label
+/// the surface the boot URL names, when that surface may open.
+pub async fn finish_boot(tabs: TabRegistry, titles: TabTitles, pending: BootPending) {
+    resolve_titles(tabs, titles, pending.labels).await;
+    let Some(surface) = pending.surface else {
+        return;
+    };
+    let labels = open_boot(tabs, titles, &surface).await;
+    resolve_titles(tabs, titles, labels).await;
 }
 
 /// The surface the plan focuses, when it focuses one.
@@ -94,12 +118,63 @@ fn focus_of(plan: &BootPlan) -> Option<&StoredKey> {
 /// 8 and 14).
 ///
 /// The pair comes from `open_card`, so a boot and a card click enqueue the same labels by the same
-/// rule and cannot drift.
-fn open_boot(tabs: TabRegistry, titles: TabTitles, boot: &BootSurface) -> Vec<TabKey> {
+/// rule and cannot drift. A `/notes/{note_id}` deep link opens nothing when the note is a subnote:
+/// only a top-level note has a tab, and a subnote's home is the tab of its parent note.
+async fn open_boot(tabs: TabRegistry, titles: TabTitles, boot: &BootSurface) -> Vec<TabKey> {
     let key = boot.key.key();
+    match boot_note(&key, boot.parent.as_deref()).await {
+        BootNote::Skipped => return Vec::new(),
+        BootNote::Labelled(label) => titles.set(key.clone(), label),
+        BootNote::Unlabelled => {}
+    }
     open_card(tabs, key, boot.parent.as_deref(), &|key| {
         titles.has_label(key)
     })
+}
+
+/// What the boot note fetch decided about a `/notes/{note_id}` deep link.
+enum BootNote {
+    /// The note names a parent, so boot opens no tab for it.
+    Skipped,
+    /// The note is top-level: its label came with the fetch, so no second request is needed.
+    Labelled(String),
+    /// No usable payload: open the tab, and let the label resolve ask again.
+    Unlabelled,
+}
+
+/// Whether a boot surface may open, fetching the note of a `/notes/{note_id}` deep link.
+///
+/// Only a top-level note has a tab, so a note that names a parent opens none. A note under a project
+/// path and every other surface are eligible with no fetch. A failed request or a non-200 answer
+/// keeps the old behavior: the tab opens, and the label resolve decides what the surface is.
+async fn boot_note(key: &TabKey, parent: Option<&str>) -> BootNote {
+    let (TabKey::Note { note_id }, None) = (key, parent) else {
+        return BootNote::Unlabelled;
+    };
+    let Some(note) = fetch_note(note_id).await else {
+        return BootNote::Unlabelled;
+    };
+    if note.parent_id.is_some() {
+        return BootNote::Skipped;
+    }
+    BootNote::Labelled(note.title)
+}
+
+/// One GET for the note a boot URL names, so the gate can read its parent.
+async fn fetch_note(note_id: &str) -> Option<BootNotePayload> {
+    let url = format!("{}/notes/{note_id}", api::base());
+    let response = Request::get(&url).send().await.ok()?;
+    if !(200..=299).contains(&response.status()) {
+        return None;
+    }
+    response.json::<BootNotePayload>().await.ok()
+}
+
+/// A note payload, as the boot gate reads it: the label, and the parent that makes it a subnote.
+#[derive(Deserialize)]
+struct BootNotePayload {
+    title: String,
+    parent_id: Option<String>,
 }
 
 // endregion: --- Boot

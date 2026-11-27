@@ -18,7 +18,10 @@ mod session;
 mod strip;
 mod title;
 
-pub use boot::{open_from_card, resolve_titles, restore_or_boot, start_session_persistence};
+pub use boot::{
+    BootPending, finish_boot, open_from_card, resolve_titles, restore_or_boot,
+    start_session_persistence,
+};
 pub use container::{TabContainer, TabScope, use_tab_scope};
 pub use keyboard::start_keyboard;
 pub use liveness::should_refetch;

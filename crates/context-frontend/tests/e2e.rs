@@ -52,8 +52,8 @@ const TASK_LIST_TITLE: &str = "E2E Fixture Task List";
 const SECOND_TASK_LIST_ID: &str = "e2e0000a";
 const SECOND_TASK_LIST_TITLE: &str = "E2E Second Task List";
 
-/// The note the stubbed API serves. It names a project whose tab is not open, so a global-list row
-/// must open that parent project tab first (decision 8).
+/// The note the stubbed API serves. It names a project, so a row click outside a project panel must
+/// still open it into the notes bar with no project attachment.
 const NOTE_ID: &str = "e2e00004";
 const NOTE_TITLE: &str = "E2E Fixture Note";
 const NOTE_PARENT_PROJECT_ID: &str = "e2e00009";
@@ -61,11 +61,23 @@ const NOTE_PARENT_PROJECT_TITLE: &str = "E2E Note Parent Project";
 
 /// The note that names no project, so its tab is parentless and its close is the last close.
 const PARENTLESS_NOTE_ID: &str = "e2e00007";
+const PARENTLESS_NOTE_TITLE: &str = "E2E Parentless Note";
+
+/// The note that names a parent note, so a `/notes/{id}` deep link to it opens no tab: only a
+/// top-level note has a tab, and a subnote shows inside its parent's tab.
+const SUBNOTE_ID: &str = "e2e0000b";
+const SUBNOTE_TITLE: &str = "E2E Subnote";
 
 /// The repo the stubbed API serves, so a repo card exists to open the repo detail surface. Its
 /// remote yields the header title, because a repo carries no title field.
 const REPO_ID: &str = "e2e00008";
+const REPO_REMOTE: &str = "https://github.com/e2e/fixture-repo.git";
 const REPO_DISPLAY_NAME: &str = "e2e/fixture-repo";
+
+/// The repo the stubbed API links to a project, so a repos-list click on it must still open it into
+/// the repos bar with no project attachment. A repo chip's label is its remote.
+const LINKED_REPO_ID: &str = "e2e0000c";
+const LINKED_REPO_REMOTE: &str = "https://github.com/e2e/linked-repo.git";
 
 /// The path the debug bundle dials for updates (`WS_PATH` in `src/websocket.rs`). The bundle derives
 /// host and port from the page's own location, so the static server answers this path on the same
@@ -1021,7 +1033,9 @@ async fn spa_body() {
         "a tab URL reached through Back still renders nothing in the routed area"
     );
 
-    // Decision 8: a global-list row opens the parent project tab first, then the child.
+    // The notes list belongs to the notes system: a row click opens the note into the notes bar,
+    // even when the note itself links a project. No project tab opens and the URL carries no
+    // project segment.
     page.locator("nav a[href=\"/notes\"]")
         .first()
         .click(None)
@@ -1044,12 +1058,12 @@ async fn spa_body() {
         .await
         .expect("the page should report the container state");
     assert_eq!(
-        after_note.wrappers, 5,
-        "the row must open the parent project tab first, then the note tab: expected 5 wrappers, got {}",
+        after_note.wrappers, 4,
+        "the row opens the note tab alone, with no parent project tab: expected 4 wrappers, got {}",
         after_note.wrappers
     );
     assert_eq!(
-        after_note.active_id, "5",
+        after_note.active_id, "4",
         "the note tab is the active one, got {:?}",
         after_note.active_id
     );
@@ -1059,50 +1073,49 @@ async fn spa_body() {
         after_note.active_view
     );
     expect(page.locator(format!(
-        "[data-tab-id=\"4\"] [data-tab-view=\"project\"][data-tab-entity-id=\"{NOTE_PARENT_PROJECT_ID}\"]",
+        "[data-tab-view=\"project\"][data-tab-entity-id=\"{NOTE_PARENT_PROJECT_ID}\"]",
     )))
-        .to_have_count(1)
-        .await
-        .expect("the named project tab opens before the note tab");
+    .to_have_count(0)
+    .await
+    .expect("a notes-list click must not open the project the note links");
 
     let note_url = page.url();
-    let expected_note_path = format!("/projects/{NOTE_PARENT_PROJECT_ID}/notes/{NOTE_ID}");
+    let expected_note_path = format!("/notes/{NOTE_ID}");
     assert!(
         note_url.ends_with(&expected_note_path),
         "the note tab should write {expected_note_path}, got {note_url}"
     );
 
-    // Pin (parent chip labelled mid-session): the note card opened a project tab this session had
-    // never opened, so the open path resolves its label beside the note's. The parent chip renders
-    // the served title, and no chip keeps the "<Kind> <id>" fallback.
-    let labelled = wait_for_strip(&page, "the parent project chip labelled", |probe| {
+    // Pin (the notes bar holds the row's note): the chip sits in the notes row, labelled with the
+    // served title and marked active, and the project rows stay hidden.
+    let labelled = wait_for_strip(&page, "the notes chip labelled", |probe| {
         probe.visible
-            && strip_row(probe, "projects")
-                .iter()
-                .any(|chip| chip.label == NOTE_PARENT_PROJECT_TITLE)
-            && strip_chips(probe)
-                .iter()
-                .all(|chip| !chip.label.contains("e2e000"))
+            && strip_row(probe, "notes").len() == 1
+            && strip_row(probe, "notes")[0].label == NOTE_TITLE
     })
     .await;
-    let project_titles: Vec<&str> = strip_row(&labelled, "projects")
-        .iter()
-        .map(|chip| chip.label.as_str())
-        .collect();
+    let notes = strip_row(&labelled, "notes");
     assert_eq!(
-        project_titles,
-        vec![
-            PROJECT_TITLE,
-            SECOND_PROJECT_TITLE,
-            NOTE_PARENT_PROJECT_TITLE
-        ],
-        "the parent the note card opened renders its title, not the id fallback: {labelled:?}"
+        notes[0].kind, "note",
+        "the notes bar holds note chips only: {labelled:?}"
+    );
+    assert_eq!(
+        notes[0].id, after_note.active_id,
+        "the chip names the tab the click opened: {labelled:?}"
     );
     assert!(
-        strip_chips(&labelled)
-            .iter()
-            .all(|chip| !chip.label.is_empty()),
-        "no chip renders a blank label: {labelled:?}"
+        notes[0].active,
+        "the opened note's chip is active: {labelled:?}"
+    );
+    assert!(
+        notes[0].separated,
+        "the notes chip keeps its close control beside the activate control: {labelled:?}"
+    );
+    assert!(
+        !has_strip_row(&labelled, "projects")
+            && !has_strip_row(&labelled, "parentless")
+            && !has_strip_row(&labelled, "children"),
+        "a note tab surface outside a project panel hides every project row: {labelled:?}"
     );
 
     // === Inline surfaces (decision 12): a surface renders inside its tab wrapper ===
@@ -1424,18 +1437,37 @@ async fn spa_body() {
         .expect("the Projects page should render on the reloaded SPA");
     socket.wait_for_connection_after(connections);
 
-    // The note names a project, so opening it opens the project tab first: two tabs, note active.
-    page.locator("nav a[href=\"/notes\"]")
-        .first()
+    // The project panel's card names its project, so the note attaches to that project: the project
+    // tab is open first and the note tab hangs under it.
+    let deletion_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(deletion_project.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card");
+    deletion_project
         .click(None)
         .await
-        .expect("the Notes nav link should reach the chrome notes list");
-    let deletion_note = page.locator(format!("[data-note-card=\"{NOTE_ID}\"]"));
+        .expect("the project card should open its tab");
+    wait_for_container(
+        &page,
+        "the project tab open for the deletion pins",
+        |probe| probe.wrappers == 1 && probe.active_view == "project",
+    )
+    .await;
+
+    page.locator("[data-tab-active=\"true\"] [data-panel=\"notes\"]")
+        .click(None)
+        .await
+        .expect("the Notes pill should be clickable");
+    let deletion_note = page.locator(format!(
+        "[data-tab-active=\"true\"] [data-note-card=\"{NOTE_ID}\"]",
+    ));
     expect(deletion_note.clone())
         .with_timeout(UI_TIMEOUT)
         .to_be_visible()
         .await
-        .expect("the chrome notes list should render the fixture note card");
+        .expect("the notes panel should list the fixture note card");
     deletion_note
         .click(None)
         .await
@@ -1540,7 +1572,7 @@ async fn spa_body() {
             && !url_after_delete.ends_with("/task-lists"),
         "the deletion must not write a chrome list route, got {url_after_delete}"
     );
-    let surviving_path = format!("/projects/{NOTE_PARENT_PROJECT_ID}");
+    let surviving_path = format!("/projects/{PROJECT_ID}");
     assert!(
         url_after_delete.ends_with(&surviving_path),
         "the one writer names the surviving tab {surviving_path}, got {url_after_delete}"
@@ -1662,6 +1694,106 @@ async fn spa_body() {
         .to_have_count(1)
         .await
         .expect("the repo detail header should show one id copy button");
+
+    // Pin (the repos bar holds the row's repo): the chip sits in the repos row, labelled with the
+    // remote it serves and marked active, and the project rows stay hidden.
+    let free_repo_strip = wait_for_strip(&page, "the repos chip labelled", |probe| {
+        probe.visible
+            && strip_row(probe, "repos").len() == 1
+            && strip_row(probe, "repos")[0].label == REPO_REMOTE
+    })
+    .await;
+    let free_repo_chips = strip_row(&free_repo_strip, "repos");
+    assert_eq!(
+        free_repo_chips[0].kind, "repo",
+        "the repos bar holds repo chips only: {free_repo_strip:?}"
+    );
+    assert!(
+        free_repo_chips[0].active,
+        "the opened repo's chip is active: {free_repo_strip:?}"
+    );
+    assert!(
+        free_repo_chips[0].separated,
+        "the repos chip keeps its close control beside the activate control: {free_repo_strip:?}"
+    );
+    assert!(
+        !has_strip_row(&free_repo_strip, "projects")
+            && !has_strip_row(&free_repo_strip, "parentless")
+            && !has_strip_row(&free_repo_strip, "children"),
+        "a repo tab surface outside a project panel hides every project row: {free_repo_strip:?}"
+    );
+
+    // A repo that links a project still opens into the repos bar from the repos list: the link
+    // attaches nothing, so no project tab opens, the URL carries no project segment, and no project
+    // chip renders beside the repo chips.
+    page.locator("nav a[href=\"/repos\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Repos nav link should return to the chrome repos list");
+    let linked_repo_card = page.locator(format!(
+        "[data-routes-area] [data-repo-card=\"{LINKED_REPO_ID}\"]",
+    ));
+    expect(linked_repo_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome repos list should render the project-linked repo card");
+    linked_repo_card
+        .click(None)
+        .await
+        .expect("the project-linked repo card should open its tab");
+
+    let linked_repo_tab = wait_for_container(&page, "the linked repo's tab open", |probe| {
+        probe.wrappers == 2 && probe.active_view == "repo"
+    })
+    .await;
+    let linked_repo_path = format!("/repos/{LINKED_REPO_ID}");
+    assert!(
+        page.url().ends_with(&linked_repo_path),
+        "a repos-list click opens without a project segment, got {}",
+        page.url()
+    );
+    expect(page.locator(format!(
+        "[data-tab-view=\"project\"][data-tab-entity-id=\"{NOTE_PARENT_PROJECT_ID}\"]",
+    )))
+    .to_have_count(0)
+    .await
+    .expect("a repos-list click must not open the project the repo links");
+
+    let linked_repo_strip =
+        wait_for_strip(&page, "the repos bar holding both repo chips", |probe| {
+            probe.visible
+                && strip_row(probe, "repos").len() == 2
+                && strip_row(probe, "repos")
+                    .iter()
+                    .any(|chip| chip.label == LINKED_REPO_REMOTE)
+        })
+        .await;
+    let linked_repo_chips = strip_row(&linked_repo_strip, "repos");
+    assert!(
+        linked_repo_chips.iter().all(|chip| chip.kind == "repo"),
+        "the repos bar holds repo chips only: {linked_repo_strip:?}"
+    );
+    assert_eq!(
+        linked_repo_chips.iter().filter(|chip| chip.active).count(),
+        1,
+        "the opened repo's chip alone is active: {linked_repo_strip:?}"
+    );
+    assert_eq!(
+        linked_repo_chips
+            .iter()
+            .find(|chip| chip.id == linked_repo_tab.active_id)
+            .map(|chip| chip.label.as_str()),
+        Some(LINKED_REPO_REMOTE),
+        "the active chip names the linked repo: {linked_repo_strip:?}"
+    );
+    assert!(
+        !has_strip_row(&linked_repo_strip, "projects")
+            && !has_strip_row(&linked_repo_strip, "parentless")
+            && !has_strip_row(&linked_repo_strip, "children"),
+        "a linked repo opens into the repos bar with no project row: {linked_repo_strip:?}"
+    );
 
     // Decision 14, corrupt: one garbage value under the namespaced key drops to chrome, with no
     // error, no toast, and no tab. The last close left the URL on chrome home.
@@ -2715,6 +2847,432 @@ async fn spa_body() {
         "Ctrl+, navigates nowhere"
     );
 
+    // === The notes bar (decisions 2, 5, and 19) ===
+    //
+    // A note that names no project leaves the parentless row for its own bar: the notes home shows
+    // that bar alone, a note tab surface shows it instead of the project rows, and a surface whose
+    // active tab sits elsewhere hides it again.
+
+    let connections = socket.connections();
+    clear_session(&page).await;
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load for the notes bar pins");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render before the notes bar pins");
+    socket.wait_for_connection_after(connections);
+
+    let notes_project = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(notes_project.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card");
+    notes_project
+        .click(None)
+        .await
+        .expect("the project card should open its tab");
+    wait_for_container(
+        &page,
+        "the project tab open for the notes bar pins",
+        |probe| probe.wrappers == 1 && probe.active_view == "project",
+    )
+    .await;
+
+    // Pin (the notes home with no note tab): the notes list renders and the bar has nothing to show.
+    page.locator("nav a[href=\"/notes\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Notes nav link should reach the notes home");
+    assert_eq!(
+        page_path(&page).await,
+        "/notes",
+        "the Notes nav link writes the notes home URL"
+    );
+    let empty_notes_bar = wait_for_strip(&page, "the notes home without a note tab", |probe| {
+        !probe.visible
+    })
+    .await;
+    assert!(
+        !has_strip_row(&empty_notes_bar, "notes"),
+        "an empty notes bar renders no row: {empty_notes_bar:?}"
+    );
+
+    // Pin (a free note tab): its chip sits in the notes bar, and no project row renders beside it.
+    let notes_card = page.locator(format!(
+        "[data-routes-area] [data-note-card=\"{PARENTLESS_NOTE_ID}\"]",
+    ));
+    expect(notes_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the notes home should render the parentless note card");
+    notes_card
+        .click(None)
+        .await
+        .expect("the parentless note card should open its tab");
+    let note_tab = wait_for_container(&page, "the free note's tab open", |probe| {
+        probe.wrappers == 2 && probe.active_view == "note"
+    })
+    .await;
+    let note_path = format!("/notes/{PARENTLESS_NOTE_ID}");
+    assert!(
+        page.url().ends_with(&note_path),
+        "a free note opens without a project segment, got {}",
+        page.url()
+    );
+
+    let notes_strip = wait_for_strip(&page, "the notes bar holding the note chip", |probe| {
+        probe.visible && has_strip_row(probe, "notes")
+    })
+    .await;
+    let notes = strip_row(&notes_strip, "notes");
+    assert_eq!(
+        notes.len(),
+        1,
+        "the notes bar holds the one note: {notes_strip:?}"
+    );
+    assert_eq!(notes[0].kind, "note", "the notes bar holds note chips only");
+    assert_eq!(
+        notes[0].id, note_tab.active_id,
+        "the chip names the tab it activates"
+    );
+    assert!(notes[0].active, "the open note's chip is the active chip");
+    assert!(
+        notes[0].separated,
+        "the notes chip keeps its close control beside the activate control"
+    );
+    assert!(
+        !has_strip_row(&notes_strip, "projects")
+            && !has_strip_row(&notes_strip, "parentless")
+            && !has_strip_row(&notes_strip, "children"),
+        "a note tab surface hides every project row: {notes_strip:?}"
+    );
+    assert_eq!(
+        strip_chips(&notes_strip).len(),
+        1,
+        "the notes bar is the only bar on a note tab surface: {notes_strip:?}"
+    );
+
+    // Pin (the notes home with a note tab): the bar shows again, with no active chip.
+    page.locator("nav a[href=\"/notes\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Notes nav link should return to the notes home");
+    let notes_home = wait_for_strip(&page, "the notes bar on the notes home", |probe| {
+        probe.visible && has_strip_row(probe, "notes")
+    })
+    .await;
+    assert_eq!(
+        strip_row(&notes_home, "notes").len(),
+        1,
+        "the notes home renders the open note's chip: {notes_home:?}"
+    );
+    assert!(
+        strip_chips(&notes_home).iter().all(|chip| !chip.active),
+        "no chip is active on the notes home: {notes_home:?}"
+    );
+    assert!(
+        !has_strip_row(&notes_home, "projects"),
+        "the notes home renders no project row: {notes_home:?}"
+    );
+
+    // Pin (a project tab surface): the project rows come back and the notes bar hides again.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to the overview");
+    let notes_overview = wait_for_strip(&page, "the projects row on the overview", |probe| {
+        probe.visible && has_strip_row(probe, "projects")
+    })
+    .await;
+    assert!(
+        !has_strip_row(&notes_overview, "notes"),
+        "the projects overview hides the notes bar: {notes_overview:?}"
+    );
+
+    let notes_project_chip = strip_row(&notes_overview, "projects")[0].id.clone();
+    page.locator(format!("[data-tab-activate=\"{notes_project_chip}\"]"))
+        .click(None)
+        .await
+        .expect("the project chip should focus its tab");
+    wait_for_container(&page, "the project tab active again", |probe| {
+        probe.active_view == "project"
+    })
+    .await;
+    let projects_strip = wait_for_strip(&page, "the project rows back", |probe| {
+        probe.visible && has_strip_row(probe, "projects") && !has_strip_row(probe, "notes")
+    })
+    .await;
+    assert!(
+        strip_row(&projects_strip, "projects")
+            .iter()
+            .any(|chip| chip.active),
+        "the active project chip marks the location: {projects_strip:?}"
+    );
+
+    // === The repos bar (decisions 2, 5, and 19) ===
+    //
+    // A repo that names no project leaves the parentless row for its own bar: the repos home shows
+    // that bar alone, a repo tab surface shows it instead of the project rows, and a surface whose
+    // active tab sits elsewhere hides it again.
+
+    let connections = socket.connections();
+    clear_session(&page).await;
+    page.goto(&origin, None)
+        .await
+        .expect("the SPA origin should load for the repos bar pins");
+    expect(page.locator("[data-page=\"projects\"]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the Projects page should render before the repos bar pins");
+    socket.wait_for_connection_after(connections);
+
+    // Pin (the repos home with no repo tab): the repos list renders and the bar has nothing to show.
+    page.locator("nav a[href=\"/repos\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Repos nav link should reach the repos home");
+    assert_eq!(
+        page_path(&page).await,
+        "/repos",
+        "the Repos nav link writes the repos home URL"
+    );
+    let empty_repos_bar = wait_for_strip(&page, "the repos home without a repo tab", |probe| {
+        !probe.visible
+    })
+    .await;
+    assert!(
+        !has_strip_row(&empty_repos_bar, "repos"),
+        "an empty repos bar renders no row: {empty_repos_bar:?}"
+    );
+
+    // Pin (a free repo tab): its chip sits in the repos bar, and no project row renders beside it.
+    let repos_card = page.locator(format!("[data-routes-area] [data-repo-card=\"{REPO_ID}\"]",));
+    expect(repos_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the repos home should render the fixture repo card");
+    repos_card
+        .click(None)
+        .await
+        .expect("the fixture repo card should open its tab");
+    let repo_tab = wait_for_container(&page, "the free repo's tab open", |probe| {
+        probe.wrappers == 1 && probe.active_view == "repo"
+    })
+    .await;
+    let repo_path = format!("/repos/{REPO_ID}");
+    assert!(
+        page.url().ends_with(&repo_path),
+        "a free repo opens without a project segment, got {}",
+        page.url()
+    );
+
+    let repos_strip = wait_for_strip(&page, "the repos bar holding the repo chip", |probe| {
+        probe.visible && has_strip_row(probe, "repos")
+    })
+    .await;
+    let repos = strip_row(&repos_strip, "repos");
+    assert_eq!(
+        repos.len(),
+        1,
+        "the repos bar holds the one repo: {repos_strip:?}"
+    );
+    assert_eq!(repos[0].kind, "repo", "the repos bar holds repo chips only");
+    assert_eq!(
+        repos[0].id, repo_tab.active_id,
+        "the chip names the tab it activates"
+    );
+    assert!(repos[0].active, "the open repo's chip is the active chip");
+    assert!(
+        repos[0].separated,
+        "the repos chip keeps its close control beside the activate control"
+    );
+    assert!(
+        !has_strip_row(&repos_strip, "projects")
+            && !has_strip_row(&repos_strip, "parentless")
+            && !has_strip_row(&repos_strip, "children"),
+        "a repo tab surface hides every project row: {repos_strip:?}"
+    );
+    assert_eq!(
+        strip_chips(&repos_strip).len(),
+        1,
+        "the repos bar is the only bar on a repo tab surface: {repos_strip:?}"
+    );
+
+    // Pin (the repos home with a repo tab): the bar shows again, with no active chip.
+    page.locator("nav a[href=\"/repos\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Repos nav link should return to the repos home");
+    let repos_home = wait_for_strip(&page, "the repos bar on the repos home", |probe| {
+        probe.visible && has_strip_row(probe, "repos")
+    })
+    .await;
+    assert_eq!(
+        strip_row(&repos_home, "repos").len(),
+        1,
+        "the repos home renders the open repo's chip: {repos_home:?}"
+    );
+    assert!(
+        strip_chips(&repos_home).iter().all(|chip| !chip.active),
+        "no chip is active on the repos home: {repos_home:?}"
+    );
+    assert!(
+        !has_strip_row(&repos_home, "projects"),
+        "the repos home renders no project row: {repos_home:?}"
+    );
+
+    // Pin (a project tab surface): the project rows come back and the repos bar hides again.
+    page.locator("nav a[href=\"/\"]")
+        .first()
+        .click(None)
+        .await
+        .expect("the Projects nav link should return to the overview");
+    let repos_project_card = page.locator(format!("[data-project-card=\"{PROJECT_ID}\"]"));
+    expect(repos_project_card.clone())
+        .with_timeout(UI_TIMEOUT)
+        .to_be_visible()
+        .await
+        .expect("the chrome Projects view should render the fixture card");
+    repos_project_card
+        .click(None)
+        .await
+        .expect("the project card should open its tab");
+    wait_for_container(
+        &page,
+        "the project tab open for the repos bar pins",
+        |probe| probe.wrappers == 2 && probe.active_view == "project",
+    )
+    .await;
+    let projects_without_repos = wait_for_strip(
+        &page,
+        "the project rows with the repos bar hidden",
+        |probe| probe.visible && has_strip_row(probe, "projects") && !has_strip_row(probe, "repos"),
+    )
+    .await;
+    assert!(
+        strip_row(&projects_without_repos, "projects")
+            .iter()
+            .any(|chip| chip.active),
+        "the active project chip marks the location: {projects_without_repos:?}"
+    );
+
+    // === Subnote deep links open no tab (the notes tab system) ===
+    //
+    // Only a top-level note has a tab, and a subnote shows inside the tab of its parent note. A
+    // `/notes/{id}` deep link to a subnote therefore opens nothing: the gate's own fetch proves the
+    // note exists, and no chip, no wrapper, and no further request follow it. A deep link to a
+    // top-level note still opens its notes-bar chip, labelled by that same payload, so boot asks for
+    // no label beside it.
+
+    clear_session(&page).await;
+    let subnote_path = format!("/notes/{SUBNOTE_ID}");
+    let subnote_api = format!("notes/{SUBNOTE_ID}");
+    let subnote_calls_before = server.api_calls(&subnote_api);
+    page.goto(&format!("{origin}{subnote_path}"), None)
+        .await
+        .expect("the SPA should load the subnote deep link");
+    expect(page.locator("[data-strip]"))
+        .with_timeout(BOOT_TIMEOUT)
+        .to_have_count(1)
+        .await
+        .expect("the shell should render under a subnote deep link");
+    wait_for_api_calls(&server, &subnote_api, subnote_calls_before + 1);
+    settle_frame();
+
+    let suppressed_strip = strip_probe(&page).await;
+    assert!(
+        strip_chips(&suppressed_strip).is_empty(),
+        "a subnote deep link opens no chip in any strip row: {suppressed_strip:?}"
+    );
+    let suppressed = container_probe(&page).await;
+    assert_eq!(
+        suppressed.wrappers, 0,
+        "a subnote deep link opens no tab: {suppressed:?}"
+    );
+    let suppressed_routes: RoutesProbe = page
+        .evaluate(ROUTES_PROBE, None::<&()>)
+        .await
+        .expect("the page should report the routed area");
+    assert!(
+        suppressed_routes.present && suppressed_routes.children == 0,
+        "the content area under a subnote deep link stays blank: {suppressed_routes:?}"
+    );
+    assert_eq!(
+        page_path(&page).await,
+        subnote_path,
+        "a suppressed boot writes no URL: the deep link stays in the address bar"
+    );
+    assert_eq!(
+        server.api_calls(&subnote_api),
+        subnote_calls_before + 1,
+        "a suppressed boot enqueues no label request: the gate's fetch is the only one"
+    );
+
+    clear_session(&page).await;
+    let boot_note_path = format!("/notes/{PARENTLESS_NOTE_ID}");
+    let boot_note_api = format!("notes/{PARENTLESS_NOTE_ID}");
+    let boot_note_calls_before = server.api_calls(&boot_note_api);
+    page.goto(&format!("{origin}{boot_note_path}"), None)
+        .await
+        .expect("the SPA should load the top-level note deep link");
+    let booted_note = wait_for_container(&page, "the deep-linked top-level note", |probe| {
+        probe.wrappers == 1 && probe.active_view == "note"
+    })
+    .await;
+    assert_eq!(
+        booted_note.active_entity, PARENTLESS_NOTE_ID,
+        "the boot URL's own surface is the active tab, got {:?}",
+        booted_note.active_entity
+    );
+    assert_eq!(
+        page_path(&page).await,
+        boot_note_path,
+        "boot writes no URL: the deep link it opened stays in the address bar"
+    );
+
+    let deep_link_bar = wait_for_strip(&page, "the notes bar of the deep-linked note", |probe| {
+        probe.visible
+            && has_strip_row(probe, "notes")
+            && strip_row(probe, "notes")
+                .iter()
+                .any(|chip| chip.label == PARENTLESS_NOTE_TITLE)
+    })
+    .await;
+    assert!(
+        !has_strip_row(&deep_link_bar, "projects"),
+        "a note deep link shows the notes bar alone: {deep_link_bar:?}"
+    );
+    assert_eq!(
+        strip_chips(&deep_link_bar).len(),
+        1,
+        "the deep-linked top-level note is the only chip: {deep_link_bar:?}"
+    );
+
+    wait_for_api_calls(&server, &boot_note_api, boot_note_calls_before + 1);
+    settle_frame();
+
+    // The gate's payload labels the tab, so no label resolve is enqueued. The requests for the note
+    // are the gate's own fetch and the two the mounted note surface makes for its body; a label
+    // resolve would add a third.
+    let boot_note_calls = server.api_calls(&boot_note_api);
+    assert!(
+        boot_note_calls <= boot_note_calls_before + 3,
+        "the gate's payload labels the tab, so no label request follows the open: {boot_note_calls} \
+         request(s) for {boot_note_api}, and the gate plus the note surface cost three"
+    );
+
     // === Chrome navigation deactivates the strip (decisions 5 and 6) ===
     //
     // Exactly one surface renders: chrome XOR one tab surface. Selecting a chrome view deactivates
@@ -2766,8 +3324,9 @@ async fn spa_body() {
     })
     .await;
 
-    // Pin (a chrome-global view deactivates): every chrome list hides the strip, paints no tab, and
-    // keeps the tab set open. Its own view is the only surface in the routed area.
+    // Pin (a chrome view deactivates): every chrome view hides the strip, paints no tab, and keeps
+    // the tab set open. Its own view is the only surface in the routed area. The notes home and the
+    // repos home hide their bar here because it holds no tab.
     for href in ["/notes", "/repos", "/skills", "/settings"] {
         page.locator(format!("nav a[href=\"{href}\"]"))
             .first()
@@ -4865,8 +5424,14 @@ fn record_by_path(path: &str) -> Option<String> {
     if path == format!("notes/{PARENTLESS_NOTE_ID}") {
         return Some(parentless_note_record());
     }
+    if path == format!("notes/{SUBNOTE_ID}") {
+        return Some(subnote_record());
+    }
     if path == format!("repos/{REPO_ID}") {
         return Some(repo_record());
+    }
+    if path == format!("repos/{LINKED_REPO_ID}") {
+        return Some(linked_repo_record());
     }
     None
 }
@@ -4975,8 +5540,8 @@ fn skill_page() -> String {
     )
 }
 
-/// The fixture note names a project whose tab is not open, so the global list row must open that
-/// project's tab first (decision 8).
+/// The fixture note names a project, so a row click outside a project panel must still open it into
+/// the notes bar.
 fn note_record() -> String {
     format!(
         "{{\"id\":\"{NOTE_ID}\",\"title\":\"{NOTE_TITLE}\",\"content\":\"Fixture note served by the e2e harness.\",\"tags\":[\"e2e\"],\"project_ids\":[\"{NOTE_PARENT_PROJECT_ID}\"],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
@@ -4991,25 +5556,43 @@ fn note_page() -> String {
     )
 }
 
-/// The fixture note that names no project, so its tab is parentless and its close is the last close.
+/// The fixture note that names no project, so its tab is parentless and its close is the last
+/// close. Its parent is null, so a `/notes/{id}` deep link to it still opens a tab.
 fn parentless_note_record() -> String {
     format!(
-        "{{\"id\":\"{PARENTLESS_NOTE_ID}\",\"title\":\"E2E Parentless Note\",\"content\":\"Parentless note served by the e2e harness.\",\"tags\":[],\"project_ids\":[],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+        "{{\"id\":\"{PARENTLESS_NOTE_ID}\",\"title\":\"{PARENTLESS_NOTE_TITLE}\",\"content\":\"Parentless note served by the e2e harness.\",\"tags\":[],\"parent_id\":null,\"project_ids\":[],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
     )
 }
 
-/// The fixture repo names no project, so its tab is parentless like the parentless note's, and its
-/// header title is the name the remote yields.
+/// The fixture subnote names a parent note, so a `/notes/{id}` deep link to it opens no tab. It is
+/// served by id only: the notes list serves top-level notes, so it never lists.
+fn subnote_record() -> String {
+    format!(
+        "{{\"id\":\"{SUBNOTE_ID}\",\"title\":\"{SUBNOTE_TITLE}\",\"content\":\"Subnote served by the e2e harness.\",\"tags\":[],\"parent_id\":\"{NOTE_ID}\",\"project_ids\":[],\"repo_ids\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}}"
+    )
+}
+
+/// The fixture repo names no project, so its tab is free like the parentless note's and sits in the
+/// repos bar, and its header title is the name the remote yields.
 fn repo_record() -> String {
     format!(
-        "{{\"id\":\"{REPO_ID}\",\"remote\":\"https://github.com/e2e/fixture-repo.git\",\"path\":\"/tmp/e2e-fixture-repo\",\"tags\":[\"e2e\"],\"project_ids\":[],\"created_at\":\"2026-01-01 00:00:00\"}}"
+        "{{\"id\":\"{REPO_ID}\",\"remote\":\"{REPO_REMOTE}\",\"path\":\"/tmp/e2e-fixture-repo\",\"tags\":[\"e2e\"],\"project_ids\":[],\"created_at\":\"2026-01-01 00:00:00\"}}"
+    )
+}
+
+/// The fixture repo that links a project: a repos-list click must ignore the link and open the repo
+/// into the repos bar, with no project tab and no project chip.
+fn linked_repo_record() -> String {
+    format!(
+        "{{\"id\":\"{LINKED_REPO_ID}\",\"remote\":\"{LINKED_REPO_REMOTE}\",\"path\":\"/tmp/e2e-linked-repo\",\"tags\":[\"e2e\"],\"project_ids\":[\"{NOTE_PARENT_PROJECT_ID}\"],\"created_at\":\"2026-01-01 00:00:00\"}}"
     )
 }
 
 fn repo_page() -> String {
     format!(
-        "{{\"items\":[{}],\"total\":1,\"limit\":12,\"offset\":0}}",
-        repo_record()
+        "{{\"items\":[{},{}],\"total\":2,\"limit\":12,\"offset\":0}}",
+        repo_record(),
+        linked_repo_record()
     )
 }
 

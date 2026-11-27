@@ -35,17 +35,40 @@ fn the_projects_home_is_the_only_projects_home() {
 }
 
 #[test]
+fn the_notes_home_is_the_notes_home() {
+    assert_eq!(
+        route_kind("/notes"),
+        RouteKind::NotesHome,
+        "the notes list is the notes home, so the notes bar renders there"
+    );
+    assert_eq!(
+        route_kind("/notes/"),
+        RouteKind::NotesHome,
+        "a trailing slash names the same list"
+    );
+}
+
+#[test]
 fn every_chrome_global_route_is_chrome_global() {
-    for path in ["/notes", "/repos", "/skills", "/skills/abc", "/settings"] {
+    for path in ["/skills", "/skills/abc", "/settings"] {
         assert_eq!(
             route_kind(path),
             RouteKind::ChromeGlobal,
             "{path} is a chrome list, so it hides every tab"
         );
     }
+}
+
+#[test]
+fn the_repos_home_is_the_repos_home() {
     assert_eq!(
-        route_kind("/notes/"),
-        RouteKind::ChromeGlobal,
+        route_kind("/repos"),
+        RouteKind::ReposHome,
+        "the repos list is the repos home, so the repos bar renders there"
+    );
+    assert_eq!(
+        route_kind("/repos/"),
+        RouteKind::ReposHome,
         "a trailing slash names the same list"
     );
 }
@@ -85,6 +108,14 @@ fn only_chrome_routes_deactivate_the_registry() {
     assert!(
         RouteKind::ProjectsHome.is_chrome(),
         "the projects overview deactivates too: no chip is active there"
+    );
+    assert!(
+        RouteKind::NotesHome.is_chrome(),
+        "the notes home deactivates too: the notes bar carries no active chip"
+    );
+    assert!(
+        RouteKind::ReposHome.is_chrome(),
+        "the repos home deactivates too: the repos bar carries no active chip"
     );
     assert!(RouteKind::ChromeGlobal.is_chrome());
     assert!(!RouteKind::TabSurface.is_chrome());

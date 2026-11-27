@@ -36,11 +36,10 @@ pub fn NoteCard(
     let note_id = note.id.clone();
     let tabs = use_context::<TabRegistry>();
     let titles = use_context::<TabTitles>();
-    // The project that names this note, so the parent project tab opens first (decision 8). A card
-    // inside a project panel names it explicitly; a global list row reads it from the note.
-    let owner = project_id
-        .clone()
-        .or_else(|| note.project_ids.first().cloned());
+    // The project panel that hosts this card names its project, so that project's tab opens first
+    // and the note attaches to it (decision 8). A card outside a project panel names no project: its
+    // note opens in the notes bar, whatever projects the note itself links.
+    let owner = project_id.clone();
     let key = TabKey::note(note.id.clone());
     let href = surface_url(&key, owner.as_deref());
     let note_for_click = key.clone();

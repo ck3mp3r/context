@@ -141,8 +141,9 @@ impl Tab {
     ///
     /// A project tab's parent project is the project it shows, so row 2 lists its children while
     /// the project itself is active (decision 19). A task list, note, or repo attaches to a project
-    /// when its data names one (decision 8, ruling L); a surface that names no project has no
-    /// parent and sits in the parentless row (decision 5).
+    /// when its data names one (decision 8, ruling L); a note or a repo that names no project sits in
+    /// its own bar, and every other surface that names no project sits in the parentless row
+    /// (decision 5).
     pub fn parent_project(&self) -> Option<&str> {
         match self.key() {
             TabKey::Project { project_id } => Some(project_id),
@@ -165,16 +166,24 @@ pub enum CloseOutcome {
     },
 }
 
-/// The two-level strip of decision 2, plus the derived active project of decision 19.
+/// The strip of decision 2, the notes bar, the repos bar, plus the derived active project of
+/// decision 19.
 ///
-/// Row 1 is `projects` followed by `parentless`; row 2 is `children`. The rows are disjoint: a tab
-/// attached to a project is only ever in a child row, and a tab that names no project is only ever
+/// Row 1 is `projects` followed by `parentless`; row 2 is `children`; `notes` is the notes bar;
+/// `repos` is the repos bar. The rows are disjoint: a tab attached to a project is only ever in a
+/// child row, a note that names no project is only ever in the notes row, a repo that names no
+/// project is only ever in the repos row, and every other tab that names no project is only ever
 /// in the parentless row.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StripRows {
     /// Level 1: open project tabs, in strip order.
     pub projects: Vec<TabId>,
-    /// Level 1: the one parentless row, meaning the open tabs that name no project, in strip order.
+    /// The notes bar: open note tabs that name no project, in strip order.
+    pub notes: Vec<TabId>,
+    /// The repos bar: open repo tabs that name no project, in strip order.
+    pub repos: Vec<TabId>,
+    /// Level 1: the parentless row, meaning the open free-form tabs that name no project, in strip
+    /// order.
     pub parentless: Vec<TabId>,
     /// The project the active tab belongs to, or `None` when the active tab has no project.
     pub active_project: Option<String>,
@@ -183,9 +192,13 @@ pub struct StripRows {
 }
 
 impl StripRows {
-    /// Whether either row holds `id`, so an active tab is never rendered nowhere.
+    /// Whether any row or a bar holds `id`, so an active tab is never rendered nowhere.
     pub fn contains(&self, id: TabId) -> bool {
-        self.projects.contains(&id) || self.parentless.contains(&id) || self.children.contains(&id)
+        self.projects.contains(&id)
+            || self.notes.contains(&id)
+            || self.repos.contains(&id)
+            || self.parentless.contains(&id)
+            || self.children.contains(&id)
     }
 }
 
@@ -542,7 +555,7 @@ impl Tabs {
         Some(previous)
     }
 
-    /// The two strip rows for the current state (decisions 2, 5, 19).
+    /// The strip rows, the notes bar, and the repos bar for the current state (decisions 2, 5, 19).
     pub fn strip_rows(&self) -> StripRows {
         let active_project = self.active_project().map(str::to_string);
         StripRows {
@@ -552,10 +565,24 @@ impl Tabs {
                 .filter(|tab| tab.key().kind() == TabRouteKind::Project)
                 .map(Tab::id)
                 .collect(),
+            notes: self
+                .tabs
+                .iter()
+                .filter(|tab| is_free_note(tab))
+                .map(Tab::id)
+                .collect(),
+            repos: self
+                .tabs
+                .iter()
+                .filter(|tab| is_free_repo(tab))
+                .map(Tab::id)
+                .collect(),
             parentless: self
                 .tabs
                 .iter()
-                .filter(|tab| tab.parent_project().is_none())
+                .filter(|tab| {
+                    tab.parent_project().is_none() && !is_free_note(tab) && !is_free_repo(tab)
+                })
                 .map(Tab::id)
                 .collect(),
             children: match active_project.as_deref() {
@@ -610,4 +637,18 @@ impl Tabs {
 /// A project tab is not its own child, so the kind check keeps it out of its own child row.
 fn is_child_of(tab: &Tab, project_id: &str) -> bool {
     tab.key().kind() != TabRouteKind::Project && tab.parent_project() == Some(project_id)
+}
+
+/// Whether `tab` belongs in the notes bar: a note that names no project.
+///
+/// A note attached to a project stays in that project's child row, so only the free note moves.
+fn is_free_note(tab: &Tab) -> bool {
+    tab.key().kind() == TabRouteKind::Note && tab.parent_project().is_none()
+}
+
+/// Whether `tab` belongs in the repos bar: a repo that names no project.
+///
+/// A repo attached to a project stays in that project's child row, so only the free repo moves.
+fn is_free_repo(tab: &Tab) -> bool {
+    tab.key().kind() == TabRouteKind::Repo && tab.parent_project().is_none()
 }

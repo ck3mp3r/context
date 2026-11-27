@@ -22,8 +22,8 @@ use std::cell::{Cell, RefCell};
 
 use leptos_router::NavigateOptions;
 
-/// Two projects with attached and parentless tabs: the smallest state that fills both rows and the
-/// whole ring.
+/// Two projects with attached tabs, a free note, and a free repo: the smallest state that fills
+/// every row, both bars, and the whole ring.
 ///
 /// Strip order is `p1, p2, n-free, n-p1, r-free, r-p2, t1, t2, t3`, so the ring is
 /// `[p1, p2, n-free, r-free, n-p1, t1, t2, r-p2, t3]` and the active tab is the last opened one.
@@ -363,7 +363,83 @@ fn row_one_holds_the_projects_and_the_parentless_row() {
     let rows: StripRows = state.tabs.strip_rows();
 
     assert_eq!(rows.projects, vec![state.p1, state.p2]);
-    assert_eq!(rows.parentless, vec![state.free_note, state.free_repo]);
+    assert!(
+        rows.parentless.is_empty(),
+        "the fixture's free tabs sit in their own bars, so the parentless row is empty"
+    );
+}
+
+#[test]
+fn the_notes_row_holds_the_notes_that_name_no_project() {
+    let state = fixture();
+    let rows = state.tabs.strip_rows();
+
+    assert_eq!(
+        rows.notes,
+        vec![state.free_note],
+        "a note that names no project sits in the notes bar"
+    );
+    assert!(
+        !rows.parentless.contains(&state.free_note),
+        "a free note must never share the parentless row"
+    );
+    assert!(
+        !rows.notes.contains(&state.p1_note),
+        "a note attached to a project stays in that project's child row"
+    );
+    assert!(
+        !rows.notes.contains(&state.free_repo),
+        "a repo that names no project is no note"
+    );
+    assert!(
+        rows.contains(state.free_note),
+        "an id held in the notes row is contained"
+    );
+}
+
+#[test]
+fn the_repos_row_holds_the_repos_that_name_no_project() {
+    let state = fixture();
+    let rows = state.tabs.strip_rows();
+
+    assert_eq!(
+        rows.repos,
+        vec![state.free_repo],
+        "a repo that names no project sits in the repos bar"
+    );
+    assert!(
+        !rows.parentless.contains(&state.free_repo),
+        "a free repo must never share the parentless row"
+    );
+    assert!(
+        !rows.repos.contains(&state.p2_repo),
+        "a repo attached to a project stays in that project's child row"
+    );
+    assert!(
+        !rows.repos.contains(&state.free_note),
+        "a note that names no project is no repo"
+    );
+    assert!(
+        rows.contains(state.free_repo),
+        "an id held in the repos row is contained"
+    );
+}
+
+#[test]
+fn the_two_level_one_rows_keep_strip_order() {
+    let mut tabs = Tabs::default();
+    let first = tabs.open(TabKey::repo("r1"));
+    let second = tabs.open(TabKey::note("n1"));
+    let third = tabs.open(TabKey::repo("r2"));
+    let fourth = tabs.open(TabKey::note("n2"));
+
+    let rows = tabs.strip_rows();
+    assert_eq!(rows.notes, vec![second, fourth]);
+    assert_eq!(rows.repos, vec![first, third]);
+    assert!(
+        rows.parentless.is_empty(),
+        "a two-level-one strip keeps every free tab in its own bar"
+    );
 }
 
 #[test]
@@ -392,13 +468,14 @@ fn a_child_of_an_inactive_project_brings_its_own_row_when_it_activates() {
 }
 
 #[test]
-fn a_parentless_tab_leaves_row_two_empty() {
+fn a_free_repo_tab_leaves_row_two_empty() {
     let mut state = fixture();
     state.tabs.activate(state.free_repo);
     let rows = state.tabs.strip_rows();
 
     assert_eq!(rows.active_project, None);
     assert!(rows.children.is_empty());
+    assert_eq!(rows.repos, vec![state.free_repo]);
     assert!(rows.contains(state.free_repo));
 }
 
@@ -446,7 +523,7 @@ fn a_projectless_note_survives_a_project_close() {
 
     assert_eq!(tabs.len(), 1);
     assert!(tabs.contains(note));
-    assert_eq!(tabs.strip_rows().parentless, vec![note]);
+    assert_eq!(tabs.strip_rows().notes, vec![note]);
 }
 
 #[test]
@@ -479,6 +556,8 @@ fn no_row_mixes_a_project_with_a_child() {
     let rows = state.tabs.strip_rows();
 
     let mut level_one = rows.projects.clone();
+    level_one.extend(rows.notes.iter().copied());
+    level_one.extend(rows.repos.iter().copied());
     level_one.extend(rows.parentless.iter().copied());
     for id in &level_one {
         let tab = state.tabs.tab(*id).expect("row 1 holds open tabs");
@@ -852,7 +931,7 @@ fn open_surface_opens_a_parentless_surface_without_a_project_tab() {
         "no project tab is opened for a parentless note"
     );
     assert_eq!(registry.active(), Some(note));
-    assert!(registry.strip_rows().parentless.contains(&note));
+    assert!(registry.strip_rows().notes.contains(&note));
 }
 
 #[test]
@@ -961,6 +1040,166 @@ fn open_card_asks_for_no_label_a_second_time() {
         registry.len(),
         1,
         "re-opening the same surface opens no second tab"
+    );
+}
+
+#[test]
+fn a_notes_note_opened_again_from_a_project_panel_takes_that_attachment() {
+    let registry = TabRegistry::new();
+    let note = open_surface(registry, TabKey::note("n1"), None);
+    assert_eq!(
+        registry.strip_rows().notes,
+        vec![note],
+        "a note opened outside a project panel sits in the notes bar"
+    );
+
+    let pending = open_card(registry, TabKey::note("n1"), Some("p1"), &|_| false);
+
+    assert_eq!(
+        pending,
+        vec![TabKey::project("p1"), TabKey::note("n1")],
+        "the project panel's click opens its project tab first, then resolves both labels"
+    );
+    assert_eq!(
+        registry.len(),
+        2,
+        "the open note keeps its tab, so the click adds the project tab alone"
+    );
+    assert_eq!(registry.active(), Some(note), "the open note takes focus");
+    let parent = registry
+        .tabs()
+        .into_iter()
+        .find(|tab| tab.id() == note)
+        .and_then(|tab| tab.parent_project().map(str::to_string));
+    assert_eq!(
+        parent,
+        Some("p1".to_string()),
+        "the project panel's click sets the missing attachment once"
+    );
+    assert_eq!(
+        registry.strip_rows().children,
+        vec![note],
+        "the attached note leaves the notes bar for its project's child row"
+    );
+}
+
+#[test]
+fn a_project_attached_note_opened_again_from_the_notes_list_keeps_its_attachment() {
+    let registry = TabRegistry::new();
+    let note = open_surface(registry, TabKey::note("n1"), Some("p1"));
+    let notes_note = open_surface(registry, TabKey::note("n2"), None);
+    assert_eq!(registry.active(), Some(notes_note));
+
+    let pending = open_card(registry, TabKey::note("n1"), None, &|_| true);
+
+    assert!(
+        pending.is_empty(),
+        "the open note's label is known, so the click asks for nothing"
+    );
+    assert_eq!(
+        registry.len(),
+        3,
+        "the notes-list click focuses the open note instead of duplicating it"
+    );
+    assert_eq!(
+        registry.active(),
+        Some(note),
+        "the open note takes focus back"
+    );
+    let parent = registry
+        .tabs()
+        .into_iter()
+        .find(|tab| tab.id() == note)
+        .and_then(|tab| tab.parent_project().map(str::to_string));
+    assert_eq!(
+        parent,
+        Some("p1".to_string()),
+        "a notes-list click never moves or drops an existing attachment"
+    );
+    assert_eq!(
+        registry.strip_rows().notes,
+        vec![notes_note],
+        "the attached note stays out of the notes bar"
+    );
+}
+
+#[test]
+fn a_free_repo_opened_again_from_a_project_panel_takes_that_attachment() {
+    let registry = TabRegistry::new();
+    let repo = open_surface(registry, TabKey::repo("r1"), None);
+    assert_eq!(
+        registry.strip_rows().repos,
+        vec![repo],
+        "a repo opened outside a project panel sits in the repos bar"
+    );
+
+    let pending = open_card(registry, TabKey::repo("r1"), Some("p1"), &|_| false);
+
+    assert_eq!(
+        pending,
+        vec![TabKey::project("p1"), TabKey::repo("r1")],
+        "the project panel's click opens its project tab first, then resolves both labels"
+    );
+    assert_eq!(
+        registry.len(),
+        2,
+        "the open repo keeps its tab, so the click adds the project tab alone"
+    );
+    assert_eq!(registry.active(), Some(repo), "the open repo takes focus");
+    let parent = registry
+        .tabs()
+        .into_iter()
+        .find(|tab| tab.id() == repo)
+        .and_then(|tab| tab.parent_project().map(str::to_string));
+    assert_eq!(
+        parent,
+        Some("p1".to_string()),
+        "the project panel's click sets the missing attachment once"
+    );
+    assert_eq!(
+        registry.strip_rows().children,
+        vec![repo],
+        "the attached repo leaves the repos bar for its project's child row"
+    );
+}
+
+#[test]
+fn a_project_attached_repo_opened_again_from_the_repos_list_keeps_its_attachment() {
+    let registry = TabRegistry::new();
+    let repo = open_surface(registry, TabKey::repo("r1"), Some("p1"));
+    let free_repo = open_surface(registry, TabKey::repo("r2"), None);
+    assert_eq!(registry.active(), Some(free_repo));
+
+    let pending = open_card(registry, TabKey::repo("r1"), None, &|_| true);
+
+    assert!(
+        pending.is_empty(),
+        "the open repo's label is known, so the click asks for nothing"
+    );
+    assert_eq!(
+        registry.len(),
+        3,
+        "the repos-list click focuses the open repo instead of duplicating it"
+    );
+    assert_eq!(
+        registry.active(),
+        Some(repo),
+        "the open repo takes focus back"
+    );
+    let parent = registry
+        .tabs()
+        .into_iter()
+        .find(|tab| tab.id() == repo)
+        .and_then(|tab| tab.parent_project().map(str::to_string));
+    assert_eq!(
+        parent,
+        Some("p1".to_string()),
+        "a repos-list click never moves or drops an existing attachment"
+    );
+    assert_eq!(
+        registry.strip_rows().repos,
+        vec![free_repo],
+        "the attached repo stays out of the repos bar"
     );
 }
 

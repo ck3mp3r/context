@@ -13,7 +13,7 @@ use crate::models::{UpdateMessage, UpdateStatusPayload};
 use crate::pages::{Notes, Projects, Repos, Settings, Skills};
 use crate::tabs::{
     TabContainer, TabKey, TabRegistry, TabStrip, TabTitles, adopt_owned_url, boot_surface,
-    resolve_titles, restore_or_boot, route_kind, start_keyboard, start_session_persistence,
+    finish_boot, restore_or_boot, route_kind, start_keyboard, start_session_persistence,
     start_window_title, surface_url, write_owned_url,
 };
 use crate::theme::{CatppuccinTheme, apply_theme, load_theme_from_storage};
@@ -91,11 +91,13 @@ fn NavAndContent(catppuccin_theme: RwSignal<CatppuccinTheme>) -> impl IntoView {
     provide_context(titles);
 
     // Boot: one storage read, one plan, one install, before the first render. Only the active tab
-    // mounts, so a restored strip costs one label request per tab and no surface fetch. Nothing here
-    // writes a URL; the one writer below adopts the boot URL as the URL it already owns.
+    // mounts, so a restored strip costs one label request per tab and no surface fetch. The boot
+    // surface opens once its eligibility is known: a `/notes/{id}` deep link names a tab only when
+    // the note is top-level, so that fetch comes first. Nothing here writes a URL; the one writer
+    // below adopts the boot URL as the URL it already owns.
     let boot = boot_surface(&location.pathname.get_untracked());
-    let unresolved = restore_or_boot(tabs, titles, boot);
-    spawn_local(async move { resolve_titles(tabs, titles, unresolved).await });
+    let pending = restore_or_boot(tabs, titles, boot);
+    spawn_local(async move { finish_boot(tabs, titles, pending).await });
     start_session_persistence(tabs, titles);
 
     // The one native seam (decisions P and 18): the window title follows the active tab through one

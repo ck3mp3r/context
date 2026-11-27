@@ -19,10 +19,10 @@ pub fn RepoCard(repo: Repo, #[prop(optional)] project_id: Option<String>) -> imp
     let remote_url = repo.remote.clone();
     let tabs = use_context::<TabRegistry>();
     let titles = use_context::<TabTitles>();
-    // The project that names this repo, so the parent project tab opens first (decision 8).
-    let owner = project_id
-        .clone()
-        .or_else(|| repo.project_ids.first().cloned());
+    // The project panel that hosts this card names its project, so that project's tab opens first
+    // and the repo attaches to it (decision 8). A card outside a project panel names no project: its
+    // repo opens in the repos bar, whatever projects the repo itself links.
+    let owner = project_id.clone();
     let key = TabKey::repo(repo.id.clone());
     let detail_href = surface_url(&key, owner.as_deref());
     let key_for_click = key.clone();

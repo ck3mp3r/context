@@ -1,9 +1,12 @@
-//! The two-level strip: level one holds the project tabs and the parentless row; level two holds
-//! the children of the active project only (decisions 2, 5, and 19).
+//! The strip: level one holds the project tabs and the parentless row, level two holds the children
+//! of the active project only, the notes bar holds the notes that name no project, and the repos bar
+//! holds the repos that name no project (decisions 2, 5, and 19).
 //!
-//! The strip is route-aware. A chrome-global view (`/notes`, `/repos`, `/skills`, `/settings`) hides
-//! it entirely. The projects overview (`/`) renders row one only: the opened project tabs, with no
-//! active chip and no row two, because no tab is active there. A tab surface renders both rows.
+//! The strip is route-aware. A chrome-global view (`/skills`, `/settings`) hides it entirely. The
+//! projects overview (`/`) renders row one only: the opened project tabs, with no active chip and no
+//! row two, because no tab is active there. The notes home (`/notes`) renders the notes bar only, and
+//! the repos home (`/repos`) renders the repos bar only, again with no active chip. A tab surface
+//! renders the bar the active tab sits in when it sits in one, and the project rows otherwise.
 //!
 //! A tab chip holds two siblings: the activate control that fills the chip, and the `×` close control
 //! beside it. The close control is never a descendant of the activate control, so a close click
@@ -34,14 +37,47 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
 
     let rows = Signal::derive(move || registry.strip_rows());
     let projects = Signal::derive(move || rows.get().projects);
+    let notes = Signal::derive(move || rows.get().notes);
+    let repos = Signal::derive(move || rows.get().repos);
     let parentless = Signal::derive(move || rows.get().parentless);
     let children = Signal::derive(move || rows.get().children);
 
-    // Row two belongs to the active project, and the projects overview has no active tab, so it
-    // renders row one alone. Every chrome-global view hides the strip, and keeps every tab open.
-    let second_row = Signal::derive(move || kind.get() != RouteKind::ProjectsHome);
+    // The notes bar belongs to the notes system: the notes home shows it alone, and a tab surface
+    // shows it exactly when the active tab sits in it.
+    let notes_shown = Signal::derive(move || match kind.get() {
+        RouteKind::NotesHome => !notes.get().is_empty(),
+        RouteKind::TabSurface | RouteKind::Unknown => registry
+            .active()
+            .is_some_and(|active| notes.get().contains(&active)),
+        RouteKind::ProjectsHome | RouteKind::ReposHome | RouteKind::ChromeGlobal => false,
+    });
+
+    // The repos bar belongs to the repos system, by the same rule as the notes bar.
+    let repos_shown = Signal::derive(move || match kind.get() {
+        RouteKind::ReposHome => !repos.get().is_empty(),
+        RouteKind::TabSurface | RouteKind::Unknown => registry
+            .active()
+            .is_some_and(|active| repos.get().contains(&active)),
+        RouteKind::ProjectsHome | RouteKind::NotesHome | RouteKind::ChromeGlobal => false,
+    });
+
+    // The project rows are the other half of the one bar: a tab surface whose active tab is a free
+    // note or a free repo shows that bar instead, so the two never paint together.
+    let projects_shown = Signal::derive(move || match kind.get() {
+        RouteKind::ProjectsHome => true,
+        RouteKind::TabSurface | RouteKind::Unknown => !notes_shown.get() && !repos_shown.get(),
+        RouteKind::NotesHome | RouteKind::ReposHome | RouteKind::ChromeGlobal => false,
+    });
+
+    // Row two belongs to the active project, and neither home has an active tab, so it renders a
+    // tab surface alone. Every chrome-global view hides the strip, and keeps every tab open.
+    let second_row = Signal::derive(move || {
+        projects_shown.get() && matches!(kind.get(), RouteKind::TabSurface | RouteKind::Unknown)
+    });
     let shown = Signal::derive(move || match kind.get() {
         RouteKind::ChromeGlobal => false,
+        RouteKind::NotesHome => notes_shown.get(),
+        RouteKind::ReposHome => repos_shown.get(),
         RouteKind::ProjectsHome => !projects.get().is_empty(),
         RouteKind::TabSurface | RouteKind::Unknown => !registry.is_empty(),
     });
@@ -53,7 +89,25 @@ pub fn TabStrip(registry: TabRegistry, titles: TabTitles) -> impl IntoView {
             style=move || strip_style(shown.get())
         >
             <div data-strip-level="1" class="flex items-center gap-2 overflow-x-auto">
-                <Show when=move || !projects.get().is_empty()>
+                <Show when=move || notes_shown.get()>
+                    <div data-strip-row="notes" class="flex items-center gap-1">
+                        <For
+                            each=move || notes.get()
+                            key=|id| *id
+                            children=move |id| tab_chip(registry, titles, id)
+                        />
+                    </div>
+                </Show>
+                <Show when=move || repos_shown.get()>
+                    <div data-strip-row="repos" class="flex items-center gap-1">
+                        <For
+                            each=move || repos.get()
+                            key=|id| *id
+                            children=move |id| tab_chip(registry, titles, id)
+                        />
+                    </div>
+                </Show>
+                <Show when=move || projects_shown.get() && !projects.get().is_empty()>
                     <div data-strip-row="projects" class="flex items-center gap-1">
                         <For
                             each=move || projects.get()
