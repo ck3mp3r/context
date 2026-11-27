@@ -45,8 +45,14 @@ pub fn sync_title(indicator: &SyncIndicator) -> String {
 /// Whether the two sides of sync disagree.
 ///
 /// Dirty means either the sync directory holds uncommitted changes, or the database and the sync
-/// files hold a different number of rows. Counts are a heuristic: an edit and a delete that cancel
-/// out leave the totals equal and read as clean.
-pub fn dirty_from_status(db_total: u64, files_total: u64, git_clean: bool) -> bool {
-    !git_clean || db_total != files_total
+/// files hold a different number of rows. The sync files include tombstoned rows by design, because
+/// deletion propagation needs them, so the like-for-like comparison is live rows plus tombstones
+/// against file lines. Counts stay a heuristic: an edit that keeps the totals equal reads as clean.
+pub fn dirty_from_status(
+    db_total: u64,
+    tombstones_total: u64,
+    files_total: u64,
+    git_clean: bool,
+) -> bool {
+    !git_clean || db_total + tombstones_total != files_total
 }

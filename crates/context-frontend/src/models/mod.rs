@@ -184,16 +184,19 @@ pub struct SyncResponseEnvelope {
 /// Payload the status envelope carries.
 ///
 /// An uninitialized status carries `initialized: false` and nothing else of value. An initialized
-/// one carries the remote and the last sync time. `git` and the two count pairs are absent when the
-/// status read could not produce them.
+/// one carries the remote, the last sync time, and whether sync is enabled on this machine; the
+/// setup envelope omits `enabled` entirely, so the field is optional. `git`, the two count pairs,
+/// and the tombstone count are absent when the status read could not produce them.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncStatusData {
     pub initialized: bool,
+    pub enabled: Option<bool>,
     pub remote_url: Option<String>,
     pub last_synced_at: Option<String>,
     pub git: Option<SyncGitState>,
     pub database: Option<SyncCounts>,
     pub sync_files: Option<SyncCounts>,
+    pub tombstones: Option<SyncCounts>,
 }
 
 /// Working-tree state of the sync directory.

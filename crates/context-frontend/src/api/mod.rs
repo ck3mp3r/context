@@ -531,24 +531,43 @@ pub mod sync {
         expect_success(response).await
     }
 
-    /// Remove the local sync directory; the database and its entities stay.
+    /// Pause sync on this machine; the data and the git history stay in place.
     ///
-    /// The server answers 200 with `data.removed` true when a directory was there, and the
-    /// not-initialized envelope when it was not. Both mean sync is off, so the caller renders the
-    /// setup view for either.
-    pub async fn disable() -> Result<SyncResponseEnvelope> {
-        let url = format!("{}/sync", API_BASE);
-        handle_response(Request::delete(&url)).await
+    /// The server answers 409 when sync is not initialized, which arrives as the error envelope
+    /// the caller renders. The status answers with the sync still initialized and disabled.
+    pub async fn disable() -> Result<()> {
+        let url = format!("{}/sync/disable", API_BASE);
+        let response = Request::post(&url)
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
     }
 
-    /// Point `origin` at a new remote URL.
+    /// Resume sync on this machine, reusing the directory and history that disable left in place.
     ///
-    /// The server refuses a blank URL with 400 and an uninitialized sync with 409; both arrive as
-    /// the error envelope the caller renders.
-    pub async fn set_remote(url: &str) -> Result<()> {
+    /// The server answers 409 when sync is not initialized, which arrives as the error envelope
+    /// the caller renders.
+    pub async fn enable() -> Result<()> {
+        let url = format!("{}/sync/enable", API_BASE);
+        let response = Request::post(&url)
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Point `origin` at a new remote URL, or remove the remote when `remote_url` is `None`.
+    ///
+    /// A removal drops only the remote: the sync directory, the data, and the history stay, and
+    /// the call is idempotent. The server refuses a blank URL with 400 and an uninitialized or
+    /// disabled sync with 409; both arrive as the error envelope the caller renders.
+    pub async fn set_remote(remote_url: Option<String>) -> Result<()> {
         let endpoint = format!("{}/sync/remote", API_BASE);
         let request = Request::post(&endpoint)
-            .json(&serde_json::json!({ "remote_url": url }))
+            .json(&serde_json::json!({ "remote_url": remote_url }))
             .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
         let response = request
             .send()

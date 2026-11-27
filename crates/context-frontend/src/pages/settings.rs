@@ -3,6 +3,7 @@ use leptos::task::spawn_local;
 use thaw::{Spinner, SpinnerSize};
 
 use crate::api::{self, ApiClientError};
+use crate::components::sync_indicator::settle as settle_indicator;
 use crate::models::{
     SettingsDefaults, SettingsPayload, SettingsRunning, SettingsValues, SyncResponseEnvelope,
     SyncStatusData, UpdateCheckOutcome, UpdateStatusPayload,
@@ -608,13 +609,13 @@ fn SettingsField(
     }
 }
 
-/// Sync section: the stored sync state, the one-time setup while sync is absent, and the
-/// initialized remote and teardown controls.
+/// Sync section: the stored sync state, the one-time setup while sync is absent, the initialized
+/// remote and pause controls, and the resume control while sync is disabled.
 ///
-/// The backend offers init, import, export, a remote update, and an un-init that deletes the local
-/// git directory while keeping the database; this section drives the setup, the remote edit, and
-/// the teardown. Triggering a cycle belongs to the header indicator, which owns the shared sync
-/// state.
+/// The backend offers init, import, export, a remote update or removal, a disable that pauses sync
+/// without touching the data or the git history, and an enable that resumes it; this section drives
+/// the setup, the remote edit, and the pause and resume. Triggering a cycle belongs to the header
+/// indicator, which owns the shared sync state.
 #[component]
 fn SyncSection() -> impl IntoView {
     // `None` while the mount-time status read has not answered yet.
@@ -624,25 +625,33 @@ fn SyncSection() -> impl IntoView {
     let (pending, set_pending) = signal(false);
     let remote = RwSignal::new(String::new());
 
-    // The initialized view edits the remote: the draft starts at the stored URL, and each write
-    // carries its own pending flag and error so one failure never blocks the other control.
+    // The initialized view edits the remote: the checkbox says whether a remote is in use at all,
+    // the draft starts at the stored URL, and each write carries its own pending flag and error so
+    // one failure never blocks another control.
+    let use_remote = RwSignal::new(false);
+    let remote_present = RwSignal::new(false);
     let remote_draft = RwSignal::new(String::new());
     let (remote_pending, set_remote_pending) = signal(false);
     let (remote_error, set_remote_error) = signal(None::<String>);
     let (disable_pending, set_disable_pending) = signal(false);
     let (disable_error, set_disable_error) = signal(None::<String>);
-    // One click asks, the next runs the delete: no timer, no second control to dismiss.
+    let (enable_pending, set_enable_pending) = signal(false);
+    let (enable_error, set_enable_error) = signal(None::<String>);
+    // One click asks, the next pauses sync: no timer, no second control to dismiss.
     let (confirming_disable, set_confirming_disable) = signal(false);
 
     // The header indicator owns the same state; a successful disable clears it, so the icon goes
-    // away without a reload.
+    // away without a reload, and a successful enable restores it from the same status mapping.
     let sync_state = expect_context::<RwSignal<Option<SyncState>>>();
 
-    // One status read decides the view and seeds the remote draft, so the input starts at what the
+    // One status read decides the view and seeds the remote row, so the controls start at what the
     // server stored rather than at a guess.
     let apply_view = move |fetched: SyncView| {
         if let SyncView::Initialized(data) = &fetched {
-            remote_draft.set(data.remote_url.clone().unwrap_or_default());
+            let stored = data.remote_url.clone();
+            use_remote.set(stored.is_some());
+            remote_present.set(stored.is_some());
+            remote_draft.set(stored.unwrap_or_default());
         }
         set_state.set(Some(fetched));
     };
@@ -684,20 +693,29 @@ fn SyncSection() -> impl IntoView {
         });
     };
 
-    // Point origin at the URL in the draft. The read after the write is what updates the Remote
-    // line, so the section reports the stored URL, not the one the click asked for.
-    let on_update_remote = move |_| {
+    // The remote row has one action: write the draft when the box is checked, remove the remote
+    // when it is not. The read after the write is what updates the lines, so the section reports
+    // what the server stored, not what the click asked for.
+    let on_remote_action = move |_| {
         if remote_pending.get_untracked() {
             return;
         }
 
+        let checked = use_remote.get_untracked();
+        let draft = remote_draft.get_untracked().trim().to_string();
+        let payload = if checked && !draft.is_empty() {
+            Some(draft)
+        } else if !checked && remote_present.get_untracked() {
+            None
+        } else {
+            return;
+        };
+
         set_remote_pending.set(true);
         set_remote_error.set(None);
 
-        let draft = remote_draft.get_untracked().trim().to_string();
-
         spawn_local(async move {
-            match api::sync::set_remote(&draft).await {
+            match api::sync::set_remote(payload).await {
                 Ok(()) => apply_fetched(fetch_view().await),
                 Err(error) => set_remote_error.set(Some(error_message(&error))),
             }
@@ -705,9 +723,19 @@ fn SyncSection() -> impl IntoView {
         });
     };
 
-    // Two clicks: the first only arms the control, the second deletes the local git directory. A
-    // success leaves sync uninitialized, so the shared state drops to `None` and the header icon
-    // disappears.
+    // The action is live only when it would change something: a checked box with a non-blank
+    // draft, or an unchecked box whose stored remote can go.
+    let remote_action_ready = move || {
+        if use_remote.get() {
+            !remote_draft.get().trim().is_empty()
+        } else {
+            remote_present.get()
+        }
+    };
+
+    // Two clicks: the first only arms the control, the second pauses sync. A success leaves the
+    // sync initialized but disabled, so the shared state drops to `None` and the header icon
+    // disappears while the data and the git history stay in place.
     let on_disable = move |_| {
         if disable_pending.get_untracked() {
             return;
@@ -724,17 +752,12 @@ fn SyncSection() -> impl IntoView {
 
         spawn_local(async move {
             match api::sync::disable().await {
-                Ok(_) => {
+                Ok(()) => {
                     sync_state.set(None);
                     set_confirming_disable.set(false);
-                    // The server deleted the directory, so the setup view is the answer whether or
-                    // not the confirming read succeeds; a failed one must not replace it.
-                    set_state.set(Some(SyncView::Uninitialized));
-                    set_load_error.set(None);
-
-                    if let Ok(fetched) = fetch_view().await {
-                        apply_view(fetched);
-                    }
+                    // The server keeps the directory, so the read reports a disabled sync; the
+                    // section renders that answer rather than the setup view.
+                    apply_fetched(fetch_view().await);
                 }
                 Err(error) => {
                     set_disable_error.set(Some(error_message(&error)));
@@ -742,6 +765,32 @@ fn SyncSection() -> impl IntoView {
                 }
             }
             set_disable_pending.set(false);
+        });
+    };
+
+    // Enabling is the mirror of disabling: the server resumes on the intact directory, and one
+    // status read restores both the section and the header icon.
+    let on_enable = move |_| {
+        if enable_pending.get_untracked() {
+            return;
+        }
+
+        set_enable_pending.set(true);
+        set_enable_error.set(None);
+
+        spawn_local(async move {
+            match api::sync::enable().await {
+                Ok(()) => match api::sync::status().await {
+                    Ok(envelope) => {
+                        sync_state.set(settle_indicator(&envelope));
+                        apply_view(view_from(&envelope));
+                        set_load_error.set(None);
+                    }
+                    Err(error) => set_load_error.set(Some(error_message(&error))),
+                },
+                Err(error) => set_enable_error.set(Some(error_message(&error))),
+            }
+            set_enable_pending.set(false);
         });
     };
 
@@ -771,27 +820,47 @@ fn SyncSection() -> impl IntoView {
                             <p class="text-ctp-subtext0 text-sm mt-1">{last_synced_line(&data)}</p>
 
                             <div class="mt-3">
+                                <div class="flex items-center gap-3">
+                                    <input
+                                        type="checkbox"
+                                        prop:checked=move || use_remote.get()
+                                        on:change=move |ev| {
+                                            use_remote.set(event_target_checked(&ev))
+                                        }
+                                        class="h-4 w-4 accent-ctp-blue"
+                                    />
+                                    <span class="text-ctp-text">"Use a remote"</span>
+                                </div>
+
                                 <span class="font-medium text-ctp-text">"Remote URL"</span>
                                 <input
                                     type="text"
                                     placeholder="https://example.com/context.git"
                                     prop:value=move || remote_draft.get()
                                     on:input=move |ev| remote_draft.set(event_target_value(&ev))
-                                    class="mt-2 w-full rounded-lg border border-ctp-surface1 bg-ctp-surface0 px-4 py-2 text-ctp-text placeholder-ctp-subtext0 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue focus:outline-none"
+                                    disabled=move || !use_remote.get()
+                                    class="mt-2 w-full rounded-lg border border-ctp-surface1 bg-ctp-surface0 px-4 py-2 text-ctp-text placeholder-ctp-subtext0 focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                                 />
+                                <p class="mt-1 text-xs text-ctp-overlay0">
+                                    "Local-only sync — leave the box unchecked to keep sync local."
+                                </p>
                                 <div class="mt-2">
                                     <button
                                         type="button"
-                                        disabled=move || remote_pending.get()
-                                        on:click=on_update_remote
+                                        disabled=move || {
+                                            remote_pending.get() || !remote_action_ready()
+                                        }
+                                        on:click=on_remote_action
                                         class="rounded-lg border border-ctp-surface1 px-4 py-2 font-medium text-ctp-text transition-colors hover:border-ctp-blue disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {move || {
                                             if remote_pending.get() {
                                                 view! { <Spinner size=SpinnerSize::Small/> }
                                                     .into_any()
-                                            } else {
+                                            } else if use_remote.get() {
                                                 view! { "Update remote" }.into_any()
+                                            } else {
+                                                view! { "Remove remote" }.into_any()
                                             }
                                         }}
                                     </button>
@@ -822,6 +891,7 @@ fn SyncSection() -> impl IntoView {
                             <div class="mt-4">
                                 <button
                                     type="button"
+                                    title="Disable sync — pauses sync without deleting your data or git history"
                                     disabled=move || disable_pending.get()
                                     on:click=on_disable
                                     class="rounded-lg border border-ctp-red px-4 py-2 font-medium text-ctp-red transition-colors hover:bg-ctp-red/20 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -831,7 +901,7 @@ fn SyncSection() -> impl IntoView {
                                             view! { <Spinner size=SpinnerSize::Small/> }.into_any()
                                         } else if confirming_disable.get() {
                                             view! {
-                                                "Confirm disable — deletes the local git history, keeps the database"
+                                                "Confirm disable — pauses sync; your data and git history stay in place"
                                             }
                                                 .into_any()
                                         } else {
@@ -864,6 +934,49 @@ fn SyncSection() -> impl IntoView {
                                         view! {
                                             <div class="bg-ctp-red/10 border border-ctp-red rounded p-4 mt-4">
                                                 <p class="text-ctp-red font-semibold">"Disable failed"</p>
+                                                <p class="text-ctp-subtext0 text-sm mt-2">{detail}</p>
+                                            </div>
+                                        }
+                                    })
+                            }}
+                        </div>
+                    }
+                        .into_any()
+                }
+                SyncView::Disabled(data) => {
+                    view! {
+                        <div class="mt-6 border-t border-ctp-surface1 pt-4">
+                            <h3 class="text-lg font-semibold text-ctp-text">"Sync"</h3>
+                            <p class="text-ctp-subtext0 text-sm mt-2">
+                                "Sync is disabled — your data and git history are intact."
+                            </p>
+                            <p class="text-ctp-subtext0 text-sm mt-1">{remote_line(&data)}</p>
+                            <p class="text-ctp-subtext0 text-sm mt-1">{last_synced_line(&data)}</p>
+
+                            <div class="mt-4">
+                                <button
+                                    type="button"
+                                    disabled=move || enable_pending.get()
+                                    on:click=on_enable
+                                    class="rounded-lg border border-ctp-blue px-4 py-2 font-medium text-ctp-text transition-colors hover:bg-ctp-blue/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {move || {
+                                        if enable_pending.get() {
+                                            view! { <Spinner size=SpinnerSize::Small/> }.into_any()
+                                        } else {
+                                            view! { "Enable sync" }.into_any()
+                                        }
+                                    }}
+                                </button>
+                            </div>
+
+                            {move || {
+                                enable_error
+                                    .get()
+                                    .map(|detail| {
+                                        view! {
+                                            <div class="bg-ctp-red/10 border border-ctp-red rounded p-4 mt-4">
+                                                <p class="text-ctp-red font-semibold">"Enable failed"</p>
                                                 <p class="text-ctp-subtext0 text-sm mt-2">{detail}</p>
                                             </div>
                                         }
@@ -954,6 +1067,9 @@ enum SyncView {
     Uninitialized,
     /// Sync is set up: the section reports where it syncs and when it last did.
     Initialized(SyncStatusData),
+    /// Sync is set up but paused on this machine: the section offers the resume and nothing that
+    /// touches the stored data or the remote.
+    Disabled(SyncStatusData),
 }
 
 /// Report a dropped manual check on the pill.
@@ -1098,11 +1214,17 @@ async fn fetch_view() -> Result<SyncView, String> {
 /// Map a status envelope to the view the section renders.
 ///
 /// The envelope reports uninitialized twice, through its status token and through the payload, so
-/// either one selects the setup view. A status without a payload knows no stored state either.
+/// either one selects the setup view. A status without a payload knows no stored state either. An
+/// initialized sync that reports itself disabled on this machine selects the paused view: the
+/// directory stays, so the section never offers the setup for it.
 fn view_from(envelope: &SyncResponseEnvelope) -> SyncView {
     match &envelope.data {
         Some(data) if data.initialized && envelope.status != NOT_INITIALIZED => {
-            SyncView::Initialized(data.clone())
+            if data.enabled == Some(false) {
+                SyncView::Disabled(data.clone())
+            } else {
+                SyncView::Initialized(data.clone())
+            }
         }
         _ => SyncView::Uninitialized,
     }

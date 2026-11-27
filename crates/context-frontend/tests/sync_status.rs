@@ -87,19 +87,35 @@ fn a_failure_without_detail_reads_as_a_plain_failure() {
 #[test]
 fn the_dirty_rule_covers_every_combination() {
     assert!(
-        !dirty_from_status(7, 7, true),
+        !dirty_from_status(7, 0, 7, true),
         "a clean tree with matching counts has nothing to sync"
     );
     assert!(
-        dirty_from_status(7, 7, false),
+        dirty_from_status(7, 0, 7, false),
         "uncommitted git changes make the status dirty"
     );
     assert!(
-        dirty_from_status(8, 7, true),
+        dirty_from_status(8, 0, 7, true),
         "the database holds a row the sync files do not"
     );
     assert!(
-        dirty_from_status(7, 8, false),
+        dirty_from_status(7, 0, 8, false),
         "the sync files hold a row the database does not"
+    );
+    assert!(
+        !dirty_from_status(3, 2, 5, true),
+        "live rows plus tombstones match the exported lines, so a synced cycle reads clean"
+    );
+    assert!(
+        dirty_from_status(3, 2, 6, true),
+        "a file line appeared, so the tombstoned export no longer matches"
+    );
+    assert!(
+        !dirty_from_status(3, 0, 3, true),
+        "a payload without tombstones counts them as zero"
+    );
+    assert!(
+        dirty_from_status(3, 2, 5, false),
+        "a dirty work tree still wins when the totals match"
     );
 }

@@ -167,11 +167,16 @@ async fn run_cycle() -> Result<(), ApiClientError> {
     crate::api::sync::export().await
 }
 
-/// Map a status envelope to the state the control renders.
-fn settle(envelope: &SyncResponseEnvelope) -> Option<SyncState> {
+/// Map a status envelope to the state the control renders, or `None` when it renders nothing.
+///
+/// The envelope reports uninitialized twice, through its status token and through the payload, so
+/// either one hides the control. A read that reports the sync disabled on this machine hides it the
+/// same way, and a read that returns no payload knows no state either. The settings section reads
+/// the same mapping after it re-enables sync, so the header icon comes back without a reload.
+pub(crate) fn settle(envelope: &SyncResponseEnvelope) -> Option<SyncState> {
     let data = envelope.data.as_ref()?;
 
-    if !data.initialized || envelope.status == NOT_INITIALIZED {
+    if !data.initialized || envelope.status == NOT_INITIALIZED || data.enabled == Some(false) {
         return None;
     }
 
@@ -189,9 +194,10 @@ fn settle(envelope: &SyncResponseEnvelope) -> Option<SyncState> {
 fn dirty(data: &SyncStatusData) -> bool {
     let git_clean = data.git.as_ref().is_some_and(|git| git.clean);
     let database_total = data.database.as_ref().map_or(0, |counts| counts.total);
+    let tombstones_total = data.tombstones.as_ref().map_or(0, |counts| counts.total);
     let files_total = data.sync_files.as_ref().map_or(0, |counts| counts.total);
 
-    dirty_from_status(database_total, files_total, git_clean)
+    dirty_from_status(database_total, tombstones_total, files_total, git_clean)
 }
 
 /// Report a rejected cycle through the shared state, so the settings surface reads the same result.
