@@ -391,35 +391,30 @@ note_create(
 
 ### Note Editing - CRITICAL
 
-**🚨 ETag Required: Always read before editing**
+**Always read before editing** — the read mode determines what etag the edit validates against.
 
-- `note_read` returns an `etag` field (an entity tag for concurrency control)
-- `note_edit` REQUIRES the `etag` from your most recent `note_read` call
-- If the etag does not match, the edit will fail with: "Note has been modified since last read. Please re-read the note before editing."
+- **Full read** (no `ranges`, no `anchor`) → a whole-note `etag`
+- **Range read** (`ranges: [{start, end}]`) → per-range `etags` + `etag_scope: "range"`
+- **Anchor read** (`anchor: "## Foo"` or `anchor: "some unique text"`) → a section `etag` + `etag_scope: "section"` + `resolved_range`
 
-**Workflow:**
-1. `note_read()` → get note content with line numbers AND etag
-2. Identify ALL lines to edit
-3. Make ONE `note_edit(etag=..., patches=[...])` call with all patches
+**Anchor addressing is preferred** — it locates a section by heading (`## Foo`, 1-6 `#`) or a unique text line. A section etag binds only the section text, so inserting lines above the target does not invalidate it: anchor edits survive line shifts.
+
+**Workflow (anchor):**
+1. `note_read(anchor="## Foo")` → get the section, `resolved_range`, and section `etag`
+2. `note_edit(patches=[{anchor: "## Foo", etag: "<section etag>", content: "..."}])`
+
+**Workflow (line range):**
+1. `note_read(ranges=[{start, end}])` → get those lines and a per-range `etag`
+2. `note_edit(patches=[{start, end, etag: "<range etag>", content: "..."}])`
+
+Each patch targets exactly one of `(start AND end)` XOR `anchor` — never both, never neither. A patch without an `etag` requires the whole-note `etag` (from a full read). Metadata-only edits require the whole-note `etag`.
 
 **🚨 DANGER: Always batch multiple edits into a single `note_edit` call**
 
-- **WRONG:** Multiple sequential `note_edit` calls
-  ```
-  note_edit(etag=..., patches: [[10, 12, "new"]])  // Line numbers change!
-  note_edit(etag=..., patches: [[20, 22, "new"]])  // Now editing wrong lines!
-  ```
+- **WRONG:** Multiple sequential `note_edit` calls with line numbers — they shift between calls.
+- **CORRECT:** One `note_edit` with all patches (each carrying its own `etag` or `anchor`).
 
-- **CORRECT:** Single `note_edit` with all patches
-  ```
-  note_edit(etag=..., patches: [
-    [[10, 12, "new"]],
-    [[20, 22, "new"]],
-    [[50, 55, "new"]]
-  ])
-  ```
-
-**Why:** Patches are applied in reverse order (bottom-up) automatically. Multiple calls cause line numbers to shift between calls, which results in edits to the wrong lines.
+**Why:** Patches are applied in reverse order (bottom-up) automatically. Sequential calls let line numbers shift between calls, which edits the wrong lines. Anchor patches avoid this — the server re-resolves each anchor against current content.
 
 ## Sync
 
@@ -437,5 +432,5 @@ sync(operation="import")   — restore from git
 - Batching status updates instead of transitioning each task in real-time
 - Forgetting to promote a parent task to `in_progress` when you start subtask work
 - Linking a session note without a `project_ids` value — the note becomes unfindable
-- **Editing a note without the etag from `note_read` (the edit will fail with a validation error)**
+- **Editing note metadata without a whole-note `etag` (metadata-only edits require the full-read etag; content patches can carry their own range/section etag or an anchor)**
 - **Making sequential `note_edit` calls instead of batching all patches in one call (causes line number misalignment)**
