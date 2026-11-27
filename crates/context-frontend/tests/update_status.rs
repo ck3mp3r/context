@@ -29,7 +29,7 @@ fn the_busy_phases_read_as_progress() {
 fn a_finished_install_reads_as_a_restart() {
     assert_eq!(
         update_phrase("ready", None).as_deref(),
-        Some("Update installed — restart to apply")
+        Some("Update installed — restarting quits and reopens the app")
     );
 }
 

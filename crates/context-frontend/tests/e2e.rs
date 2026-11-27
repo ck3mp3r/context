@@ -4478,7 +4478,10 @@ async fn scenario_update_pill(harness: Harness) {
         probe.present && probe.phase == "ready"
     })
     .await;
-    assert_eq!(ready.text, "Update installed — restart to apply");
+    assert_eq!(
+        ready.text,
+        "Update installed — restarting quits and reopens the app"
+    );
     assert_eq!(
         ready.restart_cta, 1,
         "the ready pill offers Restart: {ready:?}"

@@ -104,6 +104,32 @@ fn post_spawn_activation_stays_within_the_activation_window() {
 }
 
 #[test]
+fn restart_activation_shell_waits_then_opens_the_bundled_gui() {
+    let command = restart_activation_command();
+
+    assert_eq!(
+        command.get_program().to_str(),
+        Some("/bin/sh"),
+        "the activation must run detached through a shell, not a service thread"
+    );
+    let args: Vec<String> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        args,
+        vec![
+            "-c".to_string(),
+            format!(
+                "sleep 2; exec /usr/bin/open -a {}",
+                crate::update::install::shell_quote(gui_binary_name())
+            )
+        ],
+        "the shell must outlive the service exit, then open the bundled GUI"
+    );
+}
+
+#[test]
 fn replace_stays_inside_the_restart_deadline() {
     let budget = REPLACE_GRACE + REPLACE_POLL_INTERVAL;
 
@@ -131,6 +157,7 @@ fn replace_ends_tracked_and_discovered_guis_before_it_spawns() {
     state.replace_gui_with(
         || vec![discovered_pid],
         || spawn_gui_stand_in(&mut spawns, &mut spawned_pid),
+        || Ok(()),
     );
     let elapsed = started.elapsed();
 
@@ -181,6 +208,7 @@ fn replace_force_kills_a_gui_that_outlives_the_sigterm_grace() {
     state.replace_gui_with(
         || vec![survivor_pid],
         || spawn_gui_stand_in(&mut spawns, &mut spawned_pid),
+        || Ok(()),
     );
     let elapsed = started.elapsed();
 
@@ -204,9 +232,11 @@ fn replace_spawns_at_once_without_a_running_gui() {
     let mut spawns = 0;
     let mut spawned_pid = None;
     let started = std::time::Instant::now();
-    state.replace_gui_with(Vec::new, || {
-        spawn_gui_stand_in(&mut spawns, &mut spawned_pid)
-    });
+    state.replace_gui_with(
+        Vec::new,
+        || spawn_gui_stand_in(&mut spawns, &mut spawned_pid),
+        || Ok(()),
+    );
     let elapsed = started.elapsed();
 
     assert_eq!(spawns, 1, "the replacement must spawn");
@@ -230,6 +260,15 @@ fn an_update_restart_replaces_the_old_gui_before_it_spawns_the_replacement() {
         "the restart records one step per half — service, GUI, exit"
     );
     assert_eq!(run.spawns, 1, "the replace path spawns exactly one GUI");
+    let expected_activation = format!(
+        "sleep 2; exec /usr/bin/open -a {}",
+        crate::update::install::shell_quote(gui_binary_name())
+    );
+    assert_eq!(
+        run.activation_command.as_deref(),
+        Some(expected_activation.as_str()),
+        "the replace step must hand the activation to a detached shell"
+    );
     assert!(
         !run.old_gui_survived_the_kill,
         "the old GUI {old_gui_pid} must be gone before the replacement spawns"
@@ -296,6 +335,7 @@ struct RestartRun {
     spawns: usize,
     spawned_pid: Option<u32>,
     old_gui_survived_the_kill: bool,
+    activation_command: Option<String>,
     service_spawned_at: Option<std::time::Instant>,
     exit_after: Option<Duration>,
 }
@@ -344,6 +384,11 @@ fn restart_with_a_real_gui(old_gui_pid: u32) -> RestartRun {
                     let mut run = run.lock().expect("run lock");
                     run.old_gui_survived_the_kill = survives_the_kill(old_gui_pid);
                     run.spawn_stand_in()
+                },
+                || {
+                    run.lock().expect("run lock").activation_command =
+                        Some(restart_activation_script());
+                    Ok(())
                 },
             );
             run.lock().expect("run lock").log.push("replace gui");

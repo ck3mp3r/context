@@ -223,7 +223,7 @@ pub fn UpdatePill(
                                         on:click=on_restart
                                         class="rounded border border-ctp-mauve px-2 py-1 text-xs text-ctp-mauve transition-colors hover:bg-ctp-mauve/20 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
-                                        "Restart"
+                                        "Restart now"
                                     </button>
                                 }
                             })}

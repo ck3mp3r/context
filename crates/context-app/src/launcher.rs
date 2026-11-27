@@ -23,6 +23,12 @@ const TERMINATE_GRACE: Duration = Duration::from_millis(500);
 /// The whole replace step stays under 0.8 s: the swapped service waits one
 /// second before it execs, so the old service must be gone well inside it.
 const REPLACE_GRACE: Duration = Duration::from_millis(500);
+/// How long the detached activation shell waits before it opens the replacement.
+///
+/// The old service exits inside a second of the replace step, so a relay thread
+/// inside it dies before it can act. The shell outlives the exit and fires once
+/// the swapped GUI has had time to start.
+const RESTART_ACTIVATION_DELAY: Duration = Duration::from_secs(2);
 /// Delay between the polls that wait for a replaced GUI to exit.
 const REPLACE_POLL_INTERVAL: Duration = Duration::from_millis(20);
 /// Polls that wait for a freshly spawned GUI to appear before activating it.
@@ -231,18 +237,25 @@ impl ServiceState {
     /// The spawned GUI is not tracked: the service exits right after this call,
     /// and a dropped [`Child`] kills nothing.
     pub fn replace_gui(&self) {
-        self.replace_gui_with(running_gui_pids, || spawn_gui(None));
+        self.replace_gui_with(
+            running_gui_pids,
+            || spawn_gui(None),
+            activate_replacement_gui,
+        );
     }
 
-    /// Replace the GUI with the process probe and the spawn supplied as seams.
+    /// Replace the GUI with the process probe, the spawn, and the activation
+    /// supplied as seams.
     ///
     /// `discover` names the GUIs this service does not track: the survivor of an
     /// earlier restart, re-parented to launchd, or a GUI the user opened from
-    /// Finder. `spawn` keeps a test away from a real GUI binary.
-    fn replace_gui_with<D, S>(&self, discover: D, spawn: S)
+    /// Finder. `spawn` keeps a test away from a real GUI binary. `activate`
+    /// keeps a test away from a real `open` call.
+    fn replace_gui_with<D, S, A>(&self, discover: D, spawn: S, activate: A)
     where
         D: Fn() -> Vec<u32>,
         S: FnOnce() -> Result<Child, String>,
+        A: FnOnce() -> Result<(), String>,
     {
         let deadline = std::time::Instant::now() + REPLACE_GRACE;
         let mut children = self.take_children();
@@ -257,7 +270,11 @@ impl ServiceState {
         }
 
         match spawn() {
-            Ok(_untracked) => activate_spawned_gui(),
+            Ok(_untracked) => {
+                if let Err(error) = activate() {
+                    eprintln!("context-service: {error}");
+                }
+            }
             Err(error) => eprintln!("context-service: {error}"),
         }
     }
@@ -293,6 +310,51 @@ impl ServiceState {
 
         children.clear();
     }
+}
+
+/// Shell command that activates the replacement GUI after a restart.
+///
+/// The old service exits inside the new service's head start, so a relay thread
+/// inside it would die before it could act. The detached shell sleeps past the
+/// exit and then asks LaunchServices to open the bundled GUI, which focuses the
+/// running instance. The app name carries the profile from [`gui_binary_name`].
+fn restart_activation_script() -> String {
+    format!(
+        "sleep {}; exec /usr/bin/open -a {}",
+        RESTART_ACTIVATION_DELAY.as_secs(),
+        crate::update::install::shell_quote(gui_binary_name())
+    )
+}
+
+/// Command that activates the replacement GUI: a detached shell, not a thread.
+fn restart_activation_command() -> Command {
+    let mut command = Command::new("/bin/sh");
+    command
+        .arg("-c")
+        .arg(restart_activation_script())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+
+    command
+}
+
+/// Spawn the detached activation of the replacement GUI.
+///
+/// The shell is a separate process, not a thread of this service, so
+/// `app.exit(0)` cannot end it: it survives the service exit and then brings the
+/// replacement forward. A failed spawn must not stop the restart.
+fn activate_replacement_gui() -> Result<(), String> {
+    restart_activation_command()
+        .spawn()
+        .map(|_child| ())
+        .map_err(|error| format!("Failed to start the GUI activation: {error}"))
 }
 
 /// Send SIGTERM to `child` and reap it within [`TERMINATE_GRACE`].
