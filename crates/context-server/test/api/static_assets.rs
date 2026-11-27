@@ -65,6 +65,17 @@ fn content_type(response: &axum::response::Response) -> String {
         .to_string()
 }
 
+fn cache_control(response: &axum::response::Response) -> String {
+    response
+        .headers()
+        .get(header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string()
+}
+
+const ONE_YEAR: &str = "public, max-age=31536000";
+
 #[tokio::test]
 async fn test_root_serves_index_html() {
     let uri = "/".parse().unwrap();
@@ -168,4 +179,80 @@ async fn served_scripts_answer_javascript_and_stylesheets_answer_css() {
         "{stylesheet} must answer text/css, got: {}",
         content_type(&stylesheet_response)
     );
+}
+
+#[tokio::test]
+async fn the_root_document_answers_no_cache() {
+    let response = serve("").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(cache_control(&response), "no-cache");
+    assert!(
+        content_type(&response).starts_with("text/html"),
+        "the root document must answer text/html, got: {}",
+        content_type(&response)
+    );
+}
+
+#[tokio::test]
+async fn the_index_document_answers_no_cache() {
+    let response = serve("index.html").await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(cache_control(&response), "no-cache");
+}
+
+#[tokio::test]
+async fn unhashed_embedded_assets_answer_no_cache() {
+    for (path, expected_type) in [
+        ("mermaid.min.js", "javascript"),
+        ("mermaid-bridge.js", "javascript"),
+        ("highlight.min.js", "javascript"),
+        ("hljs-theme.css", "text/css"),
+    ] {
+        let response = serve(path).await;
+
+        assert_eq!(response.status(), StatusCode::OK, "{path} must be embedded");
+        assert_eq!(
+            cache_control(&response),
+            "no-cache",
+            "{path} is not content-hashed, so a change must not stay stale"
+        );
+        assert!(
+            content_type(&response).ends_with(expected_type),
+            "{path} must answer {expected_type}, got: {}",
+            content_type(&response)
+        );
+    }
+}
+
+#[tokio::test]
+async fn content_hashed_assets_answer_one_year() {
+    let unhashed = [
+        "mermaid.min.js",
+        "mermaid-bridge.js",
+        "highlight.min.js",
+        "hljs-theme.css",
+    ];
+    let hashed: Vec<String> = referenced_asset_paths()
+        .into_iter()
+        .filter(|path| !path.starts_with("snippets/"))
+        .filter(|path| !unhashed.contains(&path.as_str()))
+        .collect();
+
+    assert!(
+        hashed.len() >= 5,
+        "the emitted index references hashed assets, got: {hashed:?}"
+    );
+
+    for path in hashed {
+        let response = serve(&path).await;
+
+        assert_eq!(response.status(), StatusCode::OK, "{path} must be served");
+        assert_eq!(
+            cache_control(&response),
+            ONE_YEAR,
+            "{path} carries a build-time hash and must be cached for a year"
+        );
+    }
 }
