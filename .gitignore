@@ -75,7 +75,5 @@ docs/public/
 
 # Auto-generated CSS files (Tailwind via Trunk pre-build hook)
 crates/context-frontend/src/public/style.css
-# stale artifact from the pre-workspace layout
-src/frontend/public/style.css
 
 .laio.yaml
