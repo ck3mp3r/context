@@ -128,7 +128,7 @@ Access:
 **Tasks** are individual work items with rich metadata.
 
 **Fields:**
-- **Title**: Short description (max 500 characters)
+- **Title**: Short summary of the task (required)
 - **Description**: Detailed information (optional, max 10,000 characters)
 - **Status**: `backlog` → `todo` → `in_progress` → `review` → `done` or `cancelled`
 - **Priority**: P1 (highest/urgent) through P5 (lowest/nice-to-have)
@@ -149,7 +149,8 @@ backlog → todo → in_progress → review → done
 
 - Support full-text search (FTS5)
 - Can be linked to multiple projects and repositories
-- Types: `manual` (user-created), `archived_todo` (auto-generated from completed tasks)
+- Hierarchy: a top-level note, or a subnote that continues a parent (`--note-type note` / `--note-type subnote`)
+- Status: `active` or `archived` (`--status active` / `--status archived`)
 - Tag-based linking: Use `parent:NOTE_ID`, `related:NOTE_ID` to chain notes
 
 ### Skills
@@ -193,7 +194,7 @@ All entities use **8-character lowercase hexadecimal IDs** (e.g., `a1b2c3d4`).
 
 **Finding IDs:**
 - **Web UI**: Click the copy icon next to any ID
-- **CLI**: Use `--format json` flag to see IDs
+- **CLI**: Use the `--json` flag on a `list` or `get` command to see IDs
 - **API**: All responses include `id` field
 
 ### Tags
@@ -241,31 +242,32 @@ Tags are flexible labels for organization:
 # Start server
 c5t api &
 
-# Create project
-PROJECT_ID=$(c5t project create --title "Website Redesign" --format json | jq -r '.id')
+# Create project (the command prints the new ID, e.g. a1b2c3d4)
+c5t project create --title "Website Redesign"
 
-# Create task list
-LIST_ID=$(c5t task-list create \
-  --project-id $PROJECT_ID \
-  --title "Phase 1: Planning" \
-  --format json | jq -r '.id')
+# Create task list for that project
+c5t task-list create \
+  --project-id a1b2c3d4 \
+  --title "Phase 1: Planning"
 
-# Add tasks
-c5t task create --list-id $LIST_ID \
+# Add tasks (every new task starts in backlog)
+c5t task create --list-id def67890 \
   --title "Research design trends" \
-  --priority 2 \
-  --status todo
+  --priority 2
 
-c5t task create --list-id $LIST_ID \
+c5t task create --list-id def67890 \
   --title "Create wireframes" \
-  --priority 1 \
-  --status backlog
+  --priority 1
 
 # Link task to external system (GitHub issue or Jira ticket)
-c5t task create --list-id $LIST_ID \
+c5t task create --list-id def67890 \
   --title "Fix authentication bug" \
   --external-ref "myorg/myrepo#456" \
   --priority 1
+
+# Move a task forward with a status transition
+c5t task transition 5f8a2b1c todo
+c5t task transition 5f8a2b1c in_progress
 ```
 
 ## Using the Web UI
@@ -361,13 +363,13 @@ c5t project list
 c5t project create --title "My Project"
 
 # Get project details (with JSON output)
-c5t project get --id abc12345 --format json
+c5t project get abc12345 --json
 
 # Update project
-c5t project update --id abc12345 --title "Updated Title"
+c5t project update abc12345 --title "Updated Title"
 
 # Delete project
-c5t project delete --id abc12345
+c5t project delete abc12345 --force
 ```
 
 **Task Lists:**
@@ -385,30 +387,28 @@ c5t task-list create \
   --description "Q1 deliverables"
 
 # Archive task list
-c5t task-list update --id def67890 --status archived
+c5t task-list update def67890 --status archived
 ```
 
 **Tasks:**
 ```bash
 # List tasks in a task list
-c5t task list --list-id abc12345
+c5t task list abc12345
 
-# Create task
+# Create task (every new task starts in backlog)
 c5t task create \
   --list-id abc12345 \
   --title "Implement auth" \
-  --priority 1 \
-  --status todo
+  --priority 1
 
 # Update task
-c5t task update \
-  --id task123 \
+c5t task update task123 \
   --title "Updated title" \
   --priority 2
 
 # Transition task status
-c5t task transition --id task123 --status in_progress
-c5t task transition --id task123 --status done
+c5t task transition task123 in_progress
+c5t task transition task123 done
 
 # View task state transition history
 c5t task transitions task123
@@ -432,11 +432,17 @@ c5t note create \
   --content "## Agenda\n- Item 1\n- Item 2" \
   --tags "meeting,planning"
 
-# Search notes
-c5t note search --query "rust AND async"
+# Search notes (FTS5: AND, OR, NOT, "exact phrase", prefix*)
+c5t note list --query "rust AND async"
 
 # Get note
-c5t note get --id note123
+c5t note get note123
+
+# Archive a note
+c5t note update note123 --status archived
+
+# List archived notes
+c5t note list --status archived
 ```
 
 **Skills:**
@@ -525,18 +531,18 @@ c5t api
 
 Skills are cached to: `<skills-dir>/<skill-name>/`
 
-```
-
 ### Output Formats
 
-Use `--format` flag to control output:
-- `table` (default): Human-readable table
-- `json`: JSON for scripting
-- `yaml`: YAML format
+Read commands print a table. Add `--json` to any `list` or `get` command to print JSON instead:
+
+- Default: human-readable table
+- `--json`: JSON for scripting
+
+Write commands print one confirmation line with the new ID.
 
 Example:
 ```bash
-c5t project list --format json | jq '.[].id'
+c5t project list --json | jq '.[].id'
 ```
 
 ## Common Workflows
@@ -564,43 +570,42 @@ c5t task create --list-id LIST_ID --title "Learn Rust async" --priority 3
 Track development work for a software project:
 
 ```bash
-# Register repository
-REPO_ID=$(c5t repo create \
+# Register repository (the command prints the new ID, e.g. e5f6a7b8)
+c5t repo create \
   --remote "git@github.com:user/myapp.git" \
-  --path "/Users/me/projects/myapp" \
-  --format json | jq -r '.id')
+  --path "/Users/me/projects/myapp"
 
-# Create project and link repo
-PROJECT_ID=$(c5t project create \
-  --title "MyApp Development" \
-  --format json | jq -r '.id')
+# Create project (the command prints the new ID, e.g. a1b2c3d4)
+c5t project create --title "MyApp Development"
 
-# Link repo to project (done via API/Web UI or manually in DB)
+# Link the repository to the project
+c5t repo update e5f6a7b8 --project-ids a1b2c3d4
 
 # Create task list for current sprint
-LIST_ID=$(c5t task-list create \
-  --project-id $PROJECT_ID \
+c5t task-list create \
+  --project-id a1b2c3d4 \
   --title "Sprint 12" \
-  --description "Auth and profile features" \
-  --format json | jq -r '.id')
+  --description "Auth and profile features"
 
-# Add feature task with subtasks
-TASK_ID=$(c5t task create \
-  --list-id $LIST_ID \
-  --title "Implement OAuth login" \
-  --priority 1 \
-  --status todo \
-  --format json | jq -r '.id')
-
+# Add feature task (every new task starts in backlog)
 c5t task create \
-  --list-id $LIST_ID \
-  --parent-id $TASK_ID \
+  --list-id def67890 \
+  --title "Implement OAuth login" \
+  --priority 1
+
+# Add subtasks under that feature task
+c5t task create \
+  --list-id def67890 \
+  --parent-id 5f8a2b1c \
   --title "Research OAuth providers"
 
 c5t task create \
-  --list-id $LIST_ID \
-  --parent-id $TASK_ID \
+  --list-id def67890 \
+  --parent-id 5f8a2b1c \
   --title "Implement Google OAuth"
+
+# Move the feature task into the sprint flow
+c5t task transition 5f8a2b1c todo
 ```
 
 ### Note-Taking with Linking
@@ -608,27 +613,26 @@ c5t task create \
 Create interconnected notes:
 
 ```bash
-# Create main note
-NOTE1=$(c5t note create \
+# Create main note (the command prints the new ID, e.g. 9c8d7e6f)
+c5t note create \
   --title "Rust Async Programming - Overview" \
   --content "High-level overview of async/await in Rust..." \
-  --tags "rust,async" \
-  --format json | jq -r '.id')
+  --tags "rust,async"
 
 # Create detailed note that references the first
 c5t note create \
   --title "Rust Async - Tokio Runtime" \
   --content "Deep dive into Tokio runtime..." \
-  --tags "rust,async,tokio,parent:$NOTE1"
+  --tags "rust,async,tokio,parent:9c8d7e6f"
 
 # Create related note
 c5t note create \
   --title "Rust Async - Common Patterns" \
   --content "Best practices and patterns..." \
-  --tags "rust,async,related:$NOTE1"
+  --tags "rust,async,related:9c8d7e6f"
 
 # Search for all notes in the chain
-c5t note search --query "async" --tags "parent:$NOTE1,related:$NOTE1"
+c5t note list --query "async" --tags "parent:9c8d7e6f,related:9c8d7e6f"
 ```
 
 ## Syncing Across Machines
