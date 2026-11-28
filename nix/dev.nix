@@ -3,6 +3,7 @@
   pkgs,
   inputs,
   system,
+  zola,
 }: let
   toolchain = inputs.rustnix.lib.rust.mkToolchain {
     inherit system;
@@ -412,6 +413,8 @@ in
       pkgs.tailwindcss_4
       pkgs.act
       pkgs.jq
+      # zola 0.22.x builds the docs site; pinned in flake.nix
+      zola
 
       # Development scripts
       check
