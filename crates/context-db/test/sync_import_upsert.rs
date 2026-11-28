@@ -3,9 +3,9 @@
 use crate::SqliteDatabase;
 use context_core::{
     Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks, Note,
-    NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment,
-    SkillRepository, SyncRepository, Task, TaskList, TaskListRepository, TaskListStatus,
-    TaskRepository, TaskStatus, write_jsonl,
+    NoteRepository, NoteStatus, Project, ProjectRepository, Repo, RepoRepository, Skill,
+    SkillAttachment, SkillRepository, SyncRepository, Task, TaskList, TaskListRepository,
+    TaskListStatus, TaskRepository, TaskStatus, write_jsonl,
 };
 use tempfile::TempDir;
 
@@ -106,6 +106,8 @@ async fn test_import_batch_idempotent() {
         repo_ids: vec!["repoidem".to_string()],
         project_ids: vec!["projidem".to_string()],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
@@ -401,6 +403,8 @@ async fn test_import_batches_multiple_rows() {
             repo_ids: vec![format!("repobtc{}", i)],
             project_ids: vec![format!("projbtc{}", i)],
             subnote_count: None,
+            status: NoteStatus::Active,
+            archived_at: None,
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             updated_at: Some("2024-01-01T00:00:00Z".to_string()),
             deleted_at: None,
@@ -571,6 +575,8 @@ fn full_replica(updated_at: &str, label: &str) -> Replica {
             repo_ids: vec![repo_id.clone()],
             project_ids: vec![project_id.clone()],
             subnote_count: None,
+            status: NoteStatus::Active,
+            archived_at: None,
             created_at: created_at.clone(),
             updated_at: updated_at.clone(),
             deleted_at: None,

@@ -711,8 +711,8 @@ async fn import_all_with_transaction(
             batched_upsert(
                 tx,
                 &rows,
-                9,
-                "INSERT INTO note (id, title, content, tags, parent_id, idx, created_at, updated_at, deleted_at) ",
+                11,
+                "INSERT INTO note (id, title, content, tags, parent_id, idx, created_at, updated_at, status, archived_at, deleted_at) ",
                 " ON CONFLICT(id) DO UPDATE SET
                     title = excluded.title,
                     content = excluded.content,
@@ -720,6 +720,8 @@ async fn import_all_with_transaction(
                     parent_id = excluded.parent_id,
                     idx = excluded.idx,
                     updated_at = excluded.updated_at,
+                    status = excluded.status,
+                    archived_at = excluded.archived_at,
                     deleted_at = excluded.deleted_at
                   WHERE note.updated_at IS NULL OR excluded.updated_at > note.updated_at",
                 |separated, (note, tags)| {
@@ -732,6 +734,8 @@ async fn import_all_with_transaction(
                         .push_bind(note.idx)
                         .push_bind(&note.created_at)
                         .push_bind(&note.updated_at)
+                        .push_bind(note.status.to_string())
+                        .push_bind(&note.archived_at)
                         .push_bind(&note.deleted_at);
                 },
             )
@@ -1029,8 +1033,8 @@ async fn export_all_from_pool(
     output_dir: &Path,
 ) -> Result<ExportSummary, Box<dyn std::error::Error + Send + Sync>> {
     use context_core::{
-        Note, Project, Repo, Skill, SkillAttachment, Task, TaskList, TaskListStatus, TaskStatus,
-        TransitionLog,
+        Note, NoteStatus, Project, Repo, Skill, SkillAttachment, Task, TaskList, TaskListStatus,
+        TaskStatus, TransitionLog,
     };
     use std::str::FromStr;
 
@@ -1172,7 +1176,7 @@ async fn export_all_from_pool(
     export_query(
         pool,
         &output_dir.join("notes.jsonl"),
-        "SELECT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.deleted_at,
+        "SELECT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.status, n.archived_at, n.deleted_at,
                 COALESCE((SELECT json_group_array(pn.project_id) FROM project_note pn WHERE pn.note_id = n.id), '[]') AS project_ids,
                 COALESCE((SELECT json_group_array(nr.repo_id) FROM note_repo nr WHERE nr.note_id = n.id), '[]') AS repo_ids
          FROM note n
@@ -1188,8 +1192,10 @@ async fn export_all_from_pool(
                 repo_ids: json_string_vec(row, "repo_ids"),
                 project_ids: json_string_vec(row, "project_ids"),
                 subnote_count: None,
+                status: NoteStatus::from_str(&row.get::<String, _>("status")).unwrap_or_default(),
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
+                archived_at: row.get("archived_at"),
                 deleted_at: row.get("deleted_at"),
             })
         },

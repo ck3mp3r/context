@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use thaw::*;
 
 use crate::api::{ApiClientError, QueryBuilder};
 use crate::components::{NoteCard, Pagination, SearchInput, SortControls};
@@ -22,6 +23,9 @@ fn NotesList() -> impl IntoView {
     let pagination = use_pagination();
     let search = use_search();
     let sort = use_sort("last_activity_at", "desc");
+
+    // Show archived is list state, not URL state (decision 20), as on the project dashboard.
+    let show_archived_notes = RwSignal::new(false);
 
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
 
@@ -48,13 +52,14 @@ fn NotesList() -> impl IntoView {
         let current_query = search.search_query.get();
         let current_sort = sort.sort_field.get();
         let current_order = sort.sort_order.get();
+        let current_show_archived = show_archived_notes.get();
         let trigger = refetch_trigger.get();
 
         // Log for debugging with all dependency values
         web_sys::console::log_1(
             &format!(
-                "FETCH TRIGGERED: page={}, query='{}', sort={}, order={}, trigger={}",
-                current_page, current_query, current_sort, current_order, trigger
+                "FETCH TRIGGERED: page={}, query='{}', sort={}, order={}, show_archived={}, trigger={}",
+                current_page, current_query, current_sort, current_order, current_show_archived, trigger
             )
             .into(),
         );
@@ -76,6 +81,10 @@ fn NotesList() -> impl IntoView {
                 .order(current_order)
                 .param("type", "note")
                 .param("include_content", "true");
+
+            if !current_show_archived {
+                builder = builder.param("status", "active");
+            }
 
             if !current_query.trim().is_empty() {
                 builder = builder.search(current_query);
@@ -105,7 +114,12 @@ fn NotesList() -> impl IntoView {
                         on_change=search.on_debounced_change
                         on_immediate_change=search.on_immediate_change
                         placeholder="Search notes..."
-                    />
+                    >
+                        <div class="flex items-center gap-2 whitespace-nowrap">
+                            <Switch checked=show_archived_notes/>
+                            <span class="text-sm text-ctp-text">"Show archived"</span>
+                        </div>
+                    </SearchInput>
                 </div>
                 <SortControls
                     sort_field=sort.sort_field

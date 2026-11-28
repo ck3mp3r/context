@@ -1,11 +1,12 @@
 //! SQLite NoteRepository implementation.
 
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use sqlx::{Row, SqlitePool};
 
 use super::helpers::{build_limit_offset_clause, restore_row, soft_delete_row};
-use context_core::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository};
+use context_core::{DbError, DbResult, ListResult, Note, NoteQuery, NoteRepository, NoteStatus};
 use context_core::{NOTE_HARD_MAX, NOTE_SOFT_MAX, NOTE_WARN_SIZE};
 use context_core::{current_timestamp, generate_entity_id};
 
@@ -138,8 +139,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         sqlx::query(
             r#"
-            INSERT INTO note (id, title, content, tags, parent_id, idx, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO note (id, title, content, tags, parent_id, idx, created_at, updated_at, status, archived_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -150,6 +151,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         .bind(note.idx)
         .bind(&created_at)
         .bind(&updated_at)
+        .bind(note.status.to_string())
+        .bind(&note.archived_at)
         .execute(&mut *tx)
         .await
         .map_err(|e| DbError::Database {
@@ -195,15 +198,17 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             repo_ids: note.repo_ids.clone(),
             project_ids: note.project_ids.clone(),
             subnote_count: None, // Not computed for single note get
+            status: note.status.clone(),
             created_at: Some(created_at),
             updated_at: Some(updated_at),
+            archived_at: note.archived_at.clone(),
             deleted_at: None,
         })
     }
 
     async fn get(&self, id: &str) -> DbResult<Note> {
         let row = sqlx::query(
-            "SELECT id, title, content, tags, parent_id, idx, created_at, updated_at FROM note WHERE id = ? AND deleted_at IS NULL",
+            "SELECT id, title, content, tags, parent_id, idx, created_at, updated_at, status, archived_at FROM note WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(id)
         .fetch_optional(self.pool)
@@ -239,6 +244,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                         message: e.to_string(),
                     })?;
 
+            // Parse status
+            let status_str: String = row.get("status");
+            let status = NoteStatus::from_str(&status_str).map_err(|_| DbError::Database {
+                message: format!("Invalid status: {}", status_str),
+            })?;
+
             Ok(Note {
                 id: row.get("id"),
                 title: row.get("title"),
@@ -249,8 +260,10 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 repo_ids,
                 project_ids,
                 subnote_count: None, // Not computed for single note get
+                status,
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
+                archived_at: row.get("archived_at"),
                 deleted_at: None,
             })
         } else {
@@ -266,6 +279,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let query = query.unwrap_or(&default_query);
         let allowed_fields = [
             "title",
+            "status",
             "created_at",
             "updated_at",
             "last_activity_at",
@@ -305,11 +319,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             }
 
             let select = if needs_activity_column {
-                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.status, n.archived_at, \
                  COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id AND deleted_at IS NULL), n.updated_at) AS last_activity_at, \
                  (SELECT COUNT(*) FROM note WHERE parent_id = n.id AND deleted_at IS NULL) AS subnote_count"
             } else {
-                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.status, n.archived_at"
             };
 
             (select, from, "n.")
@@ -317,11 +331,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             // No joins, simple query
             let select = if needs_activity_column {
                 // Explicitly reference outer table in subquery using table name
-                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
+                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, note.status, note.archived_at, \
                  COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL), note.updated_at) AS last_activity_at, \
                  (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL) AS subnote_count"
             } else {
-                "id, title, content, tags, parent_id, idx, created_at, updated_at"
+                "id, title, content, tags, parent_id, idx, created_at, updated_at, status, archived_at"
             };
 
             (
@@ -333,6 +347,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         // Soft-deleted rows are tombstones and must never appear in results.
         where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
+
+        // Filter by status (active / archived) when requested.
+        if let Some(status) = &query.status {
+            where_conditions.push(format!("{}status = ?", order_field_prefix));
+            bind_values.push(status.clone());
+        }
 
         // Add parent_id filter if specified (after we know the table prefix)
         if let Some(parent_id) = &query.parent_id {
@@ -492,6 +512,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 // Try to get subnote_count if it exists in the result set
                 let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
 
+                let status_str: String = row.get("status");
+                let status = NoteStatus::from_str(&status_str).unwrap_or_default();
+
                 Note {
                     id: id.clone(),
                     title: row.get("title"),
@@ -502,8 +525,10 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     repo_ids: repo_map.remove(&id).unwrap_or_default(),
                     project_ids: project_map.remove(&id).unwrap_or_default(),
                     subnote_count,
+                    status,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
+                    archived_at: row.get("archived_at"),
                     deleted_at: None,
                 }
             })
@@ -535,6 +560,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let query = query.unwrap_or(&default_query);
         let allowed_fields = [
             "title",
+            "status",
             "created_at",
             "updated_at",
             "last_activity_at",
@@ -581,6 +607,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         // Soft-deleted rows are tombstones and must never appear in results.
         where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
+
+        // Filter by status (active / archived) when requested.
+        if let Some(status) = &query.status {
+            where_conditions.push(format!("{}status = ?", order_field_prefix));
+            bind_values.push(status.clone());
+        }
 
         // Add parent_id filter if specified
         if let Some(parent_id) = &query.parent_id {
@@ -646,11 +678,11 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         let (sql, count_sql) = if needs_json_each || needs_project_join {
             let select_cols = if needs_activity_column {
-                "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
+                "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.status, n.archived_at, \
                  (SELECT COUNT(*) FROM note WHERE parent_id = n.id AND deleted_at IS NULL) AS subnote_count, \
                  COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id AND deleted_at IS NULL), n.updated_at) AS last_activity_at"
             } else {
-                "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
+                "DISTINCT n.id, n.title, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.status, n.archived_at"
             };
 
             (
@@ -666,7 +698,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         } else if needs_activity_column {
             (
                 format!(
-                    "SELECT note.id, note.title, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
+                    "SELECT note.id, note.title, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, note.status, note.archived_at, \
                      (SELECT COUNT(*) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL) AS subnote_count, \
                      COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL), note.updated_at) AS last_activity_at
                      FROM note {} {} {}",
@@ -677,7 +709,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         } else {
             (
                 format!(
-                    "SELECT id, title, tags, parent_id, idx, created_at, updated_at
+                    "SELECT id, title, tags, parent_id, idx, created_at, updated_at, status, archived_at
                      FROM note {} {} {}",
                     where_clause, order_clause, limit_clause
                 ),
@@ -764,6 +796,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 // Try to get subnote_count if it exists in the result set
                 let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
 
+                let status_str: String = row.get("status");
+                let status = NoteStatus::from_str(&status_str).unwrap_or_default();
+
                 Note {
                     id: id.clone(),
                     title: row.get("title"),
@@ -774,8 +809,10 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     repo_ids: repo_map.remove(&id).unwrap_or_default(),
                     project_ids: project_map.remove(&id).unwrap_or_default(),
                     subnote_count,
+                    status,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
+                    archived_at: row.get("archived_at"),
                     deleted_at: None,
                 }
             })
@@ -834,6 +871,25 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             });
         }
 
+        // Fetch current to detect status transitions
+        let current = self.get(&note.id).await?;
+
+        let mut note = note.clone();
+
+        // Auto-manage archived_at based on status transitions. An explicit
+        // archived_at from the caller wins; an omitted one keeps the stored
+        // value, so repeating an archive is idempotent.
+        if current.status == NoteStatus::Active
+            && note.status == NoteStatus::Archived
+            && note.archived_at.is_none()
+        {
+            note.archived_at = Some(current_timestamp());
+        } else if current.status == NoteStatus::Archived && note.status == NoteStatus::Active {
+            note.archived_at = None;
+        } else if note.status == NoteStatus::Archived && note.archived_at.is_none() {
+            note.archived_at = current.archived_at.clone();
+        }
+
         // Use transaction for atomicity
         let mut tx = self.pool.begin().await.map_err(|e| DbError::Database {
             message: e.to_string(),
@@ -849,7 +905,7 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         let result = sqlx::query(
             r#"
             UPDATE note
-            SET title = ?, content = ?, tags = ?, parent_id = ?, idx = ?, updated_at = ?
+            SET title = ?, content = ?, tags = ?, parent_id = ?, idx = ?, updated_at = ?, status = ?, archived_at = ?
             WHERE id = ?
             "#,
         )
@@ -859,6 +915,8 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
         .bind(&note.parent_id)
         .bind(note.idx)
         .bind(&updated_at)
+        .bind(note.status.to_string())
+        .bind(&note.archived_at)
         .bind(&note.id)
         .execute(&mut *tx)
         .await
@@ -1036,7 +1094,13 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
     ) -> DbResult<ListResult<Note>> {
         let default_query = NoteQuery::default();
         let query = query.unwrap_or(&default_query);
-        let allowed_fields = ["title", "created_at", "updated_at", "last_activity_at"];
+        let allowed_fields = [
+            "title",
+            "created_at",
+            "updated_at",
+            "last_activity_at",
+            "archived_at",
+        ];
 
         // Determine which JOINs are needed
         let needs_json_each = query.tags.as_ref().is_some_and(|t| !t.is_empty());
@@ -1088,20 +1152,20 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
             }
 
             let select = if needs_activity_column {
-                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, \
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.status, n.archived_at, \
                  COALESCE((SELECT MAX(updated_at) FROM note WHERE parent_id = n.id AND deleted_at IS NULL), n.updated_at) AS last_activity_at"
             } else {
-                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at"
+                "DISTINCT n.id, n.title, n.content, n.tags, n.parent_id, n.idx, n.created_at, n.updated_at, n.status, n.archived_at"
             };
 
             (select, from, "n.")
         } else {
             // No filters, simple FTS5 join - use explicit table prefix
             let select = if needs_activity_column {
-                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, \
+                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, note.status, note.archived_at, \
                  COALESCE((SELECT MAX(updated_at) FROM note AS child WHERE child.parent_id = note.id AND child.deleted_at IS NULL), note.updated_at) AS last_activity_at"
             } else {
-                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at"
+                "note.id, note.title, note.content, note.tags, note.parent_id, note.idx, note.created_at, note.updated_at, note.status, note.archived_at"
             };
 
             (
@@ -1113,6 +1177,12 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
 
         // Soft-deleted rows are tombstones and must never appear in results.
         where_conditions.push(format!("{}deleted_at IS NULL", order_field_prefix));
+
+        // Filter by status (active / archived) when requested.
+        if let Some(status) = &query.status {
+            where_conditions.push(format!("{}status = ?", order_field_prefix));
+            bind_values.push(status.clone());
+        }
 
         // Add parent_id filter if specified (after we know the table prefix)
         if let Some(parent_id) = &query.parent_id {
@@ -1262,6 +1332,9 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                 // Try to get subnote_count if it exists in the result set
                 let subnote_count = row.try_get::<i32, _>("subnote_count").ok();
 
+                let status_str: String = row.get("status");
+                let status = NoteStatus::from_str(&status_str).unwrap_or_default();
+
                 Note {
                     id: id.clone(),
                     title: row.get("title"),
@@ -1272,8 +1345,10 @@ impl<'a> NoteRepository for SqliteNoteRepository<'a> {
                     repo_ids: repo_map.remove(&id).unwrap_or_default(),
                     project_ids: project_map.remove(&id).unwrap_or_default(),
                     subnote_count,
+                    status,
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
+                    archived_at: row.get("archived_at"),
                     deleted_at: None,
                 }
             })

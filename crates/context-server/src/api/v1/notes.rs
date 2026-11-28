@@ -13,7 +13,9 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
 use context_core::update::UpdateFlow;
-use context_core::{Database, DbError, Note, NoteQuery, NoteRepository, PageSort, SortOrder};
+use context_core::{
+    Database, DbError, Note, NoteQuery, NoteRepository, NoteStatus, PageSort, SortOrder,
+};
 
 use super::ErrorResponse;
 
@@ -48,6 +50,9 @@ pub struct NoteResponse {
     pub subnote_count: Option<i32>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    #[schema(example = "active")]
+    pub status: String,
+    pub archived_at: Option<String>,
 }
 
 impl From<Note> for NoteResponse {
@@ -64,6 +69,11 @@ impl From<Note> for NoteResponse {
             subnote_count: n.subnote_count,
             created_at: n.created_at,
             updated_at: n.updated_at,
+            status: match n.status {
+                NoteStatus::Active => "active".to_string(),
+                NoteStatus::Archived => "archived".to_string(),
+            },
+            archived_at: n.archived_at,
         }
     }
 }
@@ -114,6 +124,9 @@ pub struct UpdateNoteRequest {
     #[schema(example = json!(["proj123a", "proj456b"]))]
     #[serde(default)]
     pub project_ids: Vec<String>,
+    /// Archive state (active, archived)
+    #[schema(example = "active")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, ToSchema)]
@@ -137,6 +150,9 @@ pub struct PatchNoteRequest {
     /// Linked project IDs (M:N relationship via project_note)
     #[schema(example = json!(["proj123a", "proj456b"]))]
     pub project_ids: Option<Vec<String>>,
+    /// Archive state (active, archived). Unrecognized values are ignored.
+    #[schema(example = "archived")]
+    pub status: Option<String>,
 }
 
 impl PatchNoteRequest {
@@ -162,6 +178,11 @@ impl PatchNoteRequest {
         if let Some(project_ids) = self.project_ids {
             target.project_ids = project_ids;
         }
+        if let Some(status_str) = self.status
+            && let Ok(status) = status_str.parse::<NoteStatus>()
+        {
+            target.status = status;
+        }
         // Clear updated_at to force new timestamp generation
         target.updated_at = None;
     }
@@ -186,6 +207,9 @@ pub struct ListNotesQuery {
     #[param(example = "note")]
     #[serde(rename = "type")]
     pub note_type: Option<String>,
+    /// Filter by status (active, archived)
+    #[param(example = "active")]
+    pub status: Option<String>,
     /// Maximum number of items to return
     #[param(example = 20)]
     pub limit: Option<usize>,
@@ -262,6 +286,7 @@ pub async fn list_notes<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
         project_id: query.project_id.clone(),
         parent_id: query.parent_id.clone(),
         note_type: query.note_type.clone(),
+        status: query.status.clone(),
     };
 
     // Get notes - either search or list all (at database level)
@@ -369,8 +394,10 @@ pub async fn create_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
         repo_ids: req.repo_ids,
         project_ids: req.project_ids,
         subnote_count: None,
+        status: NoteStatus::Active,
         created_at: None, // Repository will generate this
         updated_at: None, // Repository will generate this
+        archived_at: None,
         deleted_at: None,
     };
 
@@ -431,6 +458,12 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
     note.idx = req.idx;
     note.repo_ids = req.repo_ids;
     note.project_ids = req.project_ids;
+    if let Some(status) = req.status {
+        note.status = match status.as_str() {
+            "archived" => NoteStatus::Archived,
+            _ => NoteStatus::Active,
+        };
+    }
     // Clear updated_at to ensure proper timestamp refresh on PUT
     note.updated_at = None;
 
@@ -448,7 +481,17 @@ pub async fn update_note<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
         note_id: note.id.clone(),
     });
 
-    Ok(Json(NoteResponse::from(note)))
+    // Re-fetch so the response carries the repository-managed archived_at
+    let updated = state.db().notes().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(NoteResponse::from(updated)))
 }
 
 #[utoipa::path(

@@ -87,6 +87,14 @@ pub fn NoteCard(
                         <CopyableId id=note.id.clone()/>
                     </div>
                     <h3 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">{note.title.clone()}</h3>
+                    {(note.status == "archived")
+                        .then(|| {
+                            view! {
+                                <span class="flex-shrink-0 bg-ctp-overlay0/20 text-ctp-overlay0 text-xs px-2 py-1 rounded">
+                                    "Archived"
+                                </span>
+                            }
+                        })}
                 </div>
 
             <div class="relative flex-grow mb-4">

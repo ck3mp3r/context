@@ -1,7 +1,7 @@
 //! Tests for SqliteNoteRepository.
 
 use crate::SqliteDatabase;
-use context_core::{Database, HasNotes, Note, NoteRepository};
+use context_core::{Database, HasNotes, Note, NoteRepository, NoteStatus};
 
 fn generate_id() -> String {
     use context_core::generate_entity_id;
@@ -37,6 +37,8 @@ async fn test_read_note_with_line_ranges() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,
@@ -73,6 +75,8 @@ async fn test_read_note_with_overlapping_ranges_fails() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,
@@ -116,6 +120,8 @@ async fn test_edit_note_with_line_range_patches() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,
@@ -155,6 +161,8 @@ async fn test_edit_note_with_overlapping_patches_fails() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,
@@ -196,6 +204,8 @@ async fn test_edit_applies_patches_in_reverse_order() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,
@@ -231,6 +241,8 @@ async fn test_edit_stores_multiline_replacement_verbatim() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,

@@ -68,6 +68,11 @@ pub struct TaskStats {
     pub cancelled: usize,
 }
 
+/// Archive state assumed when a response omits the field (older servers).
+fn default_note_status() -> String {
+    "active".to_string()
+}
+
 /// Note response from API
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Note {
@@ -75,6 +80,12 @@ pub struct Note {
     pub title: String,
     pub content: String,
     pub tags: Vec<String>,
+    /// Archive state: "active" or "archived"
+    #[serde(default = "default_note_status")]
+    pub status: String,
+    /// Timestamp when the note was archived
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
     /// Parent note ID for hierarchical structure
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,

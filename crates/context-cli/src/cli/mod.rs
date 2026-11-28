@@ -237,6 +237,9 @@ enum NoteCommands {
         /// Filter by note type (note, subnote)
         #[arg(long)]
         note_type: Option<String>,
+        /// Filter by status (active, archived)
+        #[arg(long, value_parser = ["active", "archived"])]
+        status: Option<String>,
         /// Maximum number of notes to return
         #[arg(long)]
         limit: Option<u32>,
@@ -298,6 +301,9 @@ enum NoteCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// New status (active, archived)
+        #[arg(long, value_parser = ["active", "archived"])]
+        status: Option<String>,
         /// Parent note ID (for converting to/from subnote). Use empty string to remove parent.
         #[arg(long)]
         parent_id: Option<String>,
@@ -1095,6 +1101,7 @@ pub async fn run() -> Result<()> {
                 tags,
                 parent_id,
                 note_type,
+                status,
                 limit,
                 offset,
                 sort,
@@ -1114,6 +1121,7 @@ pub async fn run() -> Result<()> {
                     tags.as_deref(),
                     parent_id.as_deref(),
                     note_type.as_deref(),
+                    status.as_deref(),
                     page,
                     if json { "json" } else { "table" },
                 )
@@ -1152,6 +1160,7 @@ pub async fn run() -> Result<()> {
                 title,
                 content,
                 tags,
+                status,
                 parent_id,
                 idx,
                 project_ids,
@@ -1171,6 +1180,7 @@ pub async fn run() -> Result<()> {
                     idx: idx.map(Some),
                     project_ids: utils::parse_tags(project_ids.as_deref()),
                     repo_ids: utils::parse_tags(repo_ids.as_deref()),
+                    status,
                 };
                 let output = commands::note::update_note(&api_client, &id, request).await?;
                 println!("{}", output);

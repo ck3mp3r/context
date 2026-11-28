@@ -6,7 +6,7 @@
 
 mod common;
 
-use context_core::{HasNotes, Note, NoteRepository};
+use context_core::{HasNotes, Note, NoteRepository, NoteStatus};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::notes::{EditNoteParams, NoteTools, ReadNoteParams};
@@ -52,6 +52,8 @@ fn make_note(id: &str, updated_at: &str) -> Note {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some(updated_at.to_string()),
         deleted_at: None,
@@ -146,6 +148,7 @@ async fn test_note_edit_rejects_stale_etag() {
         repo_ids: None,
         parent_id: None,
         idx: None,
+        status: None,
         patches: vec![],
     };
 
@@ -230,6 +233,7 @@ async fn test_note_edit_error_payload_omits_expected_etag() {
         repo_ids: None,
         parent_id: None,
         idx: None,
+        status: None,
         patches: vec![],
     };
 

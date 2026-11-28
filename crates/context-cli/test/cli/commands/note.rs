@@ -111,6 +111,7 @@ async fn test_note_crud_operations() {
         idx: Some(Some(2)),
         project_ids: Some(vec![project_id.clone()]),
         repo_ids: None,
+        status: None,
     };
     let update_result = update_note(&api_client, note_id, update_request).await;
     assert!(update_result.is_ok(), "Should update note");
@@ -213,6 +214,7 @@ async fn test_note_list_with_comprehensive_filters() {
         Some("rust"),
         None,
         None,
+        None,
         PageParams::default(),
         "json",
     )
@@ -233,7 +235,18 @@ async fn test_note_list_with_comprehensive_filters() {
         sort: Some("title"),
         order: Some("asc"),
     };
-    let result_asc = list_notes(&api_client, None, None, None, None, None, page_asc, "json").await;
+    let result_asc = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        page_asc,
+        "json",
+    )
+    .await;
     assert!(result_asc.is_ok());
     let parsed_asc: serde_json::Value = serde_json::from_str(&result_asc.unwrap()).unwrap();
     let notes_asc = parsed_asc.as_array().unwrap();
@@ -250,8 +263,18 @@ async fn test_note_list_with_comprehensive_filters() {
         sort: Some("title"),
         order: Some("desc"),
     };
-    let result_desc =
-        list_notes(&api_client, None, None, None, None, None, page_desc, "json").await;
+    let result_desc = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        page_desc,
+        "json",
+    )
+    .await;
     assert!(result_desc.is_ok());
     let parsed_desc: serde_json::Value = serde_json::from_str(&result_desc.unwrap()).unwrap();
     let notes_desc = parsed_desc.as_array().unwrap();
@@ -275,6 +298,7 @@ async fn test_note_list_with_comprehensive_filters() {
         None,
         None,
         None,
+        None,
         page_offset,
         "json",
     )
@@ -293,6 +317,7 @@ async fn test_note_list_with_comprehensive_filters() {
         None,
         None,
         Some("nonexistent"),
+        None,
         None,
         None,
         PageParams::default(),
@@ -381,6 +406,7 @@ async fn test_note_hierarchical_structure() {
         None,
         None,
         Some(parent_id),
+        None,
         None,
         PageParams::default(),
         "json",
@@ -539,6 +565,7 @@ async fn test_note_error_handling() {
         idx: None,
         project_ids: None,
         repo_ids: None,
+        status: None,
     };
     let update_result = update_note(&api_client, "nonexist", update_request).await;
     assert!(
@@ -674,6 +701,7 @@ async fn test_note_display_formats_and_filters() {
         None,
         None,
         None,
+        None,
         PageParams::default(),
         "table",
     )
@@ -702,6 +730,7 @@ async fn test_note_display_formats_and_filters() {
         None,
         None,
         None,
+        None,
         PageParams::default(),
         "json",
     )
@@ -716,6 +745,7 @@ async fn test_note_display_formats_and_filters() {
         &api_client,
         None,
         Some(&project_id),
+        None,
         None,
         None,
         None,
@@ -736,6 +766,7 @@ async fn test_note_display_formats_and_filters() {
         None,
         None,
         Some("note"),
+        None,
         PageParams::default(),
         "json",
     )
@@ -753,6 +784,7 @@ async fn test_note_display_formats_and_filters() {
         None,
         None,
         None,
+        None,
         PageParams::default(),
         "table",
     )
@@ -762,5 +794,136 @@ async fn test_note_display_formats_and_filters() {
         empty_list.unwrap(),
         "No notes found.",
         "Should show empty message"
+    );
+}
+
+fn status_update_request(status: Option<&str>) -> UpdateNoteRequest {
+    UpdateNoteRequest {
+        title: None,
+        content: None,
+        tags: None,
+        parent_id: None,
+        idx: None,
+        project_ids: None,
+        repo_ids: None,
+        status: status.map(|s| s.to_string()),
+    }
+}
+
+#[test]
+fn test_update_note_request_omits_status_when_none() {
+    let request = status_update_request(None);
+    let body = serde_json::to_value(&request).expect("Request should serialize");
+
+    assert!(
+        body.get("status").is_none(),
+        "PATCH body must omit the status key when --status is not given, got: {}",
+        body
+    );
+}
+
+#[test]
+fn test_update_note_request_includes_status_when_set() {
+    let request = status_update_request(Some("archived"));
+    let body = serde_json::to_value(&request).expect("Request should serialize");
+
+    assert_eq!(
+        body["status"], "archived",
+        "PATCH body must carry the requested status, got: {}",
+        body
+    );
+}
+
+#[test]
+fn test_note_status_flag_rejects_unknown_value() {
+    use clap::Parser;
+
+    let rejected = crate::cli::Cli::try_parse_from(["c5t", "note", "list", "--status", "bogus"]);
+    assert!(
+        rejected.is_err(),
+        "--status must reject values other than active or archived"
+    );
+
+    let accepted = crate::cli::Cli::try_parse_from(["c5t", "note", "list", "--status", "archived"]);
+    assert!(accepted.is_ok(), "--status archived should be accepted");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_note_list_filters_by_status() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    for title in ["Live Note", "Retired Note"] {
+        create_note(
+            &api_client,
+            CreateNoteRequest {
+                title: title.to_string(),
+                content: "Status filter content".to_string(),
+                tags: None,
+                parent_id: None,
+                idx: None,
+                project_ids: None,
+                repo_ids: None,
+            },
+        )
+        .await
+        .expect("Create should succeed");
+    }
+
+    let listed = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("active"),
+        PageParams::default(),
+        "json",
+    )
+    .await
+    .expect("List by active status should succeed");
+    let active_notes: serde_json::Value = serde_json::from_str(&listed).expect("Valid JSON");
+    let retired = active_notes
+        .as_array()
+        .expect("Array of notes")
+        .iter()
+        .find(|n| n["title"] == "Retired Note")
+        .map(|n| n["id"].as_str().expect("Note id").to_string())
+        .expect("Retired Note should start active");
+
+    update_note(
+        &api_client,
+        &retired,
+        status_update_request(Some("archived")),
+    )
+    .await
+    .expect("Archive should succeed");
+
+    let archived = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some("archived"),
+        PageParams::default(),
+        "json",
+    )
+    .await
+    .expect("List by archived status should succeed");
+    let archived_notes: serde_json::Value = serde_json::from_str(&archived).expect("Valid JSON");
+    let archived_titles: Vec<&str> = archived_notes
+        .as_array()
+        .expect("Array of notes")
+        .iter()
+        .map(|n| n["title"].as_str().expect("Note title"))
+        .collect();
+
+    assert_eq!(
+        archived_titles,
+        vec!["Retired Note"],
+        "status=archived must return only the archived note"
     );
 }

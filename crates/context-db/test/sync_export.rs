@@ -4,8 +4,8 @@ use crate::SqliteDatabase;
 use crate::sync::{MAX_BIND_PARAMS, read_batch, rows_per_batch};
 use context_core::{
     Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, JsonlReader,
-    JsonlWriter, NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill,
-    SkillRepository, SyncRepository, TaskList, TaskListRepository, TaskListStatus,
+    JsonlWriter, NoteRepository, NoteStatus, Project, ProjectRepository, Repo, RepoRepository,
+    Skill, SkillRepository, SyncRepository, TaskList, TaskListRepository, TaskListStatus,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
@@ -211,6 +211,8 @@ async fn test_export_uses_direct_sql() {
         repo_ids: vec!["repodir1".to_string()],
         project_ids: vec!["projdir1".to_string()],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,

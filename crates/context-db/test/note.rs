@@ -2,7 +2,7 @@
 
 use crate::SqliteDatabase;
 use crate::support::count_rows;
-use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository};
+use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository, NoteStatus};
 
 fn generate_id() -> String {
     use context_core::generate_entity_id;
@@ -28,6 +28,8 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
         subnote_count: None, // Computed field - not set on creation
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -140,6 +142,8 @@ async fn note_create_with_warn_size_content_succeeds_with_warning() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -175,6 +179,8 @@ async fn note_create_at_hard_max_succeeds() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -203,6 +209,8 @@ async fn note_create_over_hard_max_fails() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -289,6 +297,8 @@ async fn note_timestamps_are_optional() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-15 10:00:00".to_string()),
         updated_at: Some("2025-01-15 11:00:00".to_string()),
         deleted_at: None,
@@ -319,6 +329,8 @@ async fn note_timestamps_are_optional() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,
@@ -355,6 +367,8 @@ async fn create_note_with_invalid_repo_should_rollback() {
         repo_ids: vec!["nonexistent_repo".to_string()], // Invalid repo_id
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,
@@ -390,6 +404,8 @@ async fn create_note_with_invalid_project_should_rollback() {
         repo_ids: vec![],
         project_ids: vec!["nonexistent_project".to_string()], // Invalid project_id
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: None,
         updated_at: None,
         deleted_at: None,

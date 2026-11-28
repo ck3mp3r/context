@@ -2,7 +2,7 @@
 
 use crate::SqliteDatabase;
 use crate::support::{count_rows, read_deleted_at, read_updated_at};
-use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository};
+use context_core::{Database, HasNotes, Note, NoteQuery, NoteRepository, NoteStatus};
 
 async fn setup_db() -> SqliteDatabase {
     let db = SqliteDatabase::in_memory()
@@ -23,6 +23,8 @@ fn make_note(id: &str, title: &str, content: &str) -> Note {
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
         subnote_count: None, // Computed field - not set on creation
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -44,6 +46,8 @@ async fn note_create_and_get() {
         repo_ids: vec![],    // Empty by default - relationships managed separately
         project_ids: vec![], // Empty by default - relationships managed separately
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,

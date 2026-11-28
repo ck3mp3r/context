@@ -267,3 +267,162 @@ async fn update_note_round_trips_multiline_content() {
         "GET must keep U+000A characters"
     );
 }
+
+/// PATCH a note with a raw JSON body; return the parsed response body.
+async fn patch_note(app: &axum::Router, note_id: &str, body: Value) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/notes/{note_id}"))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    json_body(response).await
+}
+
+/// PUT a note with a raw JSON body; return the parsed response body.
+async fn put_note(app: &axum::Router, note_id: &str, body: Value) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/notes/{note_id}"))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    json_body(response).await
+}
+
+/// GET a single note.
+async fn get_note(app: &axum::Router, note_id: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/notes/{note_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    json_body(response).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_notes_filters_by_status() {
+    let app = test_app().await;
+    let active_id = create_note(&app, "Active note").await;
+    let archived_id = create_note(&app, "Archived note").await;
+    patch_note(&app, &archived_id, json!({"status": "archived"})).await;
+
+    let archived = list_notes(&app, "status=archived").await;
+    assert_eq!(
+        archived["total"], 1,
+        "status=archived must return only archived notes"
+    );
+    assert_eq!(archived["items"][0]["id"], json!(archived_id));
+    assert_eq!(archived["items"][0]["status"], "archived");
+    assert!(
+        !archived["items"][0]["archived_at"].is_null(),
+        "an archived list item must carry archived_at"
+    );
+
+    let active = list_notes(&app, "status=active").await;
+    assert_eq!(
+        active["total"], 1,
+        "status=active must return only active notes"
+    );
+    assert_eq!(active["items"][0]["id"], json!(active_id));
+
+    let both = list_notes(&app, "").await;
+    assert_eq!(
+        both["total"], 2,
+        "omitting status must return both statuses"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn patch_note_archives_unarchives_and_ignores_unknown_status() {
+    let app = test_app().await;
+    let note_id = create_note(&app, "Archivable note").await;
+
+    let archived = patch_note(&app, &note_id, json!({"status": "archived"})).await;
+    assert_eq!(archived["status"], "archived");
+    assert!(
+        !archived["archived_at"].is_null(),
+        "PATCH archive must set archived_at"
+    );
+
+    let still_archived = patch_note(&app, &note_id, json!({"status": "bogus"})).await;
+    assert_eq!(
+        still_archived["status"], "archived",
+        "an unrecognized status must be ignored"
+    );
+    assert!(
+        !still_archived["archived_at"].is_null(),
+        "an unrecognized status must keep archived_at"
+    );
+
+    let active = patch_note(&app, &note_id, json!({"status": "active"})).await;
+    assert_eq!(active["status"], "active");
+    assert!(
+        active["archived_at"].is_null(),
+        "PATCH active must clear archived_at"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn put_note_status_archives_and_unarchives() {
+    let app = test_app().await;
+    let note_id = create_note(&app, "Put archivable note").await;
+
+    let archived = put_note(
+        &app,
+        &note_id,
+        json!({"title": "Put archivable note", "content": NOTE_CONTENT, "status": "archived"}),
+    )
+    .await;
+    assert_eq!(archived["status"], "archived");
+    assert!(
+        !archived["archived_at"].is_null(),
+        "PUT archive must set archived_at in the response"
+    );
+
+    let fetched = get_note(&app, &note_id).await;
+    assert_eq!(fetched["status"], "archived");
+    assert!(
+        !fetched["archived_at"].is_null(),
+        "PUT archive must set archived_at through the repository"
+    );
+
+    let active = put_note(
+        &app,
+        &note_id,
+        json!({"title": "Put archivable note", "content": NOTE_CONTENT, "status": "active"}),
+    )
+    .await;
+    assert_eq!(active["status"], "active");
+    assert!(
+        active["archived_at"].is_null(),
+        "PUT active must clear archived_at in the response"
+    );
+
+    let fetched = get_note(&app, &note_id).await;
+    assert_eq!(fetched["status"], "active");
+    assert!(
+        fetched["archived_at"].is_null(),
+        "PUT active must clear archived_at"
+    );
+}

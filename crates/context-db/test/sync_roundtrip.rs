@@ -3,8 +3,8 @@
 use crate::SqliteDatabase;
 use context_core::{
     Database, HasNotes, HasProjects, HasRepos, HasSkills, HasSync, HasTaskLists, HasTasks, Note,
-    NoteRepository, Project, ProjectRepository, Repo, RepoRepository, Skill, SkillRepository,
-    SyncRepository, TaskList, TaskListRepository, TaskListStatus, write_jsonl,
+    NoteRepository, NoteStatus, Project, ProjectRepository, Repo, RepoRepository, Skill,
+    SkillRepository, SyncRepository, TaskList, TaskListRepository, TaskListStatus, write_jsonl,
 };
 use tempfile::TempDir;
 
@@ -141,6 +141,8 @@ async fn test_import_export_preserves_all_relationships() {
         repo_ids: vec!["repo0001".to_string()],
         project_ids: vec!["proj0001".to_string()],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
@@ -319,6 +321,8 @@ async fn test_export_import_preserves_note_hierarchy() {
         repo_ids: vec![],
         project_ids: vec!["proj0001".to_string()],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2024-01-01T00:00:00Z".to_string()),
         updated_at: Some("2024-01-01T00:00:00Z".to_string()),
         deleted_at: None,
@@ -336,6 +340,8 @@ async fn test_export_import_preserves_note_hierarchy() {
         repo_ids: vec![],
         project_ids: vec!["proj0001".to_string()],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2024-01-02T00:00:00Z".to_string()),
         updated_at: Some("2024-01-02T00:00:00Z".to_string()),
         deleted_at: None,
@@ -353,6 +359,8 @@ async fn test_export_import_preserves_note_hierarchy() {
         repo_ids: vec![],
         project_ids: vec!["proj0001".to_string()],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2024-01-03T00:00:00Z".to_string()),
         updated_at: Some("2024-01-03T00:00:00Z".to_string()),
         deleted_at: None,
@@ -566,6 +574,8 @@ fn link_note(id: &str, project_ids: &[&str], repo_ids: &[&str], updated_at: &str
         repo_ids: repo_ids.iter().map(|id| id.to_string()).collect(),
         project_ids: project_ids.iter().map(|id| id.to_string()).collect(),
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some(LINK_CREATED_AT.to_string()),
         updated_at: Some(updated_at.to_string()),
         deleted_at: None,

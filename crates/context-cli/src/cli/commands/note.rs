@@ -51,6 +51,8 @@ pub struct UpdateNoteRequest {
     pub project_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repo_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Tabled)]
@@ -91,6 +93,7 @@ pub async fn list_notes(
     tags: Option<&str>,
     parent_id: Option<&str>,
     note_type: Option<&str>,
+    status: Option<&str>,
     page: PageParams<'_>,
     format: &str,
 ) -> CliResult<String> {
@@ -110,6 +113,9 @@ pub async fn list_notes(
     }
     if let Some(nt) = note_type {
         request = request.query(&[("note_type", nt)]);
+    }
+    if let Some(s) = status {
+        request = request.query(&[("status", s)]);
     }
     if let Some(l) = page.limit {
         request = request.query(&[("limit", l.to_string())]);

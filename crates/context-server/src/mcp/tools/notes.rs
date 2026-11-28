@@ -16,7 +16,7 @@ use std::sync::Arc;
 use crate::api::notifier::{ChangeNotifier, UpdateMessage};
 use crate::mcp::tools::anchors::{AnchorError, compute_section_etag, resolve_anchor};
 use crate::mcp::tools::map_db_error;
-use context_core::{HasNotes, Note, NoteQuery, NoteRepository, PageSort};
+use context_core::{HasNotes, Note, NoteQuery, NoteRepository, NoteStatus, PageSort};
 
 // =============================================================================
 // ETag Helper
@@ -257,6 +257,8 @@ pub struct ListNotesParams {
         description = "Filter by note type: 'note' (parent notes only) or 'subnote' (subnotes only). Omit to return both parent notes and subnotes (default)."
     )]
     pub note_type: Option<String>,
+    #[schemars(description = "Filter by status (active, archived). Omit to return both.")]
+    pub status: Option<String>,
     #[schemars(description = "Maximum number of items to return (default: 10, max: 20)")]
     pub limit: Option<usize>,
     #[schemars(description = "Number of items to skip")]
@@ -355,6 +357,10 @@ pub struct EditNoteParams {
     #[schemars(description = "Project IDs to link (REQUIRED for session notes)")]
     pub project_ids: Option<Vec<String>>,
     #[schemars(
+        description = "Archive state: 'active' or 'archived'. Omit to leave unchanged. Archiving sets archived_at; 'active' clears it."
+    )]
+    pub status: Option<String>,
+    #[schemars(
         description = "Patches. Each targets either the line range [start, end] or an 'anchor'; anchors resolve server-side against the current content. Validated before any write, applied in reverse order."
     )]
     pub patches: Vec<LinePatch>,
@@ -383,7 +389,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "List notes. Query for FTS search. Default: metadata only. Filter by tags/project_id/parent_id/note_type. Limit: 10 (max 20)."
+        description = "List notes. Query for FTS search. Default: metadata only. Filter by tags/project_id/parent_id/note_type/status. Status 'archived' returns archived notes only, 'active' returns live notes only. Limit: 10 (max 20)."
     )]
     pub async fn note_list(
         &self,
@@ -405,6 +411,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
             project_id: params.0.project_id.clone(),
             parent_id: params.0.parent_id.clone(),
             note_type: params.0.note_type.clone(),
+            status: params.0.status.clone(),
         };
 
         // If query is provided, perform FTS search
@@ -453,8 +460,10 @@ impl<D: HasNotes + 'static> NoteTools<D> {
             repo_ids: params.0.repo_ids.clone().unwrap_or_default(),
             project_ids: params.0.project_ids.clone().unwrap_or_default(),
             subnote_count: None,
+            status: NoteStatus::Active,
             created_at: None, // Will be set by DB
             updated_at: None, // Will be set by DB
+            archived_at: None,
             deleted_at: None,
         };
 
@@ -470,7 +479,9 @@ impl<D: HasNotes + 'static> NoteTools<D> {
         )]))
     }
 
-    #[tool(description = "Delete note permanently. Consider archiving with tags instead.")]
+    #[tool(
+        description = "Delete note permanently. Consider archiving with status='archived' instead."
+    )]
     pub async fn note_delete(
         &self,
         params: Parameters<DeleteNoteParams>,
@@ -835,6 +846,12 @@ impl<D: HasNotes + 'static> NoteTools<D> {
         }
         if let Some(project_ids) = &params.0.project_ids {
             note.project_ids = project_ids.clone();
+        }
+        if let Some(status) = &params.0.status {
+            note.status = match status.as_str() {
+                "archived" => NoteStatus::Archived,
+                _ => NoteStatus::Active,
+            };
         }
 
         // Apply the resolved line-range patches to content if provided

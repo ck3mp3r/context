@@ -127,6 +127,8 @@ pub struct NoteQuery {
     /// Filter by note type: "note" (parent_id IS NULL) or "subnote" (parent_id IS NOT NULL).
     /// Omit to return both parent notes and subnotes.
     pub note_type: Option<String>,
+    /// Filter by status (active, archived).
+    pub status: Option<String>,
 }
 
 /// Query for Skills - pagination + tags/project filters.
@@ -376,11 +378,47 @@ pub struct Note {
     /// Count of subnotes (children) - computed field, not stored in DB
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subnote_count: Option<i32>,
+    /// Archive state, independent of the `deleted_at` tombstone.
+    #[serde(default)]
+    pub status: NoteStatus,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    /// Timestamp when the note was archived (NULL = not archived)
+    #[serde(default)]
+    pub archived_at: Option<String>,
     /// Timestamp when the note was soft-deleted (NULL = not deleted)
     #[serde(default)]
     pub deleted_at: Option<String>,
+}
+
+/// Status of a note.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum NoteStatus {
+    #[default]
+    Active,
+    Archived,
+}
+
+impl std::fmt::Display for NoteStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NoteStatus::Active => write!(f, "active"),
+            NoteStatus::Archived => write!(f, "archived"),
+        }
+    }
+}
+
+impl std::str::FromStr for NoteStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(NoteStatus::Active),
+            "archived" => Ok(NoteStatus::Archived),
+            _ => Err(format!("Unknown note status: {}", s)),
+        }
+    }
 }
 
 /// A skill entity following Agent Skills specification (<https://agentskills.io/specification>).

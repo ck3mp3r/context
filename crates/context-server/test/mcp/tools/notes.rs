@@ -2,15 +2,15 @@
 
 use std::sync::Arc;
 
-use context_core::{Database, HasNotes, Note, NoteRepository};
+use context_core::{Database, HasNotes, Note, NoteRepository, NoteStatus};
 use context_db::SqliteDatabase;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ErrorCode};
 use serde_json::{Value, json};
 
 use super::{
-    CreateNoteParams, EditNoteParams, LinePatch, LineRange, NoteTools, ReadNoteParams,
-    compute_range_etag, compute_section_etag,
+    CreateNoteParams, EditNoteParams, LinePatch, LineRange, ListNotesParams, NoteTools,
+    ReadNoteParams, compute_range_etag, compute_section_etag,
 };
 use crate::api::notifier::ChangeNotifier;
 
@@ -38,8 +38,10 @@ async fn create_note(db: &SqliteDatabase, content: &str) -> String {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: context_core::NoteStatus::Active,
         created_at: None,
         updated_at: None,
+        archived_at: None,
         deleted_at: None,
     };
 
@@ -148,6 +150,7 @@ fn edit_params(note_id: &str, etag: Option<String>, patches: Vec<LinePatch>) -> 
         idx: None,
         repo_ids: None,
         project_ids: None,
+        status: None,
         patches,
     }
 }
@@ -1232,5 +1235,101 @@ async fn note_edit_stores_multiline_replacement_verbatim() {
         !stored.content.contains("\\n"),
         "stored content must not contain literal backslash-n sequences, got: {:?}",
         stored.content
+    );
+}
+
+async fn list_with_status(tools: &NoteTools<SqliteDatabase>, status: Option<&str>) -> Value {
+    let params = ListNotesParams {
+        query: None,
+        tags: None,
+        project_id: None,
+        parent_id: None,
+        note_type: None,
+        status: status.map(str::to_string),
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools
+        .note_list(Parameters(params))
+        .await
+        .expect("note_list should succeed");
+    text_json(&result)
+}
+
+async fn edit_status(tools: &NoteTools<SqliteDatabase>, note_id: &str, status: &str) -> Value {
+    let etag = full_etag(tools, note_id).await;
+    let mut params = edit_params(note_id, Some(etag), vec![]);
+    params.status = Some(status.to_string());
+
+    let result = tools
+        .note_edit(Parameters(params))
+        .await
+        .expect("a status-only edit must succeed");
+    text_json(&result)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list_filters_by_status() {
+    let (db, tools) = setup_tools().await;
+    let active_id = create_note(&db, "Active body").await;
+    let archived_id = create_note(&db, "Archived body").await;
+    edit_status(&tools, &archived_id, "archived").await;
+
+    let archived = list_with_status(&tools, Some("archived")).await;
+    assert_eq!(
+        archived["total"], 1,
+        "status=archived must return only archived notes"
+    );
+    assert_eq!(archived["items"][0]["id"], json!(archived_id));
+    assert_eq!(archived["items"][0]["status"], "archived");
+
+    let active = list_with_status(&tools, Some("active")).await;
+    assert_eq!(
+        active["total"], 1,
+        "status=active must return only active notes"
+    );
+    assert_eq!(active["items"][0]["id"], json!(active_id));
+
+    let both = list_with_status(&tools, None).await;
+    assert_eq!(
+        both["total"], 2,
+        "omitting status must return both statuses"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_edit_archives_and_unarchives() {
+    let (db, tools) = setup_tools().await;
+    let note_id = create_note(&db, NINE_LINES).await;
+
+    let archived = edit_status(&tools, &note_id, "archived").await;
+    assert_eq!(archived["status"], "archived");
+    assert!(
+        !archived["archived_at"].is_null(),
+        "archiving must set archived_at in the tool response"
+    );
+
+    let stored = db.notes().get(&note_id).await.expect("Get should succeed");
+    assert_eq!(stored.status, NoteStatus::Archived);
+    assert!(
+        stored.archived_at.is_some(),
+        "archiving must set archived_at in the database"
+    );
+
+    let active = edit_status(&tools, &note_id, "active").await;
+    assert_eq!(active["status"], "active");
+    assert!(
+        active["archived_at"].is_null(),
+        "unarchiving must clear archived_at in the tool response"
+    );
+
+    let stored = db.notes().get(&note_id).await.expect("Get should succeed");
+    assert_eq!(stored.status, NoteStatus::Active);
+    assert_eq!(
+        stored.archived_at, None,
+        "unarchiving must clear archived_at"
     );
 }
