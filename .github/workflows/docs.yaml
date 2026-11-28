@@ -1,0 +1,38 @@
+---
+name: Build and deploy GH Pages
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: "true"
+
+      - name: Install Determinate Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: Check site
+        run: cd docs && nix develop --no-pure-eval --command zola check
+
+  build:
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: "true"
+
+      - name: Build and deploy
+        uses: shalzz/zola-deploy-action@v0.22.1
+        env:
+          BUILD_DIR: docs
+          PAGES_BRANCH: gh_pages
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
