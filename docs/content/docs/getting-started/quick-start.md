@@ -13,6 +13,9 @@ This page walks the first five minutes: start the server, create a project, add
 a task list, add tasks, and move one task through its states. Every command
 talks to the running server over HTTP.
 
+With the macOS app or the Linux container the server already runs on port 3737.
+The `c5t api` command starts the server for a CLI install.
+
 The IDs in the commands below are examples. Replace each one with the ID that
 your own run printed: the create commands print it, and the `list` commands show
 it again.

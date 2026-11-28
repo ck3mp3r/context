@@ -35,9 +35,9 @@ brew install --cask ck3mp3r/context/context
 ```
 
 The cask copies `Context.app` into `/Applications`. You can also download
-`Context_<version>_aarch64.dmg` from the
+`context-<version>-aarch64-darwin.dmg` and the matching `.sha256` file from the
 [releases page](https://github.com/ck3mp3r/context/releases) and copy
-`Context.app` out of it.
+`Context.app` out of the disk image.
 
 The app uses the system WebKit framework, which ships with macOS. No other
 runtime is needed.
@@ -198,6 +198,6 @@ of `Contents/MacOS` on its own has no sibling to start.
 
 ## What's next?
 
-- [Install](@/docs/getting-started/install.md) — the CLI, the container image, and the Nix package.
+- [Install](@/docs/getting-started/install.md) — the macOS app and the Linux container.
 - [MCP](@/docs/integration/mcp.md) — point an agent at the app's MCP endpoint.
 - [Sync](@/docs/integration/sync.md) — the tray sync row, explained.

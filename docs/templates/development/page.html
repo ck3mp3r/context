@@ -1,0 +1,6 @@
+{% extends "docs/page.html" %}
+
+{% block header %}
+  {% set current_section = "development" %}
+  {{ macros_header::header(current_section=current_section)}}
+{% endblock header %}
