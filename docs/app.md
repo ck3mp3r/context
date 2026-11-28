@@ -397,40 +397,6 @@ The app updates itself from GitHub releases. The service owns the flow, so an up
    | Debug | `~/.config/c5t-dev/update.json` |
    | Release | `~/.config/c5t/update.json` |
 
-### Verify a restart on the installed bundle
-
-The automated tests stand a `/bin/sleep` process in for the GUI, so they cover neither the swapped bundle paths nor LaunchServices activation. This procedure checks the restart on a real bundle.
-
-Prerequisites:
-
-- Two signed Developer ID release builds, with different versions. Install the older one as `/Applications/Context.app`.
-- Publish the newer build as a release the configured channel offers.
-- No other server on 3737: `lsof -nP -iTCP:3737 -sTCP:LISTEN` prints nothing.
-- A terminal for the app's output. The bundle writes no log file, and a Finder launch leaves the service without a terminal.
-
-1. Run `/Applications/Context.app/Contents/MacOS/Context` from that terminal. The service it starts inherits the terminal's stderr. `About Context` in the app menu shows the installed version.
-2. Press Check for updates on the Settings page. The banner offers the newer version.
-3. Press Install in the banner. The tray row reads `Update: ready — restart to finish`.
-4. Press `Restart now` in the pill. The window closes and the tray icon disappears.
-5. Wait a few seconds. The tray icon reappears and the window comes back.
-
-Check each observable after the restart:
-
-```sh
-# One GUI process, running the swapped bundle main.
-pgrep -x Context | wc -l
-#        1
-```
-
-`About Context` shows the newer version. The badge next to the `context` wordmark shows the same newer version.
-
-```sh
-curl -s http://localhost:3737/api/v1/update/status
-# {"current_version":"<newer version>","status":"idle","updated_at":"<timestamp>"}
-```
-
-If no GUI process runs after the restart, then choose `Show Context` in the tray menu: it launches the GUI of this profile while the new service keeps serving. Record the service lines from the terminal. A restart that stops before the new service starts prints `context: update restart stopped: <reason>` and leaves the state `ready`, so the pill offers the restart again. A GUI that will not start prints `context-service: <reason>` and the restart goes on; the new service settles the state to `idle` once it runs the installed version. The terminal has to start the service: quitting the GUI leaves a running service's stderr where it was, and the tray's Quit ends the service, so a start after it settles the state and cannot replay the restart.
-
 ### Settings
 
 `config.toml` carries two keys, both editable on the Settings page. A change applies on the next check; no restart is needed.

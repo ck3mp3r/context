@@ -13,7 +13,7 @@ pub fn update_phrase(status: &str, candidate_version: Option<&str>) -> Option<St
         "checking" => "Checking for updates…".to_string(),
         "downloading" => "Downloading update…".to_string(),
         "installing" => "Finishing the update…".to_string(),
-        "ready" => "Update installed — restarting quits and reopens the app".to_string(),
+        "ready" => "Update installed — restart to apply".to_string(),
         "available" => {
             match candidate_version
                 .map(str::trim)
