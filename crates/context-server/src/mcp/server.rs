@@ -358,7 +358,7 @@ impl<D: Database + 'static> McpServer<D> {
     }
 
     #[tool(
-        description = "Edit note. Requires a whole-note etag from note_read, or one range etag (range read) or section etag (anchor read) per patch. Each patch targets either a line range ('start' and 'end') or an 'anchor', never both and never neither. Metadata-only edits require the whole-note etag. Patches are validated before any write and applied in reverse order."
+        description = "Edit note. Metadata-only edits (empty patches) need no etag; a provided whole-note etag is still validated. Content patches require the whole-note etag from note_read or one range/section etag per patch. Each patch targets either a line range ('start' and 'end') or an 'anchor', never both and never neither. Patches are validated before any write and applied in reverse order."
     )]
     pub async fn note_edit(
         &self,
