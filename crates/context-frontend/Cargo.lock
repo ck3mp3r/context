@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "context-frontend"
-version = "0.8.0"
+version = "0.8.0-pre.89"
 dependencies = [
  "codee",
  "console_error_panic_hook",
