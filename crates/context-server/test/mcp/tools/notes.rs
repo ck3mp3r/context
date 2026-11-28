@@ -1259,6 +1259,31 @@ async fn list_with_status(tools: &NoteTools<SqliteDatabase>, status: Option<&str
     text_json(&result)
 }
 
+async fn list_with_query_and_status(
+    tools: &NoteTools<SqliteDatabase>,
+    query: &str,
+    status: Option<&str>,
+) -> Value {
+    let params = ListNotesParams {
+        query: Some(query.to_string()),
+        tags: None,
+        project_id: None,
+        parent_id: None,
+        note_type: None,
+        status: status.map(str::to_string),
+        limit: None,
+        offset: None,
+        sort: None,
+        order: None,
+    };
+
+    let result = tools
+        .note_list(Parameters(params))
+        .await
+        .expect("note_list should succeed");
+    text_json(&result)
+}
+
 async fn edit_status(tools: &NoteTools<SqliteDatabase>, note_id: &str, status: &str) -> Value {
     let etag = full_etag(tools, note_id).await;
     let mut params = edit_params(note_id, Some(etag), vec![]);
@@ -1297,6 +1322,34 @@ async fn note_list_filters_by_status() {
     assert_eq!(
         both["total"], 2,
         "omitting status must return both statuses"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn note_list_combines_query_and_status() {
+    let (db, tools) = setup_tools().await;
+    let archived_id = create_note(&db, "Deliberately archived body").await;
+    create_note(&db, "Unrelated active body").await;
+    edit_status(&tools, &archived_id, "archived").await;
+
+    let search_only = list_with_query_and_status(&tools, "deliberately", None).await;
+    assert_eq!(
+        search_only["total"], 1,
+        "query alone must match the archived note"
+    );
+
+    let archived = list_with_query_and_status(&tools, "deliberately", Some("archived")).await;
+    assert_eq!(
+        archived["total"], 1,
+        "query with status=archived must return the archived match"
+    );
+    assert_eq!(archived["items"][0]["id"], json!(archived_id));
+    assert_eq!(archived["items"][0]["status"], "archived");
+
+    let active = list_with_query_and_status(&tools, "deliberately", Some("active")).await;
+    assert_eq!(
+        active["total"], 0,
+        "query with status=active must exclude the archived match"
     );
 }
 

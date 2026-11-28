@@ -57,6 +57,7 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
 
     // Show archived is per-tab list state: it never enters the URL (decision 20).
     let show_archived_task_lists = RwSignal::new(false);
+    let show_archived_notes = RwSignal::new(false);
 
     // Skill detail modal state
     let skill_modal_open = RwSignal::new(false);
@@ -223,10 +224,11 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
         });
     });
 
-    // Fetch notes for this project (with FTS5 search support and pagination)
+    // Fetch notes for this project (with archived toggle, FTS5 search support, and pagination)
     Effect::new(move || {
         let id = project_id.get_value();
         let search = note_search.search_query.get();
+        let show_archived = show_archived_notes.get();
         let current_page = note_pagination.page.get();
         let current_sort = note_sort.sort_field.get();
         let current_order = note_sort.sort_order.get();
@@ -236,6 +238,7 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
             return;
         }
         spawn_local(async move {
+            let status = if show_archived { None } else { Some("active") };
             let search_query = if search.trim().is_empty() {
                 None
             } else {
@@ -251,6 +254,10 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
                 .param("project_id", id)
                 .param("type", "note")
                 .param("include_content", "true");
+
+            if let Some(stat) = status {
+                builder = builder.param("status", stat);
+            }
 
             if let Some(search) = search_query {
                 builder = builder.search(search);
@@ -577,7 +584,12 @@ pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
                                                                 on_change=note_search.on_debounced_change
                                                                 on_immediate_change=note_search.on_immediate_change
                                                                 placeholder="Search notes..."
-                                                            />
+                                                            >
+                                                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                                                    <Switch checked=show_archived_notes/>
+                                                                    <span class="text-sm text-ctp-text">"Show archived"</span>
+                                                                </div>
+                                                            </SearchInput>
                                                         </div>
                                                         <SortControls
                                                             sort_field=note_sort.sort_field

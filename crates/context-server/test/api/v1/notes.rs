@@ -48,6 +48,11 @@ async fn json_body(response: axum::response::Response) -> Value {
 
 /// Create a note with the shared content; return its ID.
 async fn create_note(app: &axum::Router, title: &str) -> String {
+    create_note_with_content(app, title, NOTE_CONTENT).await
+}
+
+/// Create a note with custom content; return its ID.
+async fn create_note_with_content(app: &axum::Router, title: &str, content: &str) -> String {
     let response = app
         .clone()
         .oneshot(
@@ -58,7 +63,7 @@ async fn create_note(app: &axum::Router, title: &str) -> String {
                 .body(Body::from(
                     serde_json::to_vec(&json!({
                         "title": title,
-                        "content": NOTE_CONTENT
+                        "content": content
                     }))
                     .unwrap(),
                 ))
@@ -351,6 +356,40 @@ async fn list_notes_filters_by_status() {
         both["total"], 2,
         "omitting status must return both statuses"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_notes_combines_query_and_status() {
+    let app = test_app().await;
+    let archived_id = create_note_with_content(
+        &app,
+        "Archived match",
+        "The archived body mentions deliberately.",
+    )
+    .await;
+    create_note_with_content(&app, "Active non-match", "Nothing relevant in this body.").await;
+    patch_note(&app, &archived_id, json!({"status": "archived"})).await;
+
+    let search_only = list_notes(&app, "q=deliberately").await;
+    assert_eq!(
+        search_only["total"], 1,
+        "q alone must match the archived note"
+    );
+
+    let archived = list_notes(&app, "q=deliberately&status=archived").await;
+    assert_eq!(
+        archived["total"], 1,
+        "q with status=archived must return the archived match"
+    );
+    assert_eq!(archived["items"][0]["id"], json!(archived_id));
+    assert_eq!(archived["items"][0]["status"], "archived");
+
+    let active = list_notes(&app, "q=deliberately&status=active").await;
+    assert_eq!(
+        active["total"], 0,
+        "q with status=active must exclude the archived match"
+    );
+    assert_eq!(active["items"], json!([]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
