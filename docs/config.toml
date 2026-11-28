@@ -29,7 +29,7 @@ title_addition = "Context manager for AI agents"
 [[extra.menu.main]]
 name = "Docs"
 section = "docs"
-url = "/docs/getting-started/quick-start/"
+url = "/docs/getting-started/install/"
 weight = 10
 
 [[extra.menu.main]]

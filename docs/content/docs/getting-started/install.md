@@ -92,6 +92,6 @@ skill attachments.
 
 ## What's next?
 
-- [Quick Start](@/docs/getting-started/quick-start.md) — a project, a task list, and your first tasks.
+- [Quick Start](@/docs/getting-started/quick-start.md) — open the app, look around, and create your first context.
 - [macOS app](@/docs/app/macos.md) — run the app, read the tray, and update it.
 - [Other ways to install](@/docs/other-install/cli.md) — the CLI, archives, Nix, and source builds.

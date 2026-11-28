@@ -1,6 +1,6 @@
 +++
 title = "Getting Started"
-description = "Install the app or the container and run your first c5t command in three steps."
+description = "Install the macOS app or the Linux container, then open the Web UI and create your first context."
 sort_by = "weight"
 template = "docs/section.html"
 weight = 1
