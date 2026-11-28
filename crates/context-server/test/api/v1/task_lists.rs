@@ -1,7 +1,8 @@
 //! Co-located tests for task-list REST handlers.
 //!
 //! Covers the list payload rule: container listings omit the freeform notes
-//! markdown; single-entity responses keep it.
+//! markdown; single-entity responses keep it. Also covers PUT archive state:
+//! the repository owns archived_at and the response reflects the stored row.
 
 use axum::{
     body::Body,
@@ -83,6 +84,44 @@ async fn create_list_with_notes(app: &axum::Router, title: &str) -> String {
         .unwrap();
     assert_eq!(list.status(), StatusCode::CREATED);
     json_body(list).await["id"].as_str().unwrap().to_string()
+}
+
+/// PUT a task-list body and return the raw response.
+async fn put_task_list(app: &axum::Router, id: &str, body: Value) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/task-lists/{id}"))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+/// PUT a task-list body, assert HTTP 200, and return the response body.
+async fn put_task_list_ok(app: &axum::Router, id: &str, body: Value) -> Value {
+    let response = put_task_list(app, id, body).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    json_body(response).await
+}
+
+/// GET one task list, assert HTTP 200, and return the response body.
+async fn get_task_list(app: &axum::Router, id: &str) -> Value {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/task-lists/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    json_body(response).await
 }
 
 /// GET the task-list collection with an optional raw query string.
@@ -191,4 +230,121 @@ async fn get_task_list_still_returns_notes() {
         json!(LIST_NOTES),
         "single-entity GET must keep the stored notes"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn put_task_list_archive_sets_archived_at() {
+    let app = test_app().await;
+    let list_id = create_list_with_notes(&app, "Archive Me").await;
+
+    let body = put_task_list_ok(
+        &app,
+        &list_id,
+        json!({"title": "Updated", "status": "archived"}),
+    )
+    .await;
+
+    let archived_at = body["archived_at"]
+        .as_str()
+        .expect("PUT archive response must carry a non-null archived_at")
+        .to_string();
+    assert_eq!(body["status"], "archived");
+
+    let stored = get_task_list(&app, &list_id).await;
+    assert_eq!(
+        stored["archived_at"],
+        json!(archived_at),
+        "GET must return the same archived_at the PUT response reported"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn put_task_list_unarchive_clears_archived_at() {
+    let app = test_app().await;
+    let list_id = create_list_with_notes(&app, "Unarchive Me").await;
+
+    put_task_list_ok(
+        &app,
+        &list_id,
+        json!({"title": "Updated", "status": "archived"}),
+    )
+    .await;
+
+    let body = put_task_list_ok(
+        &app,
+        &list_id,
+        json!({"title": "Updated", "status": "active"}),
+    )
+    .await;
+
+    assert!(
+        body["archived_at"].is_null(),
+        "unarchive response must report archived_at null, got: {}",
+        body["archived_at"]
+    );
+    assert_eq!(body["status"], "active");
+
+    let stored = get_task_list(&app, &list_id).await;
+    assert!(
+        stored["archived_at"].is_null(),
+        "unarchived task list must stay cleared, got: {}",
+        stored["archived_at"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn put_task_list_rearchive_preserves_archived_at() {
+    let app = test_app().await;
+    let list_id = create_list_with_notes(&app, "Re-archive Me").await;
+
+    let first = put_task_list_ok(
+        &app,
+        &list_id,
+        json!({"title": "Updated", "status": "archived"}),
+    )
+    .await;
+    let first_archived_at = first["archived_at"]
+        .as_str()
+        .expect("first archive response must carry a non-null archived_at")
+        .to_string();
+
+    let second = put_task_list_ok(
+        &app,
+        &list_id,
+        json!({"title": "Updated", "status": "archived"}),
+    )
+    .await;
+
+    assert_eq!(
+        second["archived_at"],
+        json!(first_archived_at),
+        "repository idempotence must preserve the original archived_at"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn put_task_list_without_status_leaves_archived_at() {
+    let app = test_app().await;
+    let list_id = create_list_with_notes(&app, "Keep Archive").await;
+
+    let archived = put_task_list_ok(
+        &app,
+        &list_id,
+        json!({"title": "Updated", "status": "archived"}),
+    )
+    .await;
+    let archived_at = archived["archived_at"]
+        .as_str()
+        .expect("archive response must carry a non-null archived_at")
+        .to_string();
+
+    let renamed = put_task_list_ok(&app, &list_id, json!({"title": "Renamed"})).await;
+
+    assert_eq!(
+        renamed["archived_at"],
+        json!(archived_at),
+        "PUT without status must leave archived_at unchanged"
+    );
+    assert_eq!(renamed["status"], "archived");
+    assert_eq!(renamed["title"], "Renamed");
 }

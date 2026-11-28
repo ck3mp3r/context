@@ -12,7 +12,6 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
-use context_core::current_timestamp;
 use context_core::update::UpdateFlow;
 use context_core::{
     Database, DbError, PageSort, SortOrder, TaskList, TaskListQuery, TaskListRepository,
@@ -455,16 +454,14 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync, U: UpdateFlo
 
     if let Some(status) = req.status {
         list.status = match status.as_str() {
-            "archived" => {
-                list.archived_at = Some(current_timestamp());
-                TaskListStatus::Archived
-            }
+            "archived" => TaskListStatus::Archived,
             _ => TaskListStatus::Active,
         };
     }
     // Clear updated_at to ensure proper timestamp refresh on PUT
     list.updated_at = None;
 
+    // Save (repository handles auto-timestamps for archived_at)
     state.db().task_lists().update(&list).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -479,7 +476,17 @@ pub async fn update_task_list<D: Database, G: GitOps + Send + Sync, U: UpdateFlo
         task_list_id: id.clone(),
     });
 
-    Ok(Json(TaskListResponse::from(list)))
+    // Re-fetch so the response carries the repository-managed archived_at
+    let updated = state.db().task_lists().get(&id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(Json(TaskListResponse::from(updated)))
 }
 
 #[utoipa::path(
