@@ -299,6 +299,12 @@ fn map_sync_error(err: SyncError) -> McpError {
                 "error": "Sync not initialized. Run init operation first.",
             })),
         ),
+        SyncError::SyncDisabled => McpError::invalid_params(
+            "sync_disabled",
+            Some(serde_json::json!({
+                "error": "Sync is disabled on this machine",
+            })),
+        ),
         SyncError::Database(db_err) => map_db_error(db_err),
         SyncError::Git(git_err) => McpError::internal_error(
             "git_error",

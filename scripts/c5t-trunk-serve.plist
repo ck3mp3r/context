@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>c5t-trunk-serve</string>
+
+    <!-- No KeepAlive: the system never respawns the preview behind the user's back. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/nix/store/ik54y0fh6ip3mhjvjrcfljq47gxraib8-trunk-0.22.1/bin/trunk</string>
+        <string>serve</string>
+        <!-- Trunk.toml sets `open = true`; an agent must not open a browser tab. -->
+        <string>--open=false</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/christian/Projects/ck3mp3r/context</string>
+
+    <!-- launchd's default PATH is /usr/bin:/bin:/usr/sbin:/sbin, so the pre_build hook
+         (`tailwindcss`) and the cargo build need the dev shell's directories. Refresh them with
+         `nix develop --command printenv PATH` after a flake update. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/nix/store/ik54y0fh6ip3mhjvjrcfljq47gxraib8-trunk-0.22.1/bin:/nix/store/gbq0lbiwqlnpmlr48agfn6b1hccqpkqp-tailwindcss_4-4.3.5/bin:/nix/store/irv3yq55i3snwq0pkwbar89rlxffrsmr-rust-mixed/bin:/nix/store/9m7w0albcvkijchcqsxnwv45bcrkax84-wasm-bindgen-cli-0.2.129/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/trunk-serve.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/trunk-serve.log</string>
+</dict>
+</plist>

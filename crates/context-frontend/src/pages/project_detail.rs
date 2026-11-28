@@ -1,37 +1,29 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::{use_location, use_navigate, use_params_map, use_query_map};
 use thaw::*;
 
 use crate::api::{ApiClientError, QueryBuilder, projects};
 use crate::components::{
-    Breadcrumb, BreadcrumbItem, ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput,
-    SkillCard, SkillDetailModal, SortControls, TaskListCard, TaskListDetailModal,
+    EntityHeader, ExternalRefLink, NoteCard, Pagination, RepoCard, SearchInput, SkillCard,
+    SkillDetailModal, SortControls, TaskListCard,
 };
-use crate::hooks::{build_url_with_params, use_pagination, use_search, use_sort};
+use crate::hooks::{use_pagination_in_memory, use_search_in_memory, use_sort_in_memory};
 use crate::models::{Note, Paginated, Project, Repo, Skill, TaskList, UpdateMessage};
+use crate::tabs::{TabScope, should_refetch};
 use crate::websocket::use_websocket_updates;
 
 #[component]
-pub fn ProjectDetail() -> impl IntoView {
-    let params = use_params_map();
-    let location = use_location();
-    let navigate = use_navigate();
-    let project_id = move || params.read().get("id").unwrap_or_default();
+pub fn ProjectDetail(scope: TabScope) -> impl IntoView {
+    // The tab's entity id never changes for the tab's lifetime, so one local store serves every
+    // reactive closure below without a clone per closure.
+    let project_id = StoredValue::new_local(scope.entity_id().to_string());
 
     let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
 
-    // Determine active tab based on URL path
-    let active_tab = move || {
-        let path = location.pathname.get();
-        match path.as_str() {
-            p if p.contains("/notes") => "notes",
-            p if p.contains("/skills") => "skills",
-            p if p.contains("/repos") => "repos",
-            p if p.contains("/task-lists") => "task-lists",
-            _ => "task-lists", // Default
-        }
-    };
+    // The project dashboard owns the section pills as internal tab state (decision 3): a panel
+    // click changes this signal and never rewrites the URL.
+    let active_panel = RwSignal::new("task-lists");
+    let active_tab = move || active_panel.get();
     let (task_lists_data, set_task_lists_data) =
         signal(None::<Result<Paginated<TaskList>, ApiClientError>>);
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
@@ -44,85 +36,28 @@ pub fn ProjectDetail() -> impl IntoView {
     const SKILL_PAGE_SIZE: usize = 12;
 
     // Hooks for task lists tab
-    let task_list_pagination = use_pagination();
-    let task_list_search = use_search();
-    let task_list_sort = use_sort("updated_at", "desc");
+    let task_list_pagination = use_pagination_in_memory();
+    let task_list_search = use_search_in_memory();
+    let task_list_sort = use_sort_in_memory("updated_at", "desc");
 
     // Hooks for notes tab
-    let note_pagination = use_pagination();
-    let note_search = use_search();
-    let note_sort = use_sort("last_activity_at", "desc");
+    let note_pagination = use_pagination_in_memory();
+    let note_search = use_search_in_memory();
+    let note_sort = use_sort_in_memory("last_activity_at", "desc");
 
     // Hooks for repos tab
-    let repo_pagination = use_pagination();
-    let repo_search = use_search();
-    let repo_sort = use_sort("created_at", "desc");
+    let repo_pagination = use_pagination_in_memory();
+    let repo_search = use_search_in_memory();
+    let repo_sort = use_sort_in_memory("created_at", "desc");
 
     // Hooks for skills tab
-    let skill_pagination = use_pagination();
-    let skill_search = use_search();
-    let skill_sort = use_sort("created_at", "desc");
+    let skill_pagination = use_pagination_in_memory();
+    let skill_search = use_search_in_memory();
+    let skill_sort = use_sort_in_memory("created_at", "desc");
 
-    // Show archived toggle - read from URL
-    let query = use_query_map();
-    let show_archived_from_url = query
-        .read()
-        .get("show_archived")
-        .and_then(|v| v.parse::<bool>().ok())
-        .unwrap_or(false);
-    let show_archived_task_lists = RwSignal::new(show_archived_from_url);
-
-    // Watch for URL changes to sync archive toggle
-    Effect::new(move |_| {
-        let url_archived = query
-            .get()
-            .get("show_archived")
-            .and_then(|v| v.parse::<bool>().ok())
-            .unwrap_or(false);
-        show_archived_task_lists.set(url_archived);
-    });
-
-    // Watch for toggle changes and update URL (reset page to 0)
-    Effect::watch(
-        move || show_archived_task_lists.get(),
-        move |new_value, old_value, _| {
-            // Only update URL if the value actually changed (not initial run)
-            if let Some(old) = old_value
-                && *new_value != *old
-            {
-                let pathname = location.pathname.get();
-                let url = if *new_value {
-                    // Add show_archived param and reset page
-                    build_url_with_params(
-                        pathname,
-                        query.read().clone(),
-                        [
-                            ("show_archived".to_string(), Some("true".to_string())),
-                            ("page".to_string(), None),
-                        ]
-                        .into(),
-                    )
-                } else {
-                    // Remove show_archived param and reset page
-                    build_url_with_params(
-                        pathname,
-                        query.read().clone(),
-                        [
-                            ("show_archived".to_string(), None),
-                            ("page".to_string(), None),
-                        ]
-                        .into(),
-                    )
-                };
-                navigate(&url, Default::default());
-            }
-        },
-        false, // not immediate - wait for first change
-    );
-
-    // Task list detail modal state
-    let task_list_modal_open = RwSignal::new(false);
-    let selected_task_list = RwSignal::new(None::<TaskList>);
+    // Show archived is per-tab list state: it never enters the URL (decision 20).
+    let show_archived_task_lists = RwSignal::new(false);
+    let show_archived_notes = RwSignal::new(false);
 
     // Skill detail modal state
     let skill_modal_open = RwSignal::new(false);
@@ -138,65 +73,106 @@ pub fn ProjectDetail() -> impl IntoView {
     let (skill_refetch_trigger, set_skill_refetch_trigger) = signal(0u32);
     let (project_refetch_trigger, set_project_refetch_trigger) = signal(0u32);
 
-    // Watch for WebSocket updates and trigger refetch when anything changes
+    // A panel opens for good on its first pill click; the default panel is open at mount. Until then
+    // the panel holds no data, so it has nothing to load and nothing to keep live (decision 15).
+    let task_lists_opened = RwSignal::new(true);
+    let notes_opened = RwSignal::new(false);
+    let repos_opened = RwSignal::new(false);
+    let skills_opened = RwSignal::new(false);
+
+    // The tab's own visibility, read without subscribing: the dispatch below reacts to a new
+    // message, never to a tab switch.
+    let tab_active = {
+        let scope = scope.clone();
+        move || untrack(|| scope.is_active())
+    };
+
+    // One websocket message drives at most one refetch, and only for a view that is on screen or has
+    // already loaded (decision 15). A message naming another view's data refetches nothing, and a
+    // panel the user never opened fetches nothing. Every read but the message is untracked, so a
+    // refetch never re-triggers on the data it just wrote.
+    //
+    // A child message names the child's id, not its project, so a panel matches by the kind of data
+    // it lists: it refreshes its own list, which it has loaded.
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            match update {
-                UpdateMessage::NoteCreated { .. }
-                | UpdateMessage::NoteUpdated { .. }
-                | UpdateMessage::NoteDeleted { .. } => {
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let panel = active_panel.get_untracked();
+        match update {
+            UpdateMessage::NoteCreated { .. }
+            | UpdateMessage::NoteUpdated { .. }
+            | UpdateMessage::NoteDeleted { .. } => {
+                if should_refetch(notes_opened.get_untracked(), panel == "notes", true) {
                     web_sys::console::log_1(
                         &"Note updated via WebSocket, refetching project notes...".into(),
                     );
                     set_note_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
-                UpdateMessage::TaskListCreated { .. }
-                | UpdateMessage::TaskListUpdated { .. }
-                | UpdateMessage::TaskListDeleted { .. }
-                | UpdateMessage::TaskCreated { .. }
-                | UpdateMessage::TaskUpdated { .. }
-                | UpdateMessage::TaskDeleted { .. } => {
+            }
+            UpdateMessage::TaskListCreated { .. }
+            | UpdateMessage::TaskListUpdated { .. }
+            | UpdateMessage::TaskListDeleted { .. }
+            | UpdateMessage::TaskCreated { .. }
+            | UpdateMessage::TaskUpdated { .. }
+            | UpdateMessage::TaskDeleted { .. } => {
+                if should_refetch(
+                    task_lists_opened.get_untracked(),
+                    panel == "task-lists",
+                    true,
+                ) {
                     web_sys::console::log_1(
                         &"TaskList/Task updated via WebSocket, refetching project task lists..."
                             .into(),
                     );
                     set_task_list_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
-                UpdateMessage::RepoCreated { .. }
-                | UpdateMessage::RepoUpdated { .. }
-                | UpdateMessage::RepoDeleted { .. } => {
+            }
+            UpdateMessage::RepoCreated { .. }
+            | UpdateMessage::RepoUpdated { .. }
+            | UpdateMessage::RepoDeleted { .. } => {
+                if should_refetch(repos_opened.get_untracked(), panel == "repos", true) {
                     web_sys::console::log_1(
                         &"Repo updated via WebSocket, refetching project repos...".into(),
                     );
                     set_repo_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
-                UpdateMessage::SkillCreated { .. }
-                | UpdateMessage::SkillUpdated { .. }
-                | UpdateMessage::SkillDeleted { .. } => {
+            }
+            UpdateMessage::SkillCreated { .. }
+            | UpdateMessage::SkillUpdated { .. }
+            | UpdateMessage::SkillDeleted { .. } => {
+                if should_refetch(skills_opened.get_untracked(), panel == "skills", true) {
                     web_sys::console::log_1(
                         &"Skill updated via WebSocket, refetching project skills...".into(),
                     );
                     set_skill_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
-                UpdateMessage::ProjectUpdated {
-                    project_id: updated_id,
-                }
-                | UpdateMessage::ProjectDeleted {
-                    project_id: updated_id,
-                } if updated_id == project_id() => {
+            }
+            UpdateMessage::ProjectUpdated {
+                project_id: updated_id,
+            }
+            | UpdateMessage::ProjectDeleted {
+                project_id: updated_id,
+            } => {
+                // The header is the tab's own entity, so its message is the one this tab answers to.
+                if should_refetch(
+                    project_data.get_untracked().is_some(),
+                    tab_active(),
+                    updated_id == project_id.get_value(),
+                ) {
                     web_sys::console::log_1(
                         &"Project updated via WebSocket, refetching project...".into(),
                     );
                     set_project_refetch_trigger.update(|n| *n = n.wrapping_add(1));
                 }
-                _ => {}
             }
+            _ => {}
         }
     });
 
     // Fetch task lists for this project (with archived toggle, search, and pagination)
     Effect::new(move || {
-        let id = project_id();
+        let id = project_id.get_value();
         let _ = project_refetch_trigger.get(); // Track refetch trigger from WebSocket updates
         if !id.is_empty() {
             spawn_local(async move {
@@ -206,157 +182,156 @@ pub fn ProjectDetail() -> impl IntoView {
         }
     });
 
-    // Fetch task lists for this project (with archived toggle, search, and pagination)
+    // Fetch task lists for this project (with archived toggle, search, and pagination). The default
+    // panel is open at mount, so this is the one panel that loads without a click.
     Effect::new(move || {
-        let id = project_id();
+        let id = project_id.get_value();
+        let opened = task_lists_opened.get();
         let show_archived = show_archived_task_lists.get();
         let search_query = task_list_search.search_query.get();
         let current_page = task_list_pagination.page.get();
         let current_sort = task_list_sort.sort_field.get();
         let current_order = task_list_sort.sort_order.get();
         let _ = task_list_refetch_trigger.get();
-        if !id.is_empty() {
-            spawn_local(async move {
-                let status = if show_archived { None } else { Some("active") };
-                let offset = current_page * TASK_LIST_PAGE_SIZE;
-                let search_opt = if search_query.trim().is_empty() {
-                    None
-                } else {
-                    Some(search_query)
-                };
-                let mut builder = QueryBuilder::<TaskList>::new()
-                    .limit(TASK_LIST_PAGE_SIZE)
-                    .offset(offset)
-                    .sort(current_sort)
-                    .order(current_order)
-                    .param("project_id", id);
-
-                if let Some(stat) = status {
-                    builder = builder.param("status", stat);
-                }
-
-                if let Some(search) = search_opt {
-                    builder = builder.search(search);
-                }
-
-                let result = builder.fetch().await;
-                set_task_lists_data.set(Some(result));
-            });
+        if id.is_empty() || !opened {
+            return;
         }
+        spawn_local(async move {
+            let status = if show_archived { None } else { Some("active") };
+            let offset = current_page * TASK_LIST_PAGE_SIZE;
+            let search_opt = if search_query.trim().is_empty() {
+                None
+            } else {
+                Some(search_query)
+            };
+            let mut builder = QueryBuilder::<TaskList>::new()
+                .limit(TASK_LIST_PAGE_SIZE)
+                .offset(offset)
+                .sort(current_sort)
+                .order(current_order)
+                .param("project_id", id);
+
+            if let Some(stat) = status {
+                builder = builder.param("status", stat);
+            }
+
+            if let Some(search) = search_opt {
+                builder = builder.search(search);
+            }
+
+            let result = builder.fetch().await;
+            set_task_lists_data.set(Some(result));
+        });
     });
 
-    // Fetch notes for this project (with FTS5 search support and pagination)
+    // Fetch notes for this project (with archived toggle, FTS5 search support, and pagination)
     Effect::new(move || {
-        let id = project_id();
+        let id = project_id.get_value();
         let search = note_search.search_query.get();
+        let show_archived = show_archived_notes.get();
         let current_page = note_pagination.page.get();
         let current_sort = note_sort.sort_field.get();
         let current_order = note_sort.sort_order.get();
+        let opened = notes_opened.get();
         let _ = note_refetch_trigger.get();
-        if !id.is_empty() {
-            spawn_local(async move {
-                let search_query = if search.trim().is_empty() {
-                    None
-                } else {
-                    Some(search)
-                };
-                let offset = current_page * NOTE_PAGE_SIZE;
-
-                let mut builder = QueryBuilder::<Note>::new()
-                    .limit(NOTE_PAGE_SIZE)
-                    .offset(offset)
-                    .sort(current_sort)
-                    .order(current_order)
-                    .param("project_id", id)
-                    .param("type", "note")
-                    .param("include_content", "true");
-
-                if let Some(search) = search_query {
-                    builder = builder.search(search);
-                }
-
-                let result = builder.fetch().await;
-                set_notes_data.set(Some(result));
-            });
+        if id.is_empty() || !opened {
+            return;
         }
+        spawn_local(async move {
+            let status = if show_archived { None } else { Some("active") };
+            let search_query = if search.trim().is_empty() {
+                None
+            } else {
+                Some(search)
+            };
+            let offset = current_page * NOTE_PAGE_SIZE;
+
+            let mut builder = QueryBuilder::<Note>::new()
+                .limit(NOTE_PAGE_SIZE)
+                .offset(offset)
+                .sort(current_sort)
+                .order(current_order)
+                .param("project_id", id)
+                .param("type", "note")
+                .param("include_content", "true");
+
+            if let Some(stat) = status {
+                builder = builder.param("status", stat);
+            }
+
+            if let Some(search) = search_query {
+                builder = builder.search(search);
+            }
+
+            let result = builder.fetch().await;
+            set_notes_data.set(Some(result));
+        });
     });
 
     // Fetch repos for this project (with pagination)
     Effect::new(move || {
-        let id = project_id();
+        let id = project_id.get_value();
         let current_page = repo_pagination.page.get();
         let current_sort = repo_sort.sort_field.get();
         let current_order = repo_sort.sort_order.get();
         let current_search = repo_search.search_query.get();
+        let opened = repos_opened.get();
         let _ = repo_refetch_trigger.get();
-        if !id.is_empty() {
-            spawn_local(async move {
-                let offset = current_page * REPO_PAGE_SIZE;
-
-                let mut builder = QueryBuilder::<Repo>::new()
-                    .limit(REPO_PAGE_SIZE)
-                    .offset(offset)
-                    .sort(current_sort)
-                    .order(current_order)
-                    .param("project_id", id);
-
-                if !current_search.trim().is_empty() {
-                    builder = builder.search(current_search);
-                }
-
-                let result = builder.fetch().await;
-                set_repos_data.set(Some(result));
-            });
+        if id.is_empty() || !opened {
+            return;
         }
+        spawn_local(async move {
+            let offset = current_page * REPO_PAGE_SIZE;
+
+            let mut builder = QueryBuilder::<Repo>::new()
+                .limit(REPO_PAGE_SIZE)
+                .offset(offset)
+                .sort(current_sort)
+                .order(current_order)
+                .param("project_id", id);
+
+            if !current_search.trim().is_empty() {
+                builder = builder.search(current_search);
+            }
+
+            let result = builder.fetch().await;
+            set_repos_data.set(Some(result));
+        });
     });
 
     // Fetch skills for this project (with pagination)
     Effect::new(move || {
-        let id = project_id();
+        let id = project_id.get_value();
         let current_page = skill_pagination.page.get();
         let current_sort = skill_sort.sort_field.get();
         let current_order = skill_sort.sort_order.get();
         let current_search = skill_search.search_query.get();
+        let opened = skills_opened.get();
         let _ = skill_refetch_trigger.get();
-        if !id.is_empty() {
-            spawn_local(async move {
-                let offset = current_page * SKILL_PAGE_SIZE;
-
-                let mut builder = QueryBuilder::<Skill>::new()
-                    .limit(SKILL_PAGE_SIZE)
-                    .offset(offset)
-                    .sort(current_sort)
-                    .order(current_order)
-                    .param("project_id", id);
-
-                if !current_search.trim().is_empty() {
-                    builder = builder.search(current_search);
-                }
-
-                let result = builder.fetch().await;
-                set_skills_data.set(Some(result));
-            });
+        if id.is_empty() || !opened {
+            return;
         }
+        spawn_local(async move {
+            let offset = current_page * SKILL_PAGE_SIZE;
+
+            let mut builder = QueryBuilder::<Skill>::new()
+                .limit(SKILL_PAGE_SIZE)
+                .offset(offset)
+                .sort(current_sort)
+                .order(current_order)
+                .param("project_id", id);
+
+            if !current_search.trim().is_empty() {
+                builder = builder.search(current_search);
+            }
+
+            let result = builder.fetch().await;
+            set_skills_data.set(Some(result));
+        });
     });
 
     view! {
-        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            // Breadcrumb navigation
-            {move || {
-                project_data.get().and_then(|result| {
-                    result.ok().map(|project| {
-                        let items = vec![
-                            BreadcrumbItem::new("Projects")
-                                .with_href("/")
-                                .with_name("projects"),
-                            BreadcrumbItem::new(project.title.clone())
-                                .with_id(project.id.clone()),
-                        ];
-                        view! { <Breadcrumb items=items/> }
-                    })
-                })
-            }}
-
+        <div class="flex flex-col min-h-[calc(100vh-8rem)]" data-page="project-detail">
             <div class="container mx-auto p-6 flex-1">
             {move || match project_data.get() {
                 None => {
@@ -370,6 +345,8 @@ pub fn ProjectDetail() -> impl IntoView {
                 Some(Ok(project)) => {
                     view! {
                         <div>
+                            <EntityHeader id=project.id.clone() title=project.title.clone()/>
+
                             // Project metadata (description, tags, external refs if present)
                             {(project.description.is_some() || !project.tags.is_empty() || !project.external_refs.is_empty()).then(|| {
                                 view! {
@@ -420,11 +397,15 @@ pub fn ProjectDetail() -> impl IntoView {
                                 }
                             })}
 
-                            // Tab Navigation
+                            // Section pills: internal tab state, so a click never rewrites the URL
+                            // (decision 3). A click also opens the panel for good: a panel the user
+                            // never opened fetches nothing (decision 15).
                             <div class="border-b border-ctp-surface1 mb-6">
                                 <div class="flex gap-6">
-                                    <a
-                                        href=move || format!("/projects/{}", project_id())
+                                    <button
+                                        type="button"
+                                        data-panel="task-lists"
+                                        on:click=move |_| active_panel.set("task-lists")
                                         class=move || {
                                             if active_tab() == "task-lists" {
                                                 "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
@@ -434,9 +415,14 @@ pub fn ProjectDetail() -> impl IntoView {
                                         }
                                     >
                                         "Task Lists"
-                                    </a>
-                                    <a
-                                        href=move || format!("/projects/{}/notes", project_id())
+                                    </button>
+                                    <button
+                                        type="button"
+                                        data-panel="notes"
+                                        on:click=move |_| {
+                                            notes_opened.set(true);
+                                            active_panel.set("notes");
+                                        }
                                         class=move || {
                                             if active_tab() == "notes" {
                                                 "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
@@ -446,9 +432,14 @@ pub fn ProjectDetail() -> impl IntoView {
                                         }
                                     >
                                         "Notes"
-                                    </a>
-                                    <a
-                                        href=move || format!("/projects/{}/skills", project_id())
+                                    </button>
+                                    <button
+                                        type="button"
+                                        data-panel="skills"
+                                        on:click=move |_| {
+                                            skills_opened.set(true);
+                                            active_panel.set("skills");
+                                        }
                                         class=move || {
                                             if active_tab() == "skills" {
                                                 "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
@@ -458,9 +449,14 @@ pub fn ProjectDetail() -> impl IntoView {
                                         }
                                     >
                                         "Skills"
-                                    </a>
-                                    <a
-                                        href=move || format!("/projects/{}/repos", project_id())
+                                    </button>
+                                    <button
+                                        type="button"
+                                        data-panel="repos"
+                                        on:click=move |_| {
+                                            repos_opened.set(true);
+                                            active_panel.set("repos");
+                                        }
                                         class=move || {
                                             if active_tab() == "repos" {
                                                 "pb-3 border-b-2 border-ctp-blue text-ctp-blue font-medium"
@@ -470,12 +466,12 @@ pub fn ProjectDetail() -> impl IntoView {
                                         }
                                     >
                                         "Repos"
-                                    </a>
+                                    </button>
                                 </div>
                             </div>
 
                             // Tab Content
-                            <div>
+                            <div data-panel-content=active_tab>
                                 {move || {
                                     let _proj_id = project.id.clone();
                                     match active_tab() {
@@ -536,14 +532,11 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                               {paginated.items
                                                                                  .into_iter()
                                                                                  .map(|task_list| {
-                                                                                     let proj_id = project_id();
-                                                                                     let query_str = location.search.get();
+                                                                                     let proj_id = project_id.get_value();
                                                                                      view! {
                                                                                          <TaskListCard
                                                                                              task_list=task_list
                                                                                              project_id=proj_id.clone()
-                                                                                             current_query=query_str
-                                                                                             breadcrumb_name=proj_id
                                                                                          />
                                                                                      }
                                                                                  })
@@ -591,7 +584,12 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 on_change=note_search.on_debounced_change
                                                                 on_immediate_change=note_search.on_immediate_change
                                                                 placeholder="Search notes..."
-                                                            />
+                                                            >
+                                                                <div class="flex items-center gap-2 whitespace-nowrap">
+                                                                    <Switch checked=show_archived_notes/>
+                                                                    <span class="text-sm text-ctp-text">"Show archived"</span>
+                                                                </div>
+                                                            </SearchInput>
                                                         </div>
                                                         <SortControls
                                                             sort_field=note_sort.sort_field
@@ -625,14 +623,11 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                 .items
                                                                 .iter()
                                                                 .map(|note| {
-                                                                    let proj_id = project_id();
-                                                                    let query_str = location.search.get();
+                                                                    let proj_id = project_id.get_value();
                                                                     view! {
                                                                          <NoteCard
                                                                             note=note.clone()
                                                                             project_id=proj_id.clone()
-                                                                            current_query=query_str
-                                                                            breadcrumb_name=proj_id
                                                                         />
                                                                     }
                                                                 })
@@ -720,14 +715,11 @@ pub fn ProjectDetail() -> impl IntoView {
                                                                                 .items
                                                                                 .iter()
                                                                                 .map(|repo| {
-                                                                                    let proj_id = project_id();
-                                                                                    let query_str = location.search.get();
+                                                                                    let proj_id = project_id.get_value();
                                                                                     view! {
                                                                                         <RepoCard
                                                                                             repo=repo.clone()
                                                                                             project_id=proj_id.clone()
-                                                                                            current_query=query_str
-                                                                                            breadcrumb_name=proj_id
                                                                                         />
                                                                                     }
                                                                                 })
@@ -877,20 +869,6 @@ pub fn ProjectDetail() -> impl IntoView {
 
             </div>
             // End container div (from line 329)
-
-            // Task list detail modal
-            {move || {
-                if task_list_modal_open.get() {
-                    Some(view! {
-                        <TaskListDetailModal
-                            task_list=selected_task_list.read_only()
-                            open=task_list_modal_open
-                        />
-                    })
-                } else {
-                    None
-                }
-            }}
 
             // Skill detail modal
             {move || {

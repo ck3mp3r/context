@@ -5,7 +5,9 @@
 
 mod common;
 
-use context_core::{HasNotes, HasProjects, Note, NoteRepository, Project, ProjectRepository};
+use context_core::{
+    HasNotes, HasProjects, Note, NoteRepository, NoteStatus, Project, ProjectRepository,
+};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::notes::{
@@ -32,6 +34,7 @@ async fn test_note_list_empty() {
         project_id: None,
         parent_id: None,
         note_type: None,
+        status: None,
         limit: None,
         offset: None,
         sort: None,
@@ -115,6 +118,8 @@ async fn test_get_note() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -125,6 +130,7 @@ async fn test_get_note() {
         note_id: "note0001".to_string(),
         format: None,
         ranges: None,
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -149,6 +155,7 @@ async fn test_get_note_not_found() {
         note_id: "nonexist".to_string(),
         format: None,
         ranges: None,
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -171,6 +178,8 @@ async fn test_note_delete() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -222,6 +231,8 @@ async fn test_note_edit() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -233,6 +244,7 @@ async fn test_note_edit() {
         note_id: "note0001".to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
     let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
@@ -244,13 +256,14 @@ async fn test_note_edit() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag,
+        etag: Some(etag),
         title: Some("Updated".to_string()),
         tags: Some(vec!["updated".to_string()]),
         project_ids: None,
         repo_ids: None,
         parent_id: None,
         idx: None,
+        status: None,
         patches: vec![],
     };
 
@@ -269,13 +282,14 @@ async fn test_note_edit_not_found() {
 
     let params = EditNoteParams {
         note_id: "nonexist".to_string(),
-        etag: "some-etag".to_string(),
+        etag: Some("some-etag".to_string()),
         title: Some("Updated".to_string()),
         tags: None,
         project_ids: None,
         repo_ids: None,
         parent_id: None,
         idx: None,
+        status: None,
         patches: vec![],
     };
 
@@ -299,6 +313,8 @@ async fn test_note_list_with_data() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -311,6 +327,7 @@ async fn test_note_list_with_data() {
         project_id: None,
         parent_id: None,
         note_type: None,
+        status: None,
         limit: None,
         offset: None,
         sort: None,
@@ -349,6 +366,8 @@ async fn test_note_list_search() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -361,6 +380,7 @@ async fn test_note_list_search() {
         project_id: None,
         parent_id: None,
         note_type: None,
+        status: None,
         limit: None,
         offset: None,
         sort: None,
@@ -400,6 +420,8 @@ async fn test_note_list_pagination() {
             repo_ids: vec![],
             project_ids: vec![],
             subnote_count: None,
+            status: NoteStatus::Active,
+            archived_at: None,
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             deleted_at: None,
@@ -413,6 +435,7 @@ async fn test_note_list_pagination() {
         project_id: None,
         parent_id: None,
         note_type: None,
+        status: None,
         limit: Some(1),
         offset: None,
         sort: None,
@@ -448,6 +471,8 @@ async fn test_note_list_tag_filter() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -460,6 +485,7 @@ async fn test_note_list_tag_filter() {
         project_id: None,
         parent_id: None,
         note_type: None,
+        status: None,
         limit: None,
         offset: None,
         sort: None,
@@ -510,6 +536,8 @@ async fn test_note_list_with_project_id_filter() {
         repo_ids: vec![],
         project_ids: vec!["proj0001".to_string()],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -522,6 +550,7 @@ async fn test_note_list_with_project_id_filter() {
         project_id: Some("proj0001".to_string()),
         parent_id: None,
         note_type: None,
+        status: None,
         limit: None,
         offset: None,
         sort: None,
@@ -556,6 +585,8 @@ async fn test_note_list_with_parent_id_filter() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -572,6 +603,8 @@ async fn test_note_list_with_parent_id_filter() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -584,6 +617,7 @@ async fn test_note_list_with_parent_id_filter() {
         project_id: None,
         parent_id: Some("parent01".to_string()),
         note_type: None,
+        status: None,
         limit: None,
         offset: None,
         sort: None,
@@ -619,6 +653,8 @@ async fn test_note_list_with_note_type_filter() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -635,6 +671,8 @@ async fn test_note_list_with_note_type_filter() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -647,6 +685,7 @@ async fn test_note_list_with_note_type_filter() {
         project_id: None,
         parent_id: None,
         note_type: Some("task".to_string()),
+        status: None,
         limit: None,
         offset: None,
         sort: None,
@@ -678,6 +717,8 @@ async fn test_note_list_sorting() {
             repo_ids: vec![],
             project_ids: vec![],
             subnote_count: None,
+            status: NoteStatus::Active,
+            archived_at: None,
             created_at: Some("2025-01-01 00:00:00".to_string()),
             updated_at: Some("2025-01-01 00:00:00".to_string()),
             deleted_at: None,
@@ -691,6 +732,7 @@ async fn test_note_list_sorting() {
         project_id: None,
         parent_id: None,
         note_type: None,
+        status: None,
         limit: None,
         offset: None,
         sort: Some("title".to_string()),
@@ -731,6 +773,8 @@ async fn test_note_read_toon_format() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -741,6 +785,7 @@ async fn test_note_read_toon_format() {
         note_id: "note0001".to_string(),
         format: Some("toon".to_string()),
         ranges: None,
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -771,6 +816,8 @@ async fn test_note_read_json_format() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -781,6 +828,7 @@ async fn test_note_read_json_format() {
         note_id: "note0001".to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -812,6 +860,8 @@ async fn test_note_read_with_ranges() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -822,6 +872,7 @@ async fn test_note_read_with_ranges() {
         note_id: "note0001".to_string(),
         format: Some("toon".to_string()),
         ranges: Some(vec![LineRange { start: 2, end: 3 }]),
+        anchor: None,
     };
 
     let result = tools.note_read(Parameters(params)).await;
@@ -844,6 +895,8 @@ async fn test_note_edit_with_patches() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -855,6 +908,7 @@ async fn test_note_edit_with_patches() {
         note_id: "note0001".to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
     let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
@@ -866,13 +920,14 @@ async fn test_note_edit_with_patches() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag,
+        etag: Some(etag),
         title: None,
         tags: None,
         project_ids: None,
         repo_ids: None,
         parent_id: None,
         idx: None,
+        status: None,
         patches: vec![],
     };
 
@@ -896,6 +951,8 @@ async fn test_note_edit_with_etag() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some("2025-01-01 00:00:00".to_string()),
         deleted_at: None,
@@ -907,6 +964,7 @@ async fn test_note_edit_with_etag() {
         note_id: "note0001".to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
     let read_result = tools.note_read(Parameters(read_params)).await.unwrap();
     let read_text = match &read_result.content[0] {
@@ -918,13 +976,14 @@ async fn test_note_edit_with_etag() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag,
+        etag: Some(etag),
         title: Some("Updated".to_string()),
         tags: None,
         project_ids: None,
         repo_ids: None,
         parent_id: None,
         idx: None,
+        status: None,
         patches: vec![],
     };
 

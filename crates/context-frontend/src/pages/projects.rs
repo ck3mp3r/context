@@ -1,36 +1,25 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_location;
 
 use crate::api::{ApiClientError, QueryBuilder};
-use crate::components::{
-    Breadcrumb, BreadcrumbItem, CopyableId, ExternalRefLink, Pagination, SearchInput, SortControls,
-};
+use crate::components::{CopyableId, ExternalRefLink, Pagination, SearchInput, SortControls};
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Paginated, Project, UpdateMessage};
+use crate::tabs::{TabKey, TabRegistry, TabTitles, open_from_card};
 use crate::websocket::use_websocket_updates;
 
 #[component]
 pub fn Projects() -> impl IntoView {
     const PAGE_SIZE: usize = 12;
 
-    let location = use_location();
-
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
     let search = use_search();
     let sort = use_sort("updated_at", "desc");
 
-    // Get page state for breadcrumb navigation
-    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>()
-        .expect("BreadcrumbPageState should be provided");
-
-    // Update global last projects page for breadcrumb navigation
-    if let Some(set_last_projects_page) = use_context::<WriteSignal<usize>>() {
-        Effect::new(move || {
-            set_last_projects_page.set(pagination.page.get());
-        });
-    }
+    // A card click opens the project's tab; the shell writes the URL once from the active tab.
+    let tab_registry = use_context::<TabRegistry>();
+    let tab_titles = use_context::<TabTitles>();
 
     let (projects_data, set_projects_data) =
         signal(None::<Result<Paginated<Project>, ApiClientError>>);
@@ -83,9 +72,7 @@ pub fn Projects() -> impl IntoView {
     });
 
     view! {
-        <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            <Breadcrumb items=vec![BreadcrumbItem::new("Projects")]/>
-
+        <div class="flex flex-col min-h-[calc(100vh-8rem)]" data-page="projects">
             <div class="container mx-auto p-6 flex-1">
                 // Search bar and sort controls
                 <div class="mb-6 flex gap-4 items-center">
@@ -142,21 +129,31 @@ pub fn Projects() -> impl IntoView {
                                     .iter()
                                     .map(|project| {
                                         let project_id = project.id.clone();
+                                        let card_id = project_id.clone();
                                         let project_title = project.title.clone();
                                         let project_description = project.description.clone();
                                         let project_tags = project.tags.clone();
                                         let project_external_refs = project.external_refs.clone();
-                                        let current_query_str = location.search.get();
-                                        let state = page_state.clone();
 
                                         view! {
                                             <div class="bg-ctp-surface0 rounded-lg p-6 border border-ctp-surface1 hover:border-ctp-blue transition-colors flex flex-col h-full min-h-[280px]">
                                                 <a
                                                     href=format!("/projects/{}", project_id)
-                                                    on:click=move |_| {
-                                                        state.set_query("projects", &current_query_str);
-                                                    }
                                                     class="flex flex-col h-full"
+                                                    data-project-card=project_id.clone()
+                                                    on:click=move |ev| {
+                                                        ev.prevent_default();
+                                                        if let (Some(registry), Some(titles)) =
+                                                            (tab_registry, tab_titles)
+                                                        {
+                                                            open_from_card(
+                                                                registry,
+                                                                titles,
+                                                                TabKey::project(card_id.clone()),
+                                                                None,
+                                                            );
+                                                        }
+                                                    }
                                                 >
                                                     <div class="flex items-start gap-2 mb-2">
                                                         <div class="flex-shrink-0">

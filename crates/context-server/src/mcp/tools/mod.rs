@@ -23,6 +23,7 @@ pub(crate) fn apply_limit(user_limit: Option<usize>) -> usize {
     }
 }
 
+pub mod anchors;
 pub mod notes;
 pub mod projects;
 pub mod repos;

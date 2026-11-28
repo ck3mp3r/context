@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use std::marker::PhantomData;
 
-use crate::models::{ApiError, Note, Paginated, Project, Repo, Skill, Task, TaskList, TaskStats};
+use crate::models::{
+    ApiError, Note, Paginated, Project, Repo, SettingsPayload, SettingsValues, Skill,
+    SyncResponseEnvelope, Task, TaskList, TaskStats, UpdateStatusPayload,
+};
 
 // Development: Trunk proxy strips /dev prefix, forwards /api/v1/* to backend
 #[cfg(debug_assertions)]
@@ -16,6 +19,11 @@ const API_BASE: &str = "/dev/api/v1";
 // Production: Direct calls to backend at /api/v1/*
 #[cfg(not(debug_assertions))]
 const API_BASE: &str = "/api/v1";
+
+/// The API base this build dials: the trunk `/dev` prefix in a debug build, `/api/v1` in release.
+pub fn base() -> &'static str {
+    API_BASE
+}
 
 /// Trait for types that have a list endpoint
 pub trait ListEndpoint: DeserializeOwned {
@@ -186,6 +194,11 @@ async fn handle_response<T: DeserializeOwned>(
         .await
         .map_err(|e| ApiClientError::Network(e.to_string()))?;
 
+    parse_response(response).await
+}
+
+/// Parse a sent response into `T`, or into the server error envelope.
+async fn parse_response<T: DeserializeOwned>(response: gloo_net::http::Response) -> Result<T> {
     let status = response.status();
 
     if (200..300).contains(&status) {
@@ -352,6 +365,229 @@ pub mod notes {
                 .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
             Err(ApiClientError::Server(error))
         }
+    }
+}
+
+/// Settings API
+pub mod settings {
+    use super::*;
+
+    /// Read the stored values, the built-in defaults, and the running config.
+    pub async fn get() -> Result<SettingsPayload> {
+        let url = format!("{}/settings", API_BASE);
+        handle_response(Request::get(&url)).await
+    }
+
+    /// Replace the stored values; the response is the updated triple.
+    pub async fn put(values: &SettingsValues) -> Result<SettingsPayload> {
+        let url = format!("{}/settings", API_BASE);
+        let request = Request::put(&url)
+            .json(values)
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+        parse_response(response).await
+    }
+}
+
+/// Update API
+pub mod update {
+    use super::*;
+
+    /// Body of the manual check request.
+    #[derive(Debug, Clone, Serialize)]
+    struct CheckRequest {
+        manual: bool,
+    }
+
+    /// Read the persisted update state.
+    pub async fn status() -> Result<UpdateStatusPayload> {
+        let url = format!("{}/update/status", API_BASE);
+        handle_response(Request::get(&url)).await
+    }
+
+    /// Start an update check; `manual` marks a check the user asked for.
+    pub async fn check(manual: bool) -> Result<()> {
+        let url = format!("{}/update/check", API_BASE);
+        let request = Request::post(&url)
+            .json(&CheckRequest { manual })
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Start installing the candidate that waits for consent.
+    pub async fn install() -> Result<()> {
+        let url = format!("{}/update/install", API_BASE);
+        let request = Request::post(&url)
+            .json(&())
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Restart onto the bundle an install staged.
+    ///
+    /// The service owns the one restart sequence; this call only asks for it. A 409
+    /// (nothing staged, or a run in flight) and a 503 (no flow attached) come back
+    /// as the server's error envelope, which the pill renders as a failure.
+    pub async fn restart() -> Result<()> {
+        let url = format!("{}/update/restart", API_BASE);
+        let request = Request::post(&url)
+            .json(&())
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Report success for an empty response, or the server error envelope.
+    async fn expect_success(response: gloo_net::http::Response) -> Result<()> {
+        if (200..300).contains(&response.status()) {
+            return Ok(());
+        }
+
+        let error = response
+            .json::<ApiError>()
+            .await
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        Err(ApiClientError::Server(error))
+    }
+}
+
+/// Sync API
+pub mod sync {
+    use super::*;
+
+    /// Read the sync status: whether sync is set up, and the state of both sides.
+    ///
+    /// `status` is `"not_initialized"` before the first init, which is the flag that decides
+    /// whether the app renders the sync surface at all.
+    pub async fn status() -> Result<SyncResponseEnvelope> {
+        let url = format!("{}/sync/status", API_BASE);
+        handle_response(Request::get(&url)).await
+    }
+
+    /// Set up the sync repository; `remote_url` names `origin` when it is absent.
+    ///
+    /// The call is idempotent: 201 on the first init, 200 when sync is already set up. Both are
+    /// success. An existing `origin` with a different URL is refused by the server, never changed.
+    pub async fn init(remote_url: Option<String>) -> Result<()> {
+        let url = format!("{}/sync/init", API_BASE);
+        let request = Request::post(&url)
+            .json(&serde_json::json!({ "remote_url": remote_url }))
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Import the sync files into the database, pulling from the remote first.
+    ///
+    /// The pull is skipped when no remote exists, so a local-only setup imports fine.
+    pub async fn import() -> Result<()> {
+        let url = format!("{}/sync/import", API_BASE);
+        let request = Request::post(&url)
+            .json(&serde_json::json!({ "remote": true }))
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Export the database to the sync files, pushing to the remote afterwards.
+    ///
+    /// The push is skipped when no remote exists, so a local-only setup exports fine. The body the
+    /// server returns holds the per-entity change counts, which the indicator does not read.
+    pub async fn export() -> Result<()> {
+        let url = format!("{}/sync/export", API_BASE);
+        let request = Request::post(&url)
+            .json(&serde_json::json!({ "remote": true }))
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Pause sync on this machine; the data and the git history stay in place.
+    ///
+    /// The server answers 409 when sync is not initialized, which arrives as the error envelope
+    /// the caller renders. The status answers with the sync still initialized and disabled.
+    pub async fn disable() -> Result<()> {
+        let url = format!("{}/sync/disable", API_BASE);
+        let response = Request::post(&url)
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Resume sync on this machine, reusing the directory and history that disable left in place.
+    ///
+    /// The server answers 409 when sync is not initialized, which arrives as the error envelope
+    /// the caller renders.
+    pub async fn enable() -> Result<()> {
+        let url = format!("{}/sync/enable", API_BASE);
+        let response = Request::post(&url)
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Point `origin` at a new remote URL, or remove the remote when `remote_url` is `None`.
+    ///
+    /// A removal drops only the remote: the sync directory, the data, and the history stay, and
+    /// the call is idempotent. The server refuses a blank URL with 400 and an uninitialized or
+    /// disabled sync with 409; both arrive as the error envelope the caller renders.
+    pub async fn set_remote(remote_url: Option<String>) -> Result<()> {
+        let endpoint = format!("{}/sync/remote", API_BASE);
+        let request = Request::post(&endpoint)
+            .json(&serde_json::json!({ "remote_url": remote_url }))
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiClientError::Network(e.to_string()))?;
+
+        expect_success(response).await
+    }
+
+    /// Report success for a response the caller ignores, or the server error envelope.
+    async fn expect_success(response: gloo_net::http::Response) -> Result<()> {
+        if (200..300).contains(&response.status()) {
+            return Ok(());
+        }
+
+        let error = response
+            .json::<ApiError>()
+            .await
+            .map_err(|e| ApiClientError::Deserialization(e.to_string()))?;
+        Err(ApiClientError::Server(error))
     }
 }
 

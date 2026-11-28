@@ -14,24 +14,27 @@ use super::v1::{
     CreateTaskListRequest, CreateTaskRequest, CreateTransitionRequest, DisableSkillResponse,
     EnableSkillResponse, ErrorResponse, ImportSkillRequest, NoteResponse, PatchNoteRequest,
     PatchProjectRequest, PatchRepoRequest, PatchTaskListRequest, PatchTaskRequest, ProjectResponse,
-    ReplaceSkillRequest, RepoResponse, SkillResponse, TaskListResponse, TaskResponse,
-    TransitionResponse, UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest,
-    UpdateSkillRequest, UpdateTaskListRequest, UpdateTaskRequest,
+    ReplaceSkillRequest, RepoResponse, RunningSettingsResponse, SettingsResponse, SettingsSnapshot,
+    SettingsValues, SkillResponse, TaskListResponse, TaskResponse, TransitionResponse,
+    UpdateNoteRequest, UpdateProjectRequest, UpdateRepoRequest, UpdateSkillRequest,
+    UpdateStatusResponse, UpdateTaskListRequest, UpdateTaskRequest,
 };
 
 use context_core::Database;
+use context_core::update::UpdateFlow;
 
-/// Build routes with generic database and git types.
+/// Build routes with generic database, git, and update-flow types.
 ///
 /// This macro reduces boilerplate when registering handlers that are generic
-/// over the Database and GitOps traits. It applies the turbofish operator automatically.
+/// over the Database, GitOps, and UpdateFlow traits. It applies the turbofish
+/// operator automatically.
 macro_rules! routes {
-    ($D:ty, $G:ty => {
+    ($D:ty, $G:ty, $U:ty => {
         $($method:ident $path:literal => $($handler:ident)::+),* $(,)?
     }) => {{
         let router = Router::new();
         $(
-            let router = router.route($path, $method($($handler)::+::<$D, $G>));
+            let router = router.route($path, $method($($handler)::+::<$D, $G, $U>));
         )*
         router
     }};
@@ -101,6 +104,15 @@ macro_rules! routes {
         super::v1::export_sync,
         super::v1::import_sync,
         super::v1::get_sync_status,
+        super::v1::disable_sync,
+        super::v1::enable_sync,
+        super::v1::set_sync_remote,
+        super::v1::get_settings,
+        super::v1::put_settings,
+        super::v1::get_update_status,
+        super::v1::check_for_update,
+        super::v1::install_update,
+        super::v1::restart_update,
     ),
     components(
         schemas(
@@ -135,6 +147,7 @@ macro_rules! routes {
             super::v1::PaginatedNotes,
             super::v1::InitSyncRequest,
             super::v1::ExportSyncRequest,
+            super::v1::SetSyncRemoteRequest,
             super::v1::SyncResponse,
              ErrorResponse,
               // --- Skills ---
@@ -145,6 +158,14 @@ macro_rules! routes {
               UpdateSkillRequest,
               EnableSkillResponse,
               DisableSkillResponse,
+              // --- Settings ---
+              SettingsResponse,
+              SettingsValues,
+              SettingsSnapshot,
+              RunningSettingsResponse,
+              // --- Updater ---
+              UpdateStatusResponse,
+              super::v1::UpdateCheckRequest,
         )
     ),
     tags(
@@ -156,12 +177,18 @@ macro_rules! routes {
         (name = "notes", description = "Note management endpoints with FTS search"),
          (name = "sync", description = "Git-based sync operations"),
          (name = "skills", description = "Skills management endpoints"),
+         (name = "settings", description = "Settings file and running configuration endpoints"),
+         (name = "updates", description = "Update state and trigger endpoints"),
 ))]
 pub struct ApiDoc;
 
 /// Create the API router with OpenAPI documentation and MCP server
-pub fn create_router<D: Database + 'static, G: context_sync::GitOps + Send + Sync + 'static>(
-    state: AppState<D, G>,
+pub fn create_router<
+    D: Database + 'static,
+    G: context_sync::GitOps + Send + Sync + 'static,
+    U: UpdateFlow + 'static,
+>(
+    state: AppState<D, G, U>,
     enable_docs: bool,
 ) -> Router {
     // Create MCP service (Model Context Protocol server)
@@ -180,10 +207,10 @@ pub fn create_router<D: Database + 'static, G: context_sync::GitOps + Send + Syn
     // System routes (non-generic, not versioned)
     let system_routes = Router::new()
         .route("/health", get(handlers::health))
-        .route("/ws", any(super::websocket::ws_handler::<D, G>));
+        .route("/ws", any(super::websocket::ws_handler::<D, G, U>));
 
-    // V1 API routes (generic over Database and GitOps)
-    let v1_routes = routes!(D, G => {
+    // V1 API routes (generic over Database, GitOps, and UpdateFlow)
+    let v1_routes = routes!(D, G, U => {
         // Projects
         get "/projects" => super::v1::list_projects,
         get "/projects/{id}" => super::v1::get_project,
@@ -243,6 +270,17 @@ pub fn create_router<D: Database + 'static, G: context_sync::GitOps + Send + Syn
         post "/sync/export" => super::v1::export_sync,
         post "/sync/import" => super::v1::import_sync,
         get "/sync/status" => super::v1::get_sync_status,
+        post "/sync/disable" => super::v1::disable_sync,
+        post "/sync/enable" => super::v1::enable_sync,
+        post "/sync/remote" => super::v1::set_sync_remote,
+        // Settings
+        get "/settings" => super::v1::get_settings,
+        put "/settings" => super::v1::put_settings,
+        // Updater
+        get "/update/status" => super::v1::get_update_status,
+        post "/update/check" => super::v1::check_for_update,
+        post "/update/install" => super::v1::install_update,
+        post "/update/restart" => super::v1::restart_update,
         get "/task-lists/{id}/stats" => super::v1::get_task_list_stats,
     });
 

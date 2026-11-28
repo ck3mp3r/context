@@ -24,6 +24,9 @@ mod critical_tests;
 #[path = "../test/helpers.rs"]
 mod helpers_test;
 #[cfg(test)]
+#[path = "../test/note_archive.rs"]
+mod note_archive_test;
+#[cfg(test)]
 #[path = "../test/note_crud.rs"]
 mod note_crud_test;
 #[cfg(test)]

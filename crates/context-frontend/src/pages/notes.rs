@@ -1,11 +1,9 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_location;
+use thaw::*;
 
 use crate::api::{ApiClientError, QueryBuilder};
-use crate::components::{
-    Breadcrumb, BreadcrumbItem, NoteCard, Pagination, SearchInput, SortControls,
-};
+use crate::components::{NoteCard, Pagination, SearchInput, SortControls};
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Note, Paginated, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -21,12 +19,13 @@ pub fn Notes() -> impl IntoView {
 fn NotesList() -> impl IntoView {
     const PAGE_SIZE: usize = 12;
 
-    let location = use_location();
-
     // Hooks for search, sort, and pagination
     let pagination = use_pagination();
     let search = use_search();
     let sort = use_sort("last_activity_at", "desc");
+
+    // Show archived is list state, not URL state (decision 20), as on the project dashboard.
+    let show_archived_notes = RwSignal::new(false);
 
     let (notes_data, set_notes_data) = signal(None::<Result<Paginated<Note>, ApiClientError>>);
 
@@ -53,13 +52,14 @@ fn NotesList() -> impl IntoView {
         let current_query = search.search_query.get();
         let current_sort = sort.sort_field.get();
         let current_order = sort.sort_order.get();
+        let current_show_archived = show_archived_notes.get();
         let trigger = refetch_trigger.get();
 
         // Log for debugging with all dependency values
         web_sys::console::log_1(
             &format!(
-                "FETCH TRIGGERED: page={}, query='{}', sort={}, order={}, trigger={}",
-                current_page, current_query, current_sort, current_order, trigger
+                "FETCH TRIGGERED: page={}, query='{}', sort={}, order={}, show_archived={}, trigger={}",
+                current_page, current_query, current_sort, current_order, current_show_archived, trigger
             )
             .into(),
         );
@@ -82,6 +82,10 @@ fn NotesList() -> impl IntoView {
                 .param("type", "note")
                 .param("include_content", "true");
 
+            if !current_show_archived {
+                builder = builder.param("status", "active");
+            }
+
             if !current_query.trim().is_empty() {
                 builder = builder.search(current_query);
             }
@@ -101,8 +105,6 @@ fn NotesList() -> impl IntoView {
 
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            <Breadcrumb items=vec![BreadcrumbItem::new("Notes")]/>
-
             <div class="container mx-auto p-6 flex-1">
                 // Search bar and sort controls
                 <div class="mb-6 flex gap-4 items-center">
@@ -112,7 +114,12 @@ fn NotesList() -> impl IntoView {
                         on_change=search.on_debounced_change
                         on_immediate_change=search.on_immediate_change
                         placeholder="Search notes..."
-                    />
+                    >
+                        <div class="flex items-center gap-2 whitespace-nowrap">
+                            <Switch checked=show_archived_notes/>
+                            <span class="text-sm text-ctp-text">"Show archived"</span>
+                        </div>
+                    </SearchInput>
                 </div>
                 <SortControls
                     sort_field=sort.sort_field
@@ -155,14 +162,8 @@ fn NotesList() -> impl IntoView {
                                                     .items
                                                     .iter()
                                                     .map(|note| {
-                                                        let query_str = location.search.get();
-
                                                         view! {
-                                                            <NoteCard
-                                                                note=note.clone()
-                                                                current_query=query_str
-                                                                breadcrumb_name="notes".to_string()
-                                                            />
+                                                            <NoteCard note=note.clone()/>
                                                         }
                                                     })
                                                     .collect::<Vec<_>>()}

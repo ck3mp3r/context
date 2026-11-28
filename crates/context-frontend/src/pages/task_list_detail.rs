@@ -1,87 +1,59 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
 
-use crate::api::{ApiClientError, projects, task_lists};
-use crate::components::{Breadcrumb, BreadcrumbItem, TaskListContent};
-use crate::models::{Project, TaskList, UpdateMessage};
+use crate::api::{ApiClientError, task_lists};
+use crate::components::TaskListContent;
+use crate::models::{TaskList, UpdateMessage};
+use crate::tabs::{TabScope, should_refetch};
 use crate::websocket::use_websocket_updates;
 
 #[component]
-pub fn TaskListDetail() -> impl IntoView {
-    let params = use_params_map();
+pub fn TaskListDetail(scope: TabScope) -> impl IntoView {
+    // The tab's entity id never changes for the tab's lifetime.
+    let task_list_id = StoredValue::new_local(scope.entity_id().to_string());
 
-    let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
     let (task_list_data, set_task_list_data) = signal(None::<Result<TaskList, ApiClientError>>);
 
     // WebSocket updates - refetch trigger
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
     let ws_updates = use_websocket_updates();
 
-    // Watch for WebSocket task list updates
+    // Watch for WebSocket task list updates for THIS task list. A mounted surface runs its fetch
+    // once, so loaded data is the gate: a hidden tab keeps its own entity live, and a message naming
+    // another entity refetches nothing (decision 15).
     Effect::new(move || {
-        if let Some(UpdateMessage::TaskListUpdated { task_list_id }) = ws_updates.get() {
-            let params = params.get();
-            if let Some(current_id) = params.get("task_list_id")
-                && current_id == task_list_id
-            {
-                web_sys::console::log_1(&"TaskList updated via WebSocket, refetching...".into());
-                set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-            }
+        let Some(UpdateMessage::TaskListUpdated {
+            task_list_id: updated_id,
+        }) = ws_updates.get()
+        else {
+            return;
+        };
+        if should_refetch(
+            task_list_data.get_untracked().is_some(),
+            false,
+            updated_id == task_list_id.get_value(),
+        ) {
+            web_sys::console::log_1(&"TaskList updated via WebSocket, refetching...".into());
+            set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
     });
 
-    // Fetch project and task list when params change or refetch trigger fires
+    // Fetch the task list this tab shows
     Effect::new(move || {
-        let params = params.get();
+        let id = task_list_id.get_value();
         let _ = refetch_trigger.get(); // Track refetch trigger
 
-        if let (Some(project_id), Some(task_list_id)) =
-            (params.get("project_id"), params.get("task_list_id"))
-        {
-            let project_id = project_id.to_string();
-            let task_list_id = task_list_id.to_string();
-
-            // Fetch project
-            spawn_local({
-                let project_id = project_id.clone();
-                async move {
-                    let result = projects::get(&project_id).await;
-                    set_project_data.set(Some(result));
-                }
-            });
-
-            // Fetch task list
-            spawn_local(async move {
-                let result = task_lists::get(&task_list_id).await;
-                set_task_list_data.set(Some(result));
-            });
+        if id.is_empty() {
+            return;
         }
+        spawn_local(async move {
+            let result = task_lists::get(&id).await;
+            set_task_list_data.set(Some(result));
+        });
     });
 
     view! {
         <div class="flex flex-col h-[calc(100vh-8rem)]">
-            // Breadcrumb navigation
-            {move || {
-                match (project_data.get(), task_list_data.get()) {
-                    (Some(Ok(project)), Some(Ok(task_list))) => {
-                        let items = vec![
-                            BreadcrumbItem::new("Projects")
-                                .with_href("/")
-                                .with_name("projects"),
-                            BreadcrumbItem::new(project.title.clone())
-                                .with_id(project.id.clone())
-                                .with_href(format!("/projects/{}", project.id))
-                                .with_name(project.id.clone()),
-                            BreadcrumbItem::new(task_list.title.clone())
-                                .with_id(task_list.id.clone()),
-                        ];
-                        Some(view! { <Breadcrumb items=items/> })
-                    }
-                    _ => None,
-                }
-            }}
-
             <div class="container mx-auto px-6 py-6 flex-1 h-full overflow-hidden">
                 <Suspense fallback=move || {
                     view! { <p class="text-ctp-subtext0">"Loading task list..."</p> }

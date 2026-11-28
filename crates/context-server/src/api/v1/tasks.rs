@@ -12,6 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
+use context_core::update::UpdateFlow;
 use context_core::{
     Database, DbError, PageSort, SortOrder, Task, TaskQuery, TaskRepository, TaskStatus,
     TransitionLog,
@@ -282,8 +283,8 @@ pub struct PaginatedTasks {
     )
 )]
 #[instrument(skip(state))]
-pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn list_tasks<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(list_id): Path<String>,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<PaginatedTasks>, (StatusCode, Json<ErrorResponse>)> {
@@ -352,8 +353,8 @@ pub async fn list_tasks<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_task<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_task<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
     let task = state.db().tasks().get(&id).await.map_err(|e| match e {
@@ -386,8 +387,8 @@ pub async fn get_task<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn create_task<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(list_id): Path<String>,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), (StatusCode, Json<ErrorResponse>)> {
@@ -440,8 +441,8 @@ pub async fn create_task<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn update_task<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateTaskRequest>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -504,8 +505,8 @@ pub async fn update_task<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn patch_task<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<PatchTaskRequest>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -572,8 +573,8 @@ pub async fn patch_task<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete_task<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn delete_task<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state.db().tasks().delete(&id).await.map_err(|e| match e {
@@ -616,8 +617,8 @@ pub async fn delete_task<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn restore_task<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn restore_task<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskResponse>, (StatusCode, Json<ErrorResponse>)> {
     state.db().tasks().restore(&id).await.map_err(|e| match e {
@@ -674,8 +675,8 @@ pub async fn restore_task<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_task_transitions<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_task_transitions<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Query(params): Query<TransitionsQueryParams>,
 ) -> Result<Json<TransitionsListResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -739,8 +740,8 @@ pub async fn get_task_transitions<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn transition_task<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn transition_task<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<CreateTransitionRequest>,
 ) -> Result<Json<TransitionResponse>, (StatusCode, Json<ErrorResponse>)> {

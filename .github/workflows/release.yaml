@@ -46,29 +46,124 @@ jobs:
           echo '<!DOCTYPE html><html><body>Placeholder for rust-embed</body></html>' | save crates/context-server/dist/index.html
 
           # A release run from a non-main branch is always a pre-release.
-          # Use the short SHA as the suffix so it never collides with the real
-          # release line and is distinguishable from other pre-releases.
           let prerelease = if "${{ github.ref_name }}" == "main" { "false" } else { "true" }
-          let suffix = if $prerelease == "true" { (git rev-parse --short HEAD | str trim) } else { "" }
 
           let current_version = (open Cargo.toml).workspace.package.version
-          let latest_tag = (ci scm latest-tag)
-          # Pre-releases keep the current version (no semver bump) and append the
-          # suffix; full releases bump the patch from the latest tag.
-          let base_version = if $prerelease == "true" {
-            $current_version
+          # Both arms take the same bump: a release from main stamps the next
+          # version plainly, a release from a branch stamps that same next
+          # version as a pre-release of it. The base is drawn from the newest
+          # STABLE tag only, `v<major>.<minor>.<patch>` with no `-` suffix (the
+          # `v` is optional, as `ci scm latest-tag` treated it).
+          # `ci scm semver` strips any suffix and then bumps, so a
+          # `v0.8.1-pre.<n>` in the tag list would be the version-newest tag and
+          # every branch run would ratchet the core (0.8.2, then 0.8.3) while
+          # the release main is meant to ship was never stamped. A pre-release
+          # tag is not an input to this computation. `git tag --sort
+          # -version:refname` ranks a pre-release above its own core
+          # (`v0.8.2-pre.900` before `v0.8.2`), so the sort alone would hand
+          # that tag first place: the filter below, not the sort, is what drops
+          # the suffixed entries, and the guard after it fails the run loudly
+          # if a loosened filter ever lets one through.
+          let stable_tags = (
+            git tag --sort "-version:refname"
+            | lines
+            | str trim
+            | where {|tag| $tag =~ '^v?[0-9]+\.[0-9]+\.[0-9]+$' }
+          )
+          let latest_tag = if ($stable_tags | is-empty) {
+            ""
           } else {
-            (ci scm semver $latest_tag $current_version)
+            $stable_tags | first | str replace --regex '^v' ''
           }
+          # An empty `latest_tag` makes `ci scm semver` keep the current
+          # version, so a repo whose tags are all shas still gets a sane base.
+          # Invariant: a pre-release tag in the tag list does not change the
+          # computed base, because the selection above never reads one. Guard the
+          # invariant, so a loosened filter fails the run loudly instead of
+          # silently reintroducing the ratchet.
+          if ($latest_tag | str contains "-") {
+            error make { msg: $"pre-release tag selected as the release base: ($latest_tag)" }
+          }
+          # `ci scm semver` returns the current version when it is already ahead
+          # of the stable tag, and otherwise raises that tag's patch by one.
+          let base_version = (ci scm semver $latest_tag $current_version)
+
+          # The suffix is the workflow run number. `github.run_number` is one
+          # repository-wide counter that rises with every run of this workflow
+          # whatever the branch, so a later branch build always ranks above an
+          # earlier one; the commit count it replaces was branch-local and fell
+          # when a shorter branch released after a longer one. The identifier is
+          # `pre`, never `build`: semver compares non-numeric identifiers as
+          # ASCII, `p` (0x70) outranks every hex digit a short SHA can start
+          # with, and `b` (0x62) does not. `pre.<n>` orders numerically, and the
+          # loop below steps past a tag the number already names, so a re-run of
+          # one run number cannot reuse a version.
+          let suffix = if $prerelease == "true" {
+            let run_number = ("${{ github.run_number }}" | str trim)
+            if not ($run_number =~ '^[0-9]+$') {
+              error make { msg: $"workflow run number is not a number: ($run_number)" }
+            }
+            mut n = ($run_number | into int)
+            while (git tag --list $"v($base_version)-pre.($n)" | str trim | is-not-empty) {
+              $n = $n + 1
+            }
+            $"pre.($n)"
+          } else { "" }
           let version = if $prerelease == "true" { $"($base_version)-($suffix)" } else { $base_version }
 
-          # Release branch name: release/<version> for full, release/<version>-<sha> for pre-release
+          # Release branch name: release/<version> for full, release/<version>-pre.<n> for pre-release
           let branch = $"release/($version)"
 
           # Create and push the release branch (from the run branch)
           $version | ci scm branch --release --version $version --from "${{ github.ref_name }}" --push
-          # Update workspace package version and refresh Cargo.lock
-          let files = (ci cargo update-version $version)
+          # Update the workspace version and refresh Cargo.lock without
+          # compiling anything. The module helper this replaces refreshed the
+          # lock by compiling the whole workspace, and that now includes the
+          # macOS-only `context` app crate, whose glib-sys build script needs
+          # pkg-config glib-2.0 — absent on this runner. `cargo update -p
+          # <member>` only re-resolves manifests: it rewrites the member's lock
+          # entry and runs no build script, so the step stays compile-free.
+          let cargo_toml = (open Cargo.toml)
+          let members = (
+            $cargo_toml
+            | get workspace.members
+            | each {|dir| open ($dir | path join "Cargo.toml") | get package.name }
+          )
+
+          $cargo_toml
+            | upsert workspace.package.version $version
+            | to toml
+            | save --force Cargo.toml
+
+          for member in $members {
+            cargo update -p $member
+          }
+
+          mut files = ["Cargo.toml" "Cargo.lock"]
+
+          # Excluded crates (the WASM frontend) keep a standalone version and
+          # their own lock file, so bump both to stay in step with the release.
+          for crate_toml_path in (glob crates/*/Cargo.toml) {
+            let rel_path = ($crate_toml_path | path relative-to (pwd))
+            let crate_toml = (open $crate_toml_path)
+            # Skip crates that inherit the version from the workspace
+            # (version.workspace = true parses to a record {workspace: true})
+            let version_field = ($crate_toml | get -o package.version? | default null)
+            let uses_workspace = ($version_field | describe | str starts-with "record")
+            if ($version_field | is-not-empty) and not $uses_workspace {
+              $crate_toml
+                | upsert package.version $version
+                | to toml
+                | save --force $crate_toml_path
+              $files = ($files | append $rel_path)
+
+              let lock_path = ($crate_toml_path | path dirname | path join "Cargo.lock")
+              if ($lock_path | path exists) {
+                cargo update -p ($crate_toml | get package.name) --manifest-path $crate_toml_path
+                $files = ($files | append ($lock_path | path relative-to (pwd)))
+              }
+            }
+          }
           $files | ci scm commit -m $"Prepare release ($version)" --push
           # save --append over a list writes each line with a trailing newline
           [
@@ -120,6 +215,41 @@ jobs:
           cp result/context-cli.sha256 ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.sha256
           cp result/context-cli-nix.sha256 ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}-nix.sha256
 
+      - name: Build, sign, and notarize the app dmg
+        if: ${{ matrix.nix_system == 'aarch64-darwin' }}
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          RELEASE_PRERELEASE: ${{ needs.prep-release.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          VERSION=${{ needs.prep-release.outputs.version }}
+          # notarytool and tauri-bundler both read the .p8 key from
+          # APPLE_API_KEY_PATH; the secret carries its content base64-encoded
+          # so it survives as a single line.
+          APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$APPLE_API_KEY_PATH"
+          export APPLE_API_KEY_PATH
+
+          nix develop -c release
+
+          # The flow names assets context-<version>-<target>; the helper leaves
+          # tauri's Context_<version>_aarch64.dmg under target/release/bundle.
+          cp "target/release/bundle/dmg/Context_${VERSION}_aarch64.dmg" "context-${VERSION}-aarch64-darwin.dmg"
+          shasum -a 256 "context-${VERSION}-aarch64-darwin.dmg" \
+            | awk '{print $1}' > "context-${VERSION}-aarch64-darwin.dmg.sha256"
+
+          # The updater reads a per-release manifest; assemble it from the signed
+          # bundle the build just emitted.
+          nix develop -c release-manifest
+
       - name: Upload build outputs as artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -128,6 +258,11 @@ jobs:
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.tgz
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.sha256
             ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}-nix.sha256
+            ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.dmg
+            ${{ github.workspace }}/context-${{ needs.prep-release.outputs.version }}-${{ matrix.nix_system }}.dmg.sha256
+            ${{ github.workspace }}/target/release/bundle/macos/*.app.tar.gz
+            ${{ github.workspace }}/target/release/bundle/macos/*.app.tar.gz.sig
+            ${{ github.workspace }}/target/release/bundle/macos/latest.json
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -214,7 +349,18 @@ jobs:
           # Commit the formula update
           ["Formula/context.rb"] | ci scm commit -m $"Update Homebrew formula for ($version)" --push
 
+          # Update the Homebrew cask for full releases only: the tap serves
+          # stable releases, so a pre-release ships the dmg but leaves it alone.
           if $prerelease != "true" {
+            let dmg_sha = (open $"./artifacts/context-assets-aarch64-darwin/context-($version)-aarch64-darwin.dmg.sha256" | str trim)
+            let dmg_url = $"https://github.com/ck3mp3r/context/releases/download/($release_tag)/context-($version)-aarch64-darwin.dmg"
+            open Casks/context.rb
+              | str replace --all --regex 'version "[^"]+"' $'version "($version)"'
+              | str replace --all --regex 'sha256 "[^"]+"' $'sha256 "($dmg_sha)"'
+              | str replace --all --regex 'url "https://[^"]+"' $'url "($dmg_url)"'
+              | save --force Casks/context.rb
+            ["Casks/context.rb"] | ci scm commit -m $"Update Homebrew cask for ($version)" --push
+
             # Merge release branch to main (idempotent on re-run)
             ci scm merge $branch -m $"Release ($version)" --push
           }

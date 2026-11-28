@@ -1,11 +1,11 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
 use wasm_bindgen::prelude::*;
 
-use crate::api::{ApiClientError, projects, repos};
-use crate::components::{Breadcrumb, BreadcrumbItem, CopyableId};
-use crate::models::{Project, Repo, UpdateMessage};
+use crate::api::{ApiClientError, repos};
+use crate::components::EntityHeader;
+use crate::models::{Repo, UpdateMessage};
+use crate::tabs::{TabScope, should_refetch};
 use crate::utils::extract_repo_name;
 use crate::websocket::use_websocket_updates;
 
@@ -17,58 +17,54 @@ extern "C" {
 }
 
 #[component]
-pub fn RepoDetail() -> impl IntoView {
-    let params = use_params_map();
-    let repo_id = move || params.read().get("id").unwrap_or_default();
-    let project_id = move || params.read().get("project_id");
+pub fn RepoDetail(scope: TabScope) -> impl IntoView {
+    // The tab's entity id never changes for the tab's lifetime.
+    let repo_id = StoredValue::new_local(scope.entity_id().to_string());
 
     let (repo_data, set_repo_data) = signal(None::<Result<Repo, ApiClientError>>);
-    let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
 
     // WebSocket updates - refetch trigger
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
     let ws_updates = use_websocket_updates();
 
-    // Fetch project if we have a project_id (coming from project context)
+    // Watch for WebSocket repo updates for THIS repo. A mounted surface runs its fetch once, so
+    // loaded data is the gate: a hidden tab keeps its own repo live, and another repo's message
+    // refetches nothing (decision 15).
     Effect::new(move || {
-        if let Some(proj_id) = project_id() {
-            spawn_local(async move {
-                let result = projects::get(&proj_id).await;
-                set_project_data.set(Some(result));
-            });
+        let Some(msg) = ws_updates.get() else {
+            return;
+        };
+        let current_id = repo_id.get_value();
+        if current_id.is_empty() {
+            return;
         }
-    });
-
-    // Watch for WebSocket repo updates
-    Effect::new(move || {
-        if let Some(msg) = ws_updates.get() {
-            let current_id = repo_id();
-            if !current_id.is_empty() {
-                match &msg {
-                    UpdateMessage::RepoUpdated {
-                        repo_id: updated_id,
-                    } if *updated_id == current_id => {
-                        set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                    }
-                    UpdateMessage::RepoDeleted {
-                        repo_id: deleted_id,
-                    } if *deleted_id == current_id => {
-                        let navigate = leptos_router::hooks::use_navigate();
-                        if let Some(proj_id) = project_id() {
-                            navigate(&format!("/projects/{}/repos", proj_id), Default::default());
-                        } else {
-                            navigate("/repos", Default::default());
-                        }
-                    }
-                    _ => {}
-                }
+        match &msg {
+            UpdateMessage::RepoUpdated {
+                repo_id: updated_id,
+            } if should_refetch(
+                repo_data.get_untracked().is_some(),
+                false,
+                *updated_id == current_id,
+            ) =>
+            {
+                set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
             }
+            UpdateMessage::RepoDeleted {
+                repo_id: deleted_id,
+            } if *deleted_id == current_id => {
+                // No route exists for this surface any more, and closing the tab is the
+                // deletion reaction's job: this handler writes nothing.
+                web_sys::console::log_1(
+                    &format!("Repo {} deleted via WebSocket, tab stays open", deleted_id).into(),
+                );
+            }
+            _ => {}
         }
     });
 
     // Fetch repo when params change or refetch trigger fires
     Effect::new(move || {
-        let id = repo_id();
+        let id = repo_id.get_value();
         let _ = refetch_trigger.get();
 
         if !id.is_empty() {
@@ -81,42 +77,6 @@ pub fn RepoDetail() -> impl IntoView {
 
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            // Breadcrumb navigation
-            {move || {
-                match repo_data.get() {
-                    Some(Ok(ref repo)) => {
-                        let display_name = extract_repo_name(&repo.remote);
-
-                        let items = if let Some(Ok(ref project)) = project_data.get() {
-                            vec![
-                                BreadcrumbItem::new("Projects")
-                                    .with_href("/")
-                                    .with_name("projects"),
-                                BreadcrumbItem::new(project.title.clone())
-                                    .with_id(project.id.clone())
-                                    .with_href(format!("/projects/{}/repos", project.id))
-                                    .with_name(project.id.clone()),
-                                BreadcrumbItem::new(display_name)
-                                    .with_id(repo.id.clone()),
-                            ]
-                        } else if project_id().is_some() {
-                            return None;
-                        } else {
-                            vec![
-                                BreadcrumbItem::new("Repos")
-                                    .with_href("/repos")
-                                    .with_name("repos"),
-                                BreadcrumbItem::new(display_name)
-                                    .with_id(repo.id.clone()),
-                            ]
-                        };
-
-                        Some(view! { <Breadcrumb items=items/> })
-                    }
-                    _ => None,
-                }
-            }}
-
             <div class="container mx-auto px-6 py-6 flex-1">
                 {move || {
                     match repo_data.get() {
@@ -152,61 +112,54 @@ fn RepoDetailContent(repo: Repo) -> impl IntoView {
         <div class="space-y-6">
             // Header
             <div class="bg-ctp-surface0 border border-ctp-surface1 rounded-lg p-6">
-                <div class="flex items-start gap-3">
-                    <CopyableId id=repo.id.clone()/>
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-start justify-between mb-2">
-                            <div class="flex items-center gap-3">
-                                <h2 class="text-2xl font-bold text-ctp-text truncate">
-                                    {display_name}
-                                </h2>
-                                <a
-                                    href=remote_for_link
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class="flex-shrink-0 text-ctp-overlay0 hover:text-ctp-blue transition-colors"
-                                    title="Open remote"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
-                                        <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
-                                    </svg>
-                                </a>
-                            </div>
-                            <span class="text-xs text-ctp-overlay0 flex-shrink-0">{repo.created_at}</span>
-                        </div>
-
-                        <p class="text-ctp-subtext0 text-sm font-mono mb-3">{remote_url}</p>
-
-                        {repo.path.map(|p| {
-                            view! {
-                                <p class="text-ctp-subtext0 text-sm font-mono">
-                                    <span class="text-ctp-overlay1">"Path: "</span>
-                                    {p}
-                                </p>
-                            }
-                        })}
-
-                        {(!repo.tags.is_empty())
-                            .then(|| {
-                                view! {
-                                    <div class="flex flex-wrap gap-2 mt-3">
-                                        {repo
-                                            .tags
-                                            .iter()
-                                            .map(|tag| {
-                                                view! {
-                                                    <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
-                                                        {tag.clone()}
-                                                    </span>
-                                                }
-                                            })
-                                            .collect::<Vec<_>>()}
-                                    </div>
-                                }
-                            })}
+                <div class="flex items-start justify-between mb-2">
+                    <div class="flex items-center gap-3">
+                        <EntityHeader id=repo.id.clone() title=display_name.clone()/>
+                        <a
+                            href=remote_for_link
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="flex-shrink-0 text-ctp-overlay0 hover:text-ctp-blue transition-colors"
+                            title="Open remote"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
+                                <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
+                            </svg>
+                        </a>
                     </div>
+                    <span class="text-xs text-ctp-overlay0 flex-shrink-0">{repo.created_at}</span>
                 </div>
+
+                <p class="text-ctp-subtext0 text-sm font-mono mb-3">{remote_url}</p>
+
+                {repo.path.map(|p| {
+                    view! {
+                        <p class="text-ctp-subtext0 text-sm font-mono">
+                            <span class="text-ctp-overlay1">"Path: "</span>
+                            {p}
+                        </p>
+                    }
+                })}
+
+                {(!repo.tags.is_empty())
+                    .then(|| {
+                        view! {
+                            <div class="flex flex-wrap gap-2 mt-3">
+                                {repo
+                                    .tags
+                                    .iter()
+                                    .map(|tag| {
+                                        view! {
+                                            <span class="bg-ctp-surface1 text-ctp-subtext1 text-xs px-2 py-1 rounded">
+                                                {tag.clone()}
+                                            </span>
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()}
+                            </div>
+                        }
+                    })}
             </div>
 
         </div>

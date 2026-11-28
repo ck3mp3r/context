@@ -9,18 +9,8 @@ use commands::PageParams;
 #[path = "../../test/cli/utils.rs"]
 mod utils_test;
 
-#[cfg(test)]
-#[path = "../../test/cli/api_client.rs"]
-mod api_client_test;
-
 use clap::{Parser, Subcommand};
 use miette::Result;
-
-#[cfg(debug_assertions)]
-const DEFAULT_PORT: &str = "3738";
-
-#[cfg(not(debug_assertions))]
-const DEFAULT_PORT: &str = "3737";
 
 #[derive(Parser)]
 #[command(name = "c5t")]
@@ -38,23 +28,26 @@ pub struct Cli {
 enum Commands {
     /// Start the API server (REST API + MCP + embedded frontend)
     Api {
-        /// Host address to bind to
-        #[arg(long, default_value = "0.0.0.0")]
-        host: std::net::IpAddr,
+        /// Host address to bind to (default: the stored value, else 0.0.0.0)
+        #[arg(long)]
+        host: Option<std::net::IpAddr>,
 
-        /// Port to listen on
-        #[arg(short, long, default_value = DEFAULT_PORT)]
-        port: u16,
+        /// Port to listen on (default: the stored value, else the profile port)
+        #[arg(short, long)]
+        port: Option<u16>,
 
         /// Override data home directory (defaults to XDG_DATA_HOME/c5t-dev or ~/.local/share/c5t-dev in debug, c5t in release)
         #[arg(long)]
         home: Option<std::path::PathBuf>,
 
-        /// Override skills cache directory (defaults to C5T_SKILLS_DIR env or data_dir/skills)
+        /// Override skills cache directory (defaults to C5T_SKILLS_DIR env, then the stored value, then data_dir/skills)
         #[arg(long)]
         skills_dir: Option<std::path::PathBuf>,
 
-        /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace)
+        /// Increase logging verbosity (-v = info, -vv = debug, -vvv = trace; default: the stored value)
+        ///
+        /// A count, not an `Option`: absent means "no override" and maps to
+        /// `None` at dispatch. clap fills `Some(0)` for an absent count.
         #[arg(short, long, action = clap::ArgAction::Count)]
         verbose: u8,
 
@@ -244,6 +237,9 @@ enum NoteCommands {
         /// Filter by note type (note, subnote)
         #[arg(long)]
         note_type: Option<String>,
+        /// Filter by status (active, archived)
+        #[arg(long, value_parser = ["active", "archived"])]
+        status: Option<String>,
         /// Maximum number of notes to return
         #[arg(long)]
         limit: Option<u32>,
@@ -305,6 +301,9 @@ enum NoteCommands {
         /// New tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
+        /// New status (active, archived)
+        #[arg(long, value_parser = ["active", "archived"])]
+        status: Option<String>,
         /// Parent note ID (for converting to/from subnote). Use empty string to remove parent.
         #[arg(long)]
         parent_id: Option<String>,
@@ -717,6 +716,10 @@ enum TaskListCommands {
 
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
+
+    // One-time legacy config migration, before any command reads the settings.
+    context_core::settings::migrate_legacy_config();
+
     let api_client = api_client::ApiClient::new(cli.api_url);
 
     match cli.command {
@@ -728,7 +731,15 @@ pub async fn run() -> Result<()> {
             verbose,
             docs,
         }) => {
-            commands::api::run(host, port, home, skills_dir, verbose, docs).await?;
+            commands::api::run(
+                host,
+                port,
+                home,
+                skills_dir,
+                commands::api::verbosity_from_count(verbose),
+                docs,
+            )
+            .await?;
         }
         Some(Commands::Project { command }) => match command {
             ProjectCommands::List {
@@ -1090,6 +1101,7 @@ pub async fn run() -> Result<()> {
                 tags,
                 parent_id,
                 note_type,
+                status,
                 limit,
                 offset,
                 sort,
@@ -1109,6 +1121,7 @@ pub async fn run() -> Result<()> {
                     tags.as_deref(),
                     parent_id.as_deref(),
                     note_type.as_deref(),
+                    status.as_deref(),
                     page,
                     if json { "json" } else { "table" },
                 )
@@ -1147,6 +1160,7 @@ pub async fn run() -> Result<()> {
                 title,
                 content,
                 tags,
+                status,
                 parent_id,
                 idx,
                 project_ids,
@@ -1166,6 +1180,7 @@ pub async fn run() -> Result<()> {
                     idx: idx.map(Some),
                     project_ids: utils::parse_tags(project_ids.as_deref()),
                     repo_ids: utils::parse_tags(repo_ids.as_deref()),
+                    status,
                 };
                 let output = commands::note::update_note(&api_client, &id, request).await?;
                 println!("{}", output);

@@ -68,6 +68,11 @@ pub struct TaskStats {
     pub cancelled: usize,
 }
 
+/// Archive state assumed when a response omits the field (older servers).
+fn default_note_status() -> String {
+    "active".to_string()
+}
+
 /// Note response from API
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Note {
@@ -75,6 +80,12 @@ pub struct Note {
     pub title: String,
     pub content: String,
     pub tags: Vec<String>,
+    /// Archive state: "active" or "archived"
+    #[serde(default = "default_note_status")]
+    pub status: String,
+    /// Timestamp when the note was archived
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
     /// Parent note ID for hierarchical structure
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
@@ -122,6 +133,128 @@ pub struct Skill {
     pub source_subpath: Option<String>,
 }
 
+/// Settings as stored in `config.toml`: an absent field carries no override.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SettingsValues {
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub verbosity: Option<u8>,
+    pub enable_docs: Option<bool>,
+    pub skills_dir: Option<String>,
+    pub start_at_login: Option<bool>,
+    pub auto_update: Option<bool>,
+    pub update_channel: Option<String>,
+}
+
+/// Built-in defaults for every settings field.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SettingsDefaults {
+    pub host: String,
+    pub port: u16,
+    pub verbosity: u8,
+    pub enable_docs: bool,
+    pub skills_dir: String,
+    pub start_at_login: bool,
+    pub auto_update: bool,
+    pub update_channel: String,
+}
+
+/// Update state as `GET /api/v1/update/status` reports it.
+///
+/// Every optional field is absent from the response when it carries no value.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct UpdateStatusPayload {
+    pub current_version: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_tag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_is_prerelease: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Sync state as `GET /api/v1/sync/status` reports it.
+///
+/// The body is the server's `SyncResponse` envelope: `status` is `"success"` when sync is
+/// initialized and `"not_initialized"` before the first `init`, which is the flag the app reads to
+/// decide whether to render the sync surface at all.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SyncResponseEnvelope {
+    pub status: String,
+    pub message: String,
+    pub data: Option<SyncStatusData>,
+}
+
+/// Payload the status envelope carries.
+///
+/// An uninitialized status carries `initialized: false` and nothing else of value. An initialized
+/// one carries the remote, the last sync time, and whether sync is enabled on this machine; the
+/// setup envelope omits `enabled` entirely, so the field is optional. `git`, the two count pairs,
+/// and the tombstone count are absent when the status read could not produce them.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SyncStatusData {
+    pub initialized: bool,
+    pub enabled: Option<bool>,
+    pub remote_url: Option<String>,
+    pub last_synced_at: Option<String>,
+    pub git: Option<SyncGitState>,
+    pub database: Option<SyncCounts>,
+    pub sync_files: Option<SyncCounts>,
+    pub tombstones: Option<SyncCounts>,
+}
+
+/// Working-tree state of the sync directory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SyncGitState {
+    pub clean: bool,
+    pub status: String,
+}
+
+/// Row count for one side of sync: the server sends the per-entity counts plus their total.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SyncCounts {
+    pub total: u64,
+}
+
+/// Outcome of one manual update check that reported no state of its own.
+///
+/// A settled `idle` state renders nothing and a rejected call renders nothing either, so the pill
+/// cannot tell a check that found nothing from one that failed. The settings page writes one of
+/// these so the pill can say which happened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateCheckOutcome {
+    /// The trigger or a status read failed; the text is the detail to show.
+    Failed(String),
+    /// The check finished and no newer release is published.
+    NoUpdate,
+}
+
+/// Settings the running server process started with.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SettingsRunning {
+    pub host: String,
+    pub port: u16,
+    pub verbosity: u8,
+    pub enable_docs: bool,
+    pub host_fixed: bool,
+    pub skills_dir: String,
+}
+
+/// Response of the settings endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SettingsPayload {
+    pub values: SettingsValues,
+    pub defaults: SettingsDefaults,
+    pub running: SettingsRunning,
+}
+
 /// Paginated response wrapper
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Paginated<T> {
@@ -143,32 +276,74 @@ pub struct ApiError {
 #[serde(tag = "type", content = "data")]
 pub enum UpdateMessage {
     // Notes
-    NoteCreated { note_id: String },
-    NoteUpdated { note_id: String },
-    NoteDeleted { note_id: String },
+    NoteCreated {
+        note_id: String,
+    },
+    NoteUpdated {
+        note_id: String,
+    },
+    NoteDeleted {
+        note_id: String,
+    },
 
     // Skills
-    SkillCreated { skill_id: String },
-    SkillUpdated { skill_id: String },
-    SkillDeleted { skill_id: String },
+    SkillCreated {
+        skill_id: String,
+    },
+    SkillUpdated {
+        skill_id: String,
+    },
+    SkillDeleted {
+        skill_id: String,
+    },
 
     // Projects
-    ProjectCreated { project_id: String },
-    ProjectUpdated { project_id: String },
-    ProjectDeleted { project_id: String },
+    ProjectCreated {
+        project_id: String,
+    },
+    ProjectUpdated {
+        project_id: String,
+    },
+    ProjectDeleted {
+        project_id: String,
+    },
 
     // Repos
-    RepoCreated { repo_id: String },
-    RepoUpdated { repo_id: String },
-    RepoDeleted { repo_id: String },
+    RepoCreated {
+        repo_id: String,
+    },
+    RepoUpdated {
+        repo_id: String,
+    },
+    RepoDeleted {
+        repo_id: String,
+    },
 
     // TaskLists
-    TaskListCreated { task_list_id: String },
-    TaskListUpdated { task_list_id: String },
-    TaskListDeleted { task_list_id: String },
+    TaskListCreated {
+        task_list_id: String,
+    },
+    TaskListUpdated {
+        task_list_id: String,
+    },
+    TaskListDeleted {
+        task_list_id: String,
+    },
 
     // Tasks
-    TaskCreated { task_id: String },
-    TaskUpdated { task_id: String },
-    TaskDeleted { task_id: String },
+    TaskCreated {
+        task_id: String,
+    },
+    TaskUpdated {
+        task_id: String,
+    },
+    TaskDeleted {
+        task_id: String,
+    },
+
+    // Updater
+    UpdateStateChanged {
+        status: String,
+        version: Option<String>,
+    },
 }

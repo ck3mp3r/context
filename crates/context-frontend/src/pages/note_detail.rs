@@ -1,34 +1,19 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_params_map;
 
-use crate::api::{ApiClientError, QueryBuilder, notes, projects};
-use crate::components::{
-    Breadcrumb, BreadcrumbItem, CopyableId, MarkdownContent, NoteStackSidebar,
-};
-use crate::models::{Note, Project, UpdateMessage};
+use crate::api::{ApiClientError, QueryBuilder, notes};
+use crate::components::{EntityHeader, MarkdownContent, NoteStackSidebar};
+use crate::models::{Note, UpdateMessage};
+use crate::tabs::{TabScope, should_refetch};
 use crate::websocket::use_websocket_updates;
 
 #[component]
-pub fn NoteDetail() -> impl IntoView {
-    let params = use_params_map();
-    let note_id = move || params.read().get("id").unwrap_or_default();
-    let project_id = move || params.read().get("project_id");
+pub fn NoteDetail(scope: TabScope) -> impl IntoView {
+    // The tab's entity id never changes for the tab's lifetime.
+    let note_id = StoredValue::new_local(scope.entity_id().to_string());
 
     let (note_data, set_note_data) = signal(None::<Result<Note, ApiClientError>>);
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
-
-    // Fetch project if we have a project_id (coming from project context)
-    let (project_data, set_project_data) = signal(None::<Result<Project, ApiClientError>>);
-
-    Effect::new(move || {
-        if let Some(proj_id) = project_id() {
-            spawn_local(async move {
-                let result = projects::get(&proj_id).await;
-                set_project_data.set(Some(result));
-            });
-        }
-    });
 
     // Fetch subnotes to determine if we should show sidebar
     let (subnotes_data, set_subnotes_data) = signal(None::<Result<Vec<Note>, ApiClientError>>);
@@ -37,43 +22,47 @@ pub fn NoteDetail() -> impl IntoView {
     // WebSocket updates
     let ws_updates = use_websocket_updates();
 
-    // Watch for WebSocket updates for THIS note
+    // Watch for WebSocket updates for THIS note. The tab's own fetch runs at mount, so loaded data
+    // is the gate: a hidden tab keeps its own note live, and another note's message refetches
+    // nothing (decision 15).
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            let current_note_id = note_id();
-            if !current_note_id.is_empty() {
-                match update {
-                    UpdateMessage::NoteUpdated {
-                        note_id: updated_id,
-                    } if updated_id == current_note_id => {
-                        web_sys::console::log_1(
-                            &format!("Note {} updated via WebSocket, refetching...", updated_id)
-                                .into(),
-                        );
-                        set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                    }
-                    UpdateMessage::NoteDeleted {
-                        note_id: updated_id,
-                    } if updated_id == current_note_id => {
-                        // Note was deleted - navigate back to notes list
-                        web_sys::console::log_1(
-                            &format!(
-                                "Note {} deleted via WebSocket, navigating back...",
-                                updated_id
-                            )
-                            .into(),
-                        );
-                        leptos_router::hooks::use_navigate()("/notes", Default::default());
-                    }
-                    _ => {}
-                }
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let current_note_id = note_id.get_value();
+        if current_note_id.is_empty() {
+            return;
+        }
+        match update {
+            UpdateMessage::NoteUpdated {
+                note_id: updated_id,
+            } if should_refetch(
+                note_data.get_untracked().is_some(),
+                false,
+                updated_id == current_note_id,
+            ) =>
+            {
+                web_sys::console::log_1(
+                    &format!("Note {} updated via WebSocket, refetching...", updated_id).into(),
+                );
+                set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
             }
+            UpdateMessage::NoteDeleted {
+                note_id: updated_id,
+            } if updated_id == current_note_id => {
+                // No route exists for this surface any more, and closing the tab is the
+                // deletion reaction's job: this handler writes nothing.
+                web_sys::console::log_1(
+                    &format!("Note {} deleted via WebSocket, tab stays open", updated_id).into(),
+                );
+            }
+            _ => {}
         }
     });
 
     // Fetch note when ID or refetch trigger changes
     Effect::new(move || {
-        let id = note_id();
+        let id = note_id.get_value();
         let _ = refetch_trigger.get();
 
         if id.is_empty() {
@@ -93,7 +82,7 @@ pub fn NoteDetail() -> impl IntoView {
 
     // Fetch subnotes to check if this note has any
     Effect::new(move || {
-        let id = note_id();
+        let id = note_id.get_value();
         let _ = subnotes_refetch_trigger.get();
 
         if id.is_empty() {
@@ -124,7 +113,7 @@ pub fn NoteDetail() -> impl IntoView {
     let (print_notes, set_print_notes) = signal(Vec::<Note>::new());
 
     Effect::new(move || {
-        let id = note_id();
+        let id = note_id.get_value();
         if id.is_empty() {
             return;
         }
@@ -172,51 +161,58 @@ pub fn NoteDetail() -> impl IntoView {
 
     let (selected_refetch_trigger, set_selected_refetch_trigger) = signal(0u32);
 
+    // Resource for fetching the selected note (for stack navigation)
+    let (selected_note_data, set_selected_note_data) = signal(None::<Result<Note, ApiClientError>>);
+
     // Callback for note selection from sidebar
     let on_note_select = Callback::new(move |id: String| {
         selected_note_id.set(id);
     });
 
-    // Watch for WebSocket updates for the SELECTED note
+    // Watch for WebSocket updates for the SELECTED note, gated the same way as the note itself.
     Effect::new(move || {
-        if let Some(update) = ws_updates.get() {
-            let current_selected = selected_note_id.get();
-            let parent_note_id = note_id();
-            if !current_selected.is_empty() {
-                match update {
-                    UpdateMessage::NoteUpdated {
-                        note_id: updated_id,
-                    } if updated_id == current_selected => {
-                        web_sys::console::log_1(
-                            &format!(
-                                "Selected note {} updated via WebSocket, refetching...",
-                                updated_id
-                            )
-                            .into(),
-                        );
-                        set_selected_refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                    }
-                    UpdateMessage::NoteDeleted {
-                        note_id: updated_id,
-                    } if updated_id == current_selected && current_selected != parent_note_id => {
-                        // Selected subnote was deleted - switch back to parent
-                        web_sys::console::log_1(
-                            &format!(
-                                "Selected note {} deleted via WebSocket, switching to parent...",
-                                updated_id
-                            )
-                            .into(),
-                        );
-                        selected_note_id.set(parent_note_id);
-                    }
-                    _ => {}
-                }
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let current_selected = selected_note_id.get_untracked();
+        let parent_note_id = note_id.get_value();
+        if current_selected.is_empty() {
+            return;
+        }
+        match update {
+            UpdateMessage::NoteUpdated {
+                note_id: updated_id,
+            } if should_refetch(
+                selected_note_data.get_untracked().is_some(),
+                false,
+                updated_id == current_selected,
+            ) =>
+            {
+                web_sys::console::log_1(
+                    &format!(
+                        "Selected note {} updated via WebSocket, refetching...",
+                        updated_id
+                    )
+                    .into(),
+                );
+                set_selected_refetch_trigger.update(|n| *n = n.wrapping_add(1));
             }
+            UpdateMessage::NoteDeleted {
+                note_id: updated_id,
+            } if updated_id == current_selected && current_selected != parent_note_id => {
+                // Selected subnote was deleted - switch back to parent
+                web_sys::console::log_1(
+                    &format!(
+                        "Selected note {} deleted via WebSocket, switching to parent...",
+                        updated_id
+                    )
+                    .into(),
+                );
+                selected_note_id.set(parent_note_id);
+            }
+            _ => {}
         }
     });
-
-    // Resource for fetching the selected note (for stack navigation)
-    let (selected_note_data, set_selected_note_data) = signal(None::<Result<Note, ApiClientError>>);
 
     Effect::new(move || {
         let id = selected_note_id.get();
@@ -236,83 +232,6 @@ pub fn NoteDetail() -> impl IntoView {
 
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            // Breadcrumb navigation - different based on context
-            {move || {
-                // Check if we have project context
-                if let Some(_proj_id) = project_id() {
-                    // Coming from project - show Projects → Project → Note
-                    match (project_data.get(), note_data.get()) {
-                        (Some(Ok(project)), Some(Ok(note))) => {
-                            let has_subs = subnotes_data.get()
-                                .and_then(|r| r.ok())
-                                .map(|items| !items.is_empty())
-                                .unwrap_or(false);
-
-                            let (title, id) = if has_subs {
-                                // Use selected note for breadcrumb
-                                selected_note_data.get()
-                                    .and_then(|r| r.ok())
-                                    .map(|n| (n.title.clone(), n.id.clone()))
-                                    .unwrap_or_else(|| (note.title.clone(), note.id.clone()))
-                            } else {
-                                (note.title.clone(), note.id.clone())
-                            };
-
-                            let items = vec![
-                                BreadcrumbItem::new("Projects")
-                                    .with_href("/")
-                                    .with_name("projects"),
-                                BreadcrumbItem::new(project.title.clone())
-                                    .with_id(project.id.clone())
-                                    .with_href(format!("/projects/{}/notes", project.id))
-                                    .with_name(project.id.clone()),
-                                BreadcrumbItem::new(title)
-                                    .with_id(id),
-                            ];
-                            Some(view! {
-                                <div class="screen-only">
-                                    <Breadcrumb items=items/>
-                                </div>
-                            })
-                        }
-                        _ => None
-                    }
-                } else {
-                    // Coming from Notes page - show Notes → Note
-                    let has_subs = subnotes_data.get()
-                        .and_then(|r| r.ok())
-                        .map(|items| !items.is_empty())
-                        .unwrap_or(false);
-
-                    let breadcrumb_data = if has_subs {
-                        // Has subnotes - use selected note for breadcrumb
-                        selected_note_data.get().and_then(|result| {
-                            result.ok().map(|note| (note.title.clone(), note.id.clone()))
-                        })
-                    } else {
-                        // No subnotes - use parent note for breadcrumb
-                        note_data.get().and_then(|result| {
-                            result.ok().map(|note| (note.title.clone(), note.id.clone()))
-                        })
-                    };
-
-                    breadcrumb_data.map(|(title, id)| {
-                        let items = vec![
-                            BreadcrumbItem::new("Notes")
-                                .with_href("/notes")
-                                .with_name("notes"),
-                            BreadcrumbItem::new(title)
-                                .with_id(id),
-                        ];
-                        view! {
-                            <div class="screen-only">
-                                <Breadcrumb items=items/>
-                            </div>
-                        }
-                    })
-                }
-            }}
-
             <div class="container mx-auto p-6 flex-1">
                 {move || {
                     match note_data.get() {
@@ -358,10 +277,7 @@ pub fn NoteDetail() -> impl IntoView {
                                                                                 // Header: title, tags, metadata
                                                                                 <div class="flex-shrink-0 pb-4 border-b border-ctp-surface1">
                                                                                     <div class="flex items-center gap-3 mb-4">
-                                                                                        <CopyableId id=selected_note.id.clone()/>
-                                                                                        <h2 class="text-2xl font-bold text-ctp-text">
-                                                                                            {selected_note.title.clone()}
-                                                                                        </h2>
+                                                                                        <EntityHeader id=selected_note.id.clone() title=selected_note.title.clone()/>
                                                                                         <div class="ml-auto">
                                                             <button
                                                                 class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"
@@ -463,10 +379,7 @@ pub fn NoteDetail() -> impl IntoView {
                 // Header: title, tags, metadata
                 <div class="flex-shrink-0 pb-4 border-b border-ctp-surface1">
                     <div class="flex items-center gap-3 mb-4">
-                        <CopyableId id=note.id.clone()/>
-                        <h2 class="text-2xl font-bold text-ctp-text">
-                            {note.title.clone()}
-                        </h2>
+                        <EntityHeader id=note.id.clone() title=note.title.clone()/>
                         <div class="ml-auto">
                             <button
                                 class="screen-only inline-flex items-center gap-1 text-ctp-subtext0 hover:text-ctp-text text-sm"

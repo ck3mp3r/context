@@ -42,6 +42,363 @@ fn test_is_initialized_true() {
 }
 
 #[test]
+fn test_is_enabled_true_without_marker() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), sync_dir);
+
+    assert!(
+        manager.is_enabled(),
+        "a sync without a marker must count as enabled"
+    );
+}
+
+#[test]
+fn test_disable_writes_marker_outside_repo_and_keeps_every_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+    std::fs::write(sync_dir.join("projects.jsonl"), "{\"id\":\"proj0001\"}\n").unwrap();
+    std::fs::write(sync_dir.join("sync_meta.json"), "{\"schema_version\": 7}").unwrap();
+
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), sync_dir.clone());
+    let marker = temp_dir.path().join("sync_disabled");
+
+    manager
+        .disable()
+        .expect("disable on an initialized sync should succeed");
+
+    assert!(
+        marker.exists(),
+        "disable must create sync_disabled next to the sync directory"
+    );
+    assert!(
+        !sync_dir.join("sync_disabled").exists(),
+        "the marker must live outside the git repository"
+    );
+    assert!(
+        !manager.is_enabled(),
+        "the marker must report sync as disabled"
+    );
+    assert!(
+        manager.is_initialized(),
+        "disable must keep the sync initialized"
+    );
+    assert!(
+        sync_dir.join(".git").exists(),
+        "disable must keep the .git directory"
+    );
+    assert!(
+        sync_dir.join("projects.jsonl").exists(),
+        "disable must keep the JSONL mirror"
+    );
+
+    let content = std::fs::read_to_string(sync_dir.join("sync_meta.json")).unwrap();
+    assert_eq!(
+        content, "{\"schema_version\": 7}",
+        "disable must leave sync_meta.json untouched"
+    );
+}
+
+#[test]
+fn test_disable_twice_changes_nothing() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), sync_dir);
+    let marker = temp_dir.path().join("sync_disabled");
+
+    manager.disable().expect("first disable should succeed");
+    let after_first = std::fs::read_to_string(&marker).unwrap();
+
+    manager
+        .disable()
+        .expect("a second disable is a silent no-op");
+
+    let after_second = std::fs::read_to_string(&marker).unwrap();
+    assert_eq!(
+        after_first, after_second,
+        "a repeated disable must leave the marker unchanged"
+    );
+}
+
+#[test]
+fn test_enable_removes_marker_and_keeps_files() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+    std::fs::write(sync_dir.join("projects.jsonl"), "").unwrap();
+
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), sync_dir.clone());
+    let marker = temp_dir.path().join("sync_disabled");
+
+    manager.disable().expect("disable should succeed");
+    manager.enable().expect("enable should succeed");
+
+    assert!(!marker.exists(), "enable must delete the marker");
+    assert!(manager.is_enabled(), "enable must report sync as enabled");
+    assert!(
+        sync_dir.join(".git").exists(),
+        "enable must keep the .git directory"
+    );
+    assert!(
+        sync_dir.join("projects.jsonl").exists(),
+        "enable must keep the JSONL mirror"
+    );
+}
+
+#[test]
+fn test_disable_uninitialized_returns_not_initialized() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(&sync_dir).unwrap();
+    std::fs::write(sync_dir.join("projects.jsonl"), "").unwrap();
+
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), sync_dir.clone());
+
+    let result = manager.disable();
+
+    assert!(
+        matches!(result, Err(SyncError::NotInitialized)),
+        "disable without a .git entry must refuse, got: {:?}",
+        result
+    );
+    assert!(
+        !temp_dir.path().join("sync_disabled").exists(),
+        "a refused disable must write no marker"
+    );
+}
+
+#[test]
+fn test_enable_uninitialized_returns_not_initialized() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(&sync_dir).unwrap();
+
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), sync_dir);
+
+    let result = manager.enable();
+
+    assert!(
+        matches!(result, Err(SyncError::NotInitialized)),
+        "enable without a .git entry must refuse, got: {:?}",
+        result
+    );
+    assert!(
+        !temp_dir.path().join("sync_disabled").exists(),
+        "a refused enable must write no marker"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_mutations_refuse_while_disabled() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+    let db = setup_db().await;
+
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), sync_dir.clone());
+    manager.disable().expect("disable should succeed");
+
+    assert!(
+        temp_dir.path().join("sync_disabled").exists(),
+        "the marker must sit outside the sync directory"
+    );
+    assert!(
+        !sync_dir.join("sync_disabled").exists(),
+        "the marker must never appear inside the sync directory"
+    );
+
+    let export = manager.export(&db, None, false).await;
+    assert!(
+        matches!(export, Err(SyncError::SyncDisabled)),
+        "export must refuse a disabled sync, got: {:?}",
+        export
+    );
+    assert!(
+        !sync_dir.join("projects.jsonl").exists(),
+        "a refused export must write no JSONL file"
+    );
+
+    let import = manager.import(&db, false).await;
+    assert!(
+        matches!(import, Err(SyncError::SyncDisabled)),
+        "import must refuse a disabled sync, got: {:?}",
+        import
+    );
+
+    let remote = manager
+        .set_remote("git@example.com:new.git".to_string())
+        .await;
+    assert!(
+        matches!(remote, Err(SyncError::SyncDisabled)),
+        "set_remote must refuse a disabled sync, got: {:?}",
+        remote
+    );
+
+    let clear = manager.clear_remote();
+    assert!(
+        matches!(clear, Err(SyncError::SyncDisabled)),
+        "clear_remote must refuse a disabled sync, got: {:?}",
+        clear
+    );
+
+    assert!(
+        !manager.is_enabled(),
+        "a refused mutation must leave the marker in place"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_status_reports_disabled() {
+    let temp_dir = TempDir::new().unwrap();
+    let sync_dir = temp_dir.path().join("sync");
+    std::fs::create_dir_all(sync_dir.join(".git")).unwrap();
+    let db = setup_db().await;
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .returning(|_, _| Err(GitError::GitNotFound));
+    mock_git
+        .expect_status_porcelain()
+        .returning(|_| Ok(mock_output(0, "", "")));
+
+    let manager = SyncManager::with_sync_dir(mock_git, sync_dir);
+    manager.disable().expect("disable should succeed");
+
+    let status = manager.status(&db).await.unwrap();
+
+    assert!(
+        status.initialized,
+        "disable must leave the sync initialized"
+    );
+    assert!(!status.enabled, "status must report enabled false");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_remote_uninitialized_returns_not_initialized() {
+    let temp_dir = TempDir::new().unwrap();
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), temp_dir.path().to_path_buf());
+
+    let result = manager
+        .set_remote("git@example.com:new.git".to_string())
+        .await;
+
+    assert!(
+        matches!(result, Err(SyncError::NotInitialized)),
+        "set_remote must refuse an uninitialized sync, got: {:?}",
+        result
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_remote_adds_remote_when_absent() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .times(1)
+        .returning(|_, _| Err(GitError::GitNotFound));
+    mock_git
+        .expect_add_remote()
+        .withf(|_, name, url| name == "origin" && url == "git@example.com:new.git")
+        .times(1)
+        .returning(|_, _, _| Ok(mock_output(0, "", "")));
+    mock_git.expect_set_url().times(0);
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    manager
+        .set_remote("git@example.com:new.git".to_string())
+        .await
+        .expect("set_remote should add the missing remote");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_set_remote_replaces_url_when_present() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .times(1)
+        .returning(|_, _| Ok(mock_output(0, "git@example.com:old.git\n", "")));
+    mock_git
+        .expect_set_url()
+        .withf(|_, name, url| name == "origin" && url == "git@example.com:new.git")
+        .times(1)
+        .returning(|_, _, _| Ok(mock_output(0, "", "")));
+    mock_git.expect_add_remote().times(0);
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+    manager
+        .set_remote("git@example.com:new.git".to_string())
+        .await
+        .expect("set_remote should replace the existing remote URL");
+}
+
+#[test]
+fn test_clear_remote_uninitialized_returns_not_initialized() {
+    let temp_dir = TempDir::new().unwrap();
+    let manager = SyncManager::with_sync_dir(MockGitOps::new(), temp_dir.path().to_path_buf());
+
+    let result = manager.clear_remote();
+
+    assert!(
+        matches!(result, Err(SyncError::NotInitialized)),
+        "clear_remote must refuse an uninitialized sync, got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_clear_remote_without_origin_runs_no_git_command() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .times(1)
+        .returning(|_, _| Err(GitError::GitNotFound));
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+
+    manager
+        .clear_remote()
+        .expect("clearing an absent remote is a silent no-op");
+}
+
+#[test]
+fn test_clear_remote_removes_origin_when_present() {
+    let temp_dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp_dir.path().join(".git")).unwrap();
+
+    let mut mock_git = MockGitOps::new();
+    mock_git
+        .expect_remote_get_url()
+        .times(1)
+        .returning(|_, _| Ok(mock_output(0, "git@example.com:old.git\n", "")));
+    mock_git
+        .expect_remove_remote()
+        .withf(|_, name| name == "origin")
+        .times(1)
+        .returning(|_, _| Ok(mock_output(0, "", "")));
+
+    let manager = SyncManager::with_sync_dir(mock_git, temp_dir.path().to_path_buf());
+
+    manager
+        .clear_remote()
+        .expect("clear_remote should remove the configured origin");
+}
+
+#[test]
 fn test_entity_counts_includes_skills_field() {
     // Test that EntityCounts struct has skills field
     let counts = EntityCounts {

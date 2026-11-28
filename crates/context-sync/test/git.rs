@@ -1,8 +1,12 @@
 use crate::git::*;
 use mockall::predicate::*;
+use serial_test::serial;
+use std::env;
+use std::fs;
 use std::os::unix::process::ExitStatusExt;
-use std::path::Path;
-use std::process::{ExitStatus, Output};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Output};
+use tempfile::TempDir;
 
 /// Helper to create a mock Output
 fn mock_output(code: i32, stdout: &str, stderr: &str) -> Output {
@@ -163,4 +167,242 @@ fn test_mock_network_error() {
     } else {
         panic!("Expected NonZeroExit error");
     }
+}
+
+/// Run a git command for test setup with the exact given arguments, returning trimmed stdout.
+fn run_test_git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git setup command should run");
+
+    assert!(
+        output.status.success(),
+        "git {args:?} should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+/// Set a repo-local git config key in the given repository.
+fn set_config(dir: &Path, key: &str, value: &str) {
+    run_test_git(dir, &["config", key, value]);
+}
+
+/// Set the committer identity in the given repository.
+fn set_identity(dir: &Path) {
+    set_config(dir, "user.name", "C5t Test");
+    set_config(dir, "user.email", "c5t-test@example.com");
+}
+
+/// Enforce commit signing in the given repository with an unreachable key.
+fn set_hostile_signing(dir: &Path) {
+    set_config(dir, "commit.gpgsign", "true");
+    set_config(dir, "gpg.format", "ssh");
+    set_config(
+        dir,
+        "user.signingkey",
+        &dir.join("nonexistent-key").to_string_lossy(),
+    );
+}
+
+/// Write a global git config file that enforces signing with an unreachable key.
+fn write_hostile_global_config(dir: &Path) -> PathBuf {
+    let path = dir.join("gitconfig");
+    fs::write(
+        &path,
+        format!(
+            r#"[user]
+name = C5t Test
+email = c5t-test@example.com
+signingkey = {}
+[commit]
+gpgsign = true
+[gpg]
+format = ssh
+"#,
+            dir.join("nonexistent-key").display()
+        ),
+    )
+    .expect("hostile global config should be written");
+
+    path
+}
+
+/// Count the commits reachable from HEAD in the given repository.
+fn rev_list_count(dir: &Path) -> String {
+    run_test_git(dir, &["rev-list", "--count", "HEAD"])
+}
+
+#[test]
+fn test_real_git_commit_with_hostile_repo_local_signing() {
+    let repo = TempDir::new().expect("test temp dir should be created");
+    let path = repo.path();
+    let git = RealGit::new();
+    git.init(path).expect("git init should succeed");
+
+    set_identity(path);
+    set_hostile_signing(path);
+
+    fs::write(path.join("data.jsonl"), "{\"id\":\"test0000\"}\n")
+        .expect("data.jsonl should be written");
+
+    git.add_files(path, &[".".to_string()])
+        .expect("git add should succeed");
+    git.commit(path, "test")
+        .expect("commit should succeed when signing is neutralized");
+
+    assert_eq!(
+        rev_list_count(path),
+        "1",
+        "commit should create exactly one commit"
+    );
+}
+
+#[test]
+fn test_real_git_pull_merges_without_signing() {
+    let root = TempDir::new().expect("test temp dir should be created");
+    let base = root.path().join("base");
+    let local = root.path().join("local");
+    let other = root.path().join("other");
+
+    run_test_git(root.path(), &["init", "--bare", "-b", "main", "origin.git"]);
+
+    run_test_git(root.path(), &["clone", "origin.git", "base"]);
+    set_identity(&base);
+    fs::write(base.join("base.txt"), "base\n").expect("base.txt should be written");
+    run_test_git(&base, &["add", "base.txt"]);
+    run_test_git(&base, &["commit", "--no-gpg-sign", "-m", "base"]);
+    run_test_git(&base, &["push", "origin", "main"]);
+
+    run_test_git(root.path(), &["clone", "origin.git", "local"]);
+    set_identity(&local);
+    fs::write(local.join("b.txt"), "b\n").expect("b.txt should be written");
+    run_test_git(&local, &["add", "b.txt"]);
+    run_test_git(&local, &["commit", "--no-gpg-sign", "-m", "b"]);
+    set_config(&local, "pull.rebase", "false");
+    set_hostile_signing(&local);
+
+    run_test_git(root.path(), &["clone", "origin.git", "other"]);
+    set_identity(&other);
+    fs::write(other.join("c.txt"), "c\n").expect("c.txt should be written");
+    run_test_git(&other, &["add", "c.txt"]);
+    run_test_git(&other, &["commit", "--no-gpg-sign", "-m", "c"]);
+    run_test_git(&other, &["push", "origin", "main"]);
+
+    let git = RealGit::new();
+    git.pull(&local, "origin", "main")
+        .expect("pull should succeed when signing is neutralized");
+
+    assert_eq!(
+        rev_list_count(&local),
+        "4",
+        "pull should merge the diverged branches on the shared base"
+    );
+    assert_eq!(
+        run_test_git(&local, &["log", "-1", "--format=%G?"]),
+        "N",
+        "merge commit should be unsigned"
+    );
+}
+
+#[test]
+fn test_real_git_set_url_replaces_origin() {
+    let root = TempDir::new().expect("test temp dir should be created");
+    let repo = root.path().join("repo");
+    fs::create_dir_all(&repo).expect("repo dir should be created");
+
+    let old_url = "https://example.com/old.git";
+    let new_url = "https://example.com/new.git";
+
+    let git = RealGit::new();
+    git.init(&repo).expect("git init should succeed");
+    git.add_remote(&repo, "origin", old_url)
+        .expect("git remote add should succeed");
+
+    git.set_url(&repo, "origin", new_url)
+        .expect("git remote set-url should succeed");
+
+    assert_eq!(
+        run_test_git(&repo, &["remote", "get-url", "origin"]),
+        new_url,
+        "a later remote get-url must print the new URL"
+    );
+}
+
+#[test]
+fn test_real_git_remove_remote_deletes_origin_config_only() {
+    let root = TempDir::new().expect("test temp dir should be created");
+    let repo = root.path().join("repo");
+    fs::create_dir_all(&repo).expect("repo dir should be created");
+
+    let git = RealGit::new();
+    git.init(&repo).expect("git init should succeed");
+    git.add_remote(&repo, "origin", "https://example.com/old.git")
+        .expect("git remote add should succeed");
+
+    set_identity(&repo);
+    fs::write(repo.join("projects.jsonl"), "{\"id\":\"test0000\"}\n")
+        .expect("projects.jsonl should be written");
+    git.add_files(&repo, &[".".to_string()])
+        .expect("git add should succeed");
+    git.commit(&repo, "seed")
+        .expect("seed commit should succeed");
+    let commits_before = rev_list_count(&repo);
+
+    git.remove_remote(&repo, "origin")
+        .expect("git remote remove should succeed");
+
+    assert_eq!(
+        run_test_git(&repo, &["remote", "-v"]),
+        "",
+        "a later remote listing must print nothing"
+    );
+    assert_eq!(
+        rev_list_count(&repo),
+        commits_before,
+        "removing the remote must keep the commit history"
+    );
+    assert!(
+        repo.join("projects.jsonl").exists(),
+        "removing the remote must keep the sync files"
+    );
+
+    let absent = git.remove_remote(&repo, "origin");
+    assert!(
+        matches!(absent, Err(GitError::NonZeroExit { .. })),
+        "removing an absent remote must map to NonZeroExit, got: {absent:?}"
+    );
+}
+
+#[test]
+#[serial]
+fn test_real_git_commit_with_hostile_global_signing() {
+    let repo = TempDir::new().expect("test temp dir should be created");
+    let path = repo.path();
+    let git = RealGit::new();
+    git.init(path).expect("git init should succeed");
+
+    let config_dir = TempDir::new().expect("config temp dir should be created");
+    let global_config = write_hostile_global_config(config_dir.path());
+
+    fs::write(path.join("data.jsonl"), "{\"id\":\"test0000\"}\n")
+        .expect("data.jsonl should be written");
+
+    unsafe { env::set_var("GIT_CONFIG_GLOBAL", &global_config) };
+    let added = git.add_files(path, &[".".to_string()]);
+    let committed = git.commit(path, "test");
+    unsafe { env::remove_var("GIT_CONFIG_GLOBAL") };
+
+    added.expect("git add should succeed");
+    committed.expect("commit should succeed when signing is neutralized");
+
+    assert_eq!(
+        rev_list_count(path),
+        "1",
+        "commit should create exactly one commit"
+    );
 }

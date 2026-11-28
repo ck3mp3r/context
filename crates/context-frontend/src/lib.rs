@@ -4,13 +4,17 @@ use wasm_bindgen::prelude::*;
 
 mod api;
 mod app;
-mod breadcrumb_state;
 mod components;
 mod hooks;
 mod mermaid;
 mod models;
 mod pages;
+/// Sync state: the phases and the sentences the indicator renders, kept free of the view layer.
+pub mod sync_status;
+pub mod tabs;
 mod theme;
+/// Update wording: the phrases the banner renders, kept free of the view layer.
+pub mod update_status;
 mod utils;
 mod websocket;
 

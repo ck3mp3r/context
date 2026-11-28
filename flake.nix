@@ -4,6 +4,10 @@
   inputs = {
     base-nixpkgs.url = "github:ck3mp3r/flakes?dir=base-nixpkgs";
     nixpkgs.follows = "base-nixpkgs/unstable";
+    # zola 0.22.x for the docs site. The nixpkgs above carries zola 0.23,
+    # which moved to Tera 2 and cannot parse the adidoks theme (Tera 1
+    # macros). 0.22.1 is also the version the deploy action runs.
+    nixpkgs-zola.url = "github:NixOS/nixpkgs/b5553f65a977d833d9e25bcc15fd4f8569ab61da";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
@@ -34,6 +38,10 @@
         ];
         pkgs = import inputs.nixpkgs {inherit system overlays;};
 
+        # zola 0.22.x from the pinned nixpkgs-zola input; the nixpkgs above
+        # carries 0.23, which the docs theme cannot parse. See flake.nix.
+        zola = (import inputs.nixpkgs-zola {inherit system;}).zola;
+
         cargoToml = fromTOML (builtins.readFile ./Cargo.toml);
         cargoLock = {
           lockFile = ./Cargo.lock;
@@ -55,7 +63,7 @@
 
         devShells = {
           default = import ./nix/dev.nix {
-            inherit pkgs inputs system;
+            inherit pkgs inputs system zola;
           };
 
           ci = import ./nix/ci.nix {

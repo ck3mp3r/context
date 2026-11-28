@@ -15,6 +15,11 @@ use rust_embed::Embed;
 /// Folder points to Trunk's output directory.
 /// In debug: reads from dist/ at runtime (Trunk dev server preferred)
 /// In release: embedded at compile time with compression
+///
+/// The root globs cover every asset Trunk emits, including the hashed names
+/// (`main-<hash>.js`). Trunk also copies the vendored sources into `dist/`; the
+/// vendor glob keeps them embedded should a build preserve their `vendor/`
+/// directory instead of flattening it to the root.
 #[derive(Embed)]
 #[folder = "dist/"]
 #[include = "*.html"]
@@ -24,7 +29,8 @@ use rust_embed::Embed;
 #[include = "*.svg"]
 #[include = "*.ico"]
 #[include = "snippets/**/*"]
-struct FrontendAssets;
+#[include = "vendor/**/*"]
+pub(crate) struct FrontendAssets;
 
 /// Serve embedded frontend assets with SPA fallback routing.
 ///
@@ -55,7 +61,7 @@ pub async fn serve_frontend(uri: Uri) -> Response {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime.as_ref())
-                .header(header::CACHE_CONTROL, "public, max-age=31536000") // 1 year for hashed assets
+                .header(header::CACHE_CONTROL, cache_control(asset_path))
                 .body(Body::from(content.data))
                 .unwrap()
         }
@@ -75,4 +81,25 @@ pub async fn serve_frontend(uri: Uri) -> Response {
                 .unwrap(),
         },
     }
+}
+
+fn cache_control(path: &str) -> &'static str {
+    if is_content_hashed(path) {
+        "public, max-age=31536000"
+    } else {
+        "no-cache"
+    }
+}
+
+fn is_content_hashed(path: &str) -> bool {
+    let file_name = path.rsplit('/').next().unwrap_or(path);
+    let Some((stem, _extension)) = file_name.rsplit_once('.') else {
+        return false;
+    };
+    let stem = stem.strip_suffix("_bg").unwrap_or(stem);
+    let Some((_, hash)) = stem.rsplit_once('-') else {
+        return false;
+    };
+
+    hash.len() >= 8 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

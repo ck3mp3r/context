@@ -5,6 +5,11 @@ use crate::cli::utils::{apply_table_style, format_tags, truncate_with_ellipsis};
 use serde::{Deserialize, Serialize};
 use tabled::{Table, Tabled};
 
+/// Archive state assumed when a response omits the field (older servers).
+fn default_note_status() -> String {
+    "active".to_string()
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Note {
     pub id: String,
@@ -17,6 +22,12 @@ pub struct Note {
     pub project_ids: Option<Vec<String>>,
     pub created_at: String,
     pub updated_at: String,
+    /// Archive state: "active" or "archived"
+    #[serde(default = "default_note_status")]
+    pub status: String,
+    /// Timestamp when the note was archived
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +62,8 @@ pub struct UpdateNoteRequest {
     pub project_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repo_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Tabled)]
@@ -91,6 +104,7 @@ pub async fn list_notes(
     tags: Option<&str>,
     parent_id: Option<&str>,
     note_type: Option<&str>,
+    status: Option<&str>,
     page: PageParams<'_>,
     format: &str,
 ) -> CliResult<String> {
@@ -110,6 +124,9 @@ pub async fn list_notes(
     }
     if let Some(nt) = note_type {
         request = request.query(&[("note_type", nt)]);
+    }
+    if let Some(s) = status {
+        request = request.query(&[("status", s)]);
     }
     if let Some(l) = page.limit {
         request = request.query(&[("limit", l.to_string())]);

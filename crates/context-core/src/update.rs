@@ -1,0 +1,297 @@
+//! Persisted update state and the update-flow seam.
+//!
+//! The service process owns the update flow, so progress survives a closed GUI.
+//! [`UpdateState`] is the file shape written to `update.json` in the profile
+//! config directory: plain serde JSON, no platform APIs, no locking, and no
+//! opinion on which process reads it. [`UpdateFlow`] is the seam the REST layer
+//! talks to, so no Tauri type ever reaches `context-server`.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use miette::Diagnostic;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use crate::paths::get_config_dir;
+
+/// Name of the update state file inside the configuration directory.
+const UPDATE_STATE_FILE_NAME: &str = "update.json";
+
+/// Counter that keeps a write's temporary file name unique inside this process.
+static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+// region:    --- Types
+
+/// Phase of the update flow.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateStatus {
+    /// No check runs and no candidate is known.
+    #[default]
+    Idle,
+    /// A check is in flight.
+    Checking,
+    /// A candidate is known and waits for consent.
+    Available,
+    /// The candidate downloads.
+    Downloading,
+    /// The candidate installs.
+    Installing,
+    /// The candidate is installed; the process restarts on the new binary.
+    Ready,
+    /// The last attempt failed; `message` says why.
+    Failed,
+}
+
+/// Update progress as stored in `update.json`.
+///
+/// Every optional field is absent from the file when it carries no value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateState {
+    /// Phase of the update flow.
+    #[serde(default)]
+    pub status: UpdateStatus,
+    /// Version this build runs.
+    pub current_version: String,
+    /// Version of the candidate awaiting consent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_version: Option<String>,
+    /// Release tag the candidate came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_tag: Option<String>,
+    /// Release notes of the candidate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_notes: Option<String>,
+    /// Whether the candidate is a pre-release.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_is_prerelease: Option<bool>,
+    /// Human-readable detail for the current status, such as a failure reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// RFC 3339 timestamp of the last state change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Update state storage errors.
+#[derive(Error, Diagnostic, Debug)]
+pub enum UpdateStateError {
+    #[error("No update flow is attached")]
+    #[diagnostic(code(context::update_state::unavailable))]
+    Unavailable,
+
+    #[error("An update check or install is already running")]
+    #[diagnostic(code(context::update_state::busy))]
+    Busy,
+
+    #[error("Invalid update state: {message}")]
+    #[diagnostic(code(context::update_state::invalid))]
+    Invalid { message: String },
+
+    #[error("Failed to access update state: {message}")]
+    #[diagnostic(code(context::update_state::io))]
+    Io { message: String },
+}
+
+/// Result type for update state operations.
+pub type UpdateStateResult<T> = Result<T, UpdateStateError>;
+
+/// Seam between the REST layer and the process that runs the update flow.
+///
+/// Every trigger starts work on the flow's own task and returns immediately; the
+/// flow reports progress through the persisted [`UpdateState`].
+///
+/// # Trigger contract
+///
+/// A decline is not contention, so every decline runs before the flow claims its
+/// busy flag:
+///
+/// - A non-manual check declines with `Ok(())` while auto-update is off. It
+///   writes no state and broadcasts nothing.
+/// - A debug build declines every install and restart with
+///   [`UpdateStateError::Invalid`] before the claim, so neither ever answers
+///   `Busy` in a development build.
+///
+/// A trigger that would start work while another run is in flight answers
+/// [`UpdateStateError::Busy`] unless a decline above applies.
+///
+/// A claim is not a promise that the trigger runs. A check claims the flow and
+/// then refuses while the state is [`UpdateStatus::Ready`]: an install already
+/// staged a bundle the running process has not restarted on, and a check would
+/// overwrite the state that carries it. The refusal answers
+/// [`UpdateStateError::Invalid`] ("an installed update awaits a restart"), writes
+/// no state, broadcasts nothing, and releases the claim, so the next trigger is
+/// not [`UpdateStateError::Busy`]. It runs after the claim, so it is a refusal,
+/// not a decline.
+pub trait UpdateFlow: Send + Sync {
+    /// Start a check; `manual` marks a check the user asked for.
+    fn check(&self, manual: bool) -> UpdateStateResult<()>;
+
+    /// Start installing the candidate that waits for consent.
+    ///
+    /// The install ends at [`UpdateStatus::Ready`]: the bundle is swapped on
+    /// disk and the running process keeps serving it. Nothing restarts.
+    fn install(&self) -> UpdateStateResult<()>;
+
+    /// Restart onto the bundle an install staged.
+    ///
+    /// One sequence, one service owner: start the swapped service, terminate
+    /// and respawn the GUI, then end the old process. The launchd agent is not
+    /// touched, so ownership returns to it at the next login.
+    fn restart(&self) -> UpdateStateResult<()>;
+
+    /// Read the persisted update state.
+    ///
+    /// Never fails: an implementation that cannot read or parse its state logs
+    /// the failure and reports the default state.
+    fn state(&self) -> UpdateState;
+}
+
+/// Flow attached when the process has no updater, such as a CLI-only build.
+///
+/// It never starts work: [`UpdateFlow::check`], [`UpdateFlow::install`] and
+/// [`UpdateFlow::restart`] answer [`UpdateStateError::Unavailable`], which the
+/// REST layer reports as 503.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoUpdateFlow;
+
+// endregion: --- Types
+
+// region:    --- Functions
+
+/// Read the update state at `path`.
+///
+/// A missing file is not an error: it resolves to `UpdateState::default()`.
+pub fn load(path: &Path) -> UpdateStateResult<UpdateState> {
+    let source = match std::fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(UpdateState::default());
+        }
+        Err(error) => {
+            return Err(UpdateStateError::Io {
+                message: format!(
+                    "Failed to read update state file '{}': {error}",
+                    path.display()
+                ),
+            });
+        }
+    };
+
+    serde_json::from_str(&source).map_err(|error| UpdateStateError::Invalid {
+        message: format!(
+            "Failed to parse update state file '{}': {error}",
+            path.display()
+        ),
+    })
+}
+
+/// Write `state` to the update state file at `path`.
+///
+/// Creates the parent directory when it does not exist. The file is replaced
+/// atomically: the state is written to a temporary sibling and renamed onto the
+/// path, so a concurrent reader sees either the old or the new file, never a
+/// partial one.
+pub fn write(path: &Path, state: &UpdateState) -> UpdateStateResult<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|error| UpdateStateError::Io {
+            message: format!(
+                "Failed to create update state directory '{}': {error}",
+                parent.display()
+            ),
+        })?;
+    }
+
+    let source = serde_json::to_string(state).map_err(|error| UpdateStateError::Invalid {
+        message: format!("Failed to serialize update state: {error}"),
+    })?;
+
+    let temporary = temporary_path(path);
+
+    if let Err(error) = std::fs::write(&temporary, source) {
+        remove_best_effort(&temporary);
+        return Err(UpdateStateError::Io {
+            message: format!(
+                "Failed to write update state file '{}': {error}",
+                path.display()
+            ),
+        });
+    }
+
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        remove_best_effort(&temporary);
+        return Err(UpdateStateError::Io {
+            message: format!(
+                "Failed to replace update state file '{}': {error}",
+                path.display()
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+/// Temporary sibling of `path`: same directory, unique per process and per call.
+///
+/// The temp file sits next to the target so the rename stays on one filesystem,
+/// which is what makes it atomic.
+fn temporary_path(path: &Path) -> PathBuf {
+    let counter = TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| UPDATE_STATE_FILE_NAME.to_string());
+
+    path.with_file_name(format!("{name}.tmp-{}-{counter}", std::process::id()))
+}
+
+/// Remove a temporary file the failed write left behind, ignoring the outcome.
+fn remove_best_effort(path: &Path) {
+    let _ = std::fs::remove_file(path);
+}
+
+/// Get the update state file path (config_dir/update.json).
+///
+/// # Returns
+/// Path to the state file: `{config_dir}/update.json`
+pub fn update_state_path() -> PathBuf {
+    get_config_dir().join(UPDATE_STATE_FILE_NAME)
+}
+
+// endregion: --- Functions
+
+impl Default for UpdateState {
+    fn default() -> Self {
+        Self {
+            status: UpdateStatus::Idle,
+            current_version: env!("CARGO_PKG_VERSION").to_string(),
+            candidate_version: None,
+            candidate_tag: None,
+            candidate_notes: None,
+            candidate_is_prerelease: None,
+            message: None,
+            updated_at: None,
+        }
+    }
+}
+
+impl UpdateFlow for NoUpdateFlow {
+    fn check(&self, _manual: bool) -> UpdateStateResult<()> {
+        Err(UpdateStateError::Unavailable)
+    }
+
+    fn install(&self) -> UpdateStateResult<()> {
+        Err(UpdateStateError::Unavailable)
+    }
+
+    fn restart(&self) -> UpdateStateResult<()> {
+        Err(UpdateStateError::Unavailable)
+    }
+
+    fn state(&self) -> UpdateState {
+        UpdateState::default()
+    }
+}

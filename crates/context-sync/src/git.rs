@@ -38,6 +38,12 @@ pub trait GitOps {
     /// Get the URL of a remote.
     fn remote_get_url(&self, path: &Path, name: &str) -> Result<Output, GitError>;
 
+    /// Replace the URL of an existing remote.
+    fn set_url(&self, path: &Path, name: &str, url: &str) -> Result<Output, GitError>;
+
+    /// Remove a configured remote.
+    fn remove_remote(&self, path: &Path, name: &str) -> Result<Output, GitError>;
+
     /// Get repository status in porcelain format.
     fn status_porcelain(&self, path: &Path) -> Result<Output, GitError>;
 
@@ -124,6 +130,16 @@ impl GitOps for RealGit {
         self.check_output(output)
     }
 
+    fn set_url(&self, path: &Path, name: &str, url: &str) -> Result<Output, GitError> {
+        let output = self.run_git(path, &["remote", "set-url", name, url])?;
+        self.check_output(output)
+    }
+
+    fn remove_remote(&self, path: &Path, name: &str) -> Result<Output, GitError> {
+        let output = self.run_git(path, &["remote", "remove", name])?;
+        self.check_output(output)
+    }
+
     fn status_porcelain(&self, path: &Path) -> Result<Output, GitError> {
         let output = self.run_git(path, &["status", "--porcelain"])?;
         self.check_output(output)
@@ -138,12 +154,12 @@ impl GitOps for RealGit {
     }
 
     fn commit(&self, path: &Path, message: &str) -> Result<Output, GitError> {
-        let output = self.run_git(path, &["commit", "-m", message])?;
+        let output = self.run_git(path, &["commit", "--no-gpg-sign", "-m", message])?;
         self.check_output(output)
     }
 
     fn pull(&self, path: &Path, remote: &str, branch: &str) -> Result<Output, GitError> {
-        let output = self.run_git(path, &["pull", remote, branch])?;
+        let output = self.run_git(path, &["pull", "--no-gpg-sign", remote, branch])?;
         self.check_output(output)
     }
 

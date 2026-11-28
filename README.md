@@ -25,9 +25,12 @@ Task management and knowledge tracking system with git-based sync, built for AI-
 
 **Install:**
 ```sh
-# Homebrew (macOS/Linux)
+# Homebrew formula (macOS/Linux) — the CLI
 brew tap ck3mp3r/context
 brew install ck3mp3r/context/context
+
+# Homebrew cask (macOS Apple Silicon) — the desktop app
+brew install --cask ck3mp3r/context/context
 
 # Or Nix
 nix profile install github:ck3mp3r/context
@@ -157,6 +160,7 @@ services:
 - [API Reference](docs/api.md) - REST API endpoints
 - [MCP Tools](docs/mcp.md) - Model Context Protocol tools
 - [Frontend Architecture](docs/frontend.md) - Leptos WASM UI & build process
+- [Desktop App](docs/app.md) - Build, sign, and notarize the macOS app
 - [Database Schema](docs/schema.md) - SQLite schema and migrations
 - [Sync Guide](docs/sync.md) - Git-based cross-machine synchronization
 

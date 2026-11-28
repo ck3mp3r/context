@@ -6,7 +6,7 @@
 
 mod common;
 
-use context_core::{HasNotes, Note, NoteRepository};
+use context_core::{HasNotes, Note, NoteRepository, NoteStatus};
 use context_db::SqliteDatabase;
 use context_server::api::notifier::ChangeNotifier;
 use context_server::mcp::tools::notes::{EditNoteParams, NoteTools, ReadNoteParams};
@@ -23,6 +23,7 @@ async fn read_etag<D: HasNotes + 'static>(tools: &NoteTools<D>, note_id: &str) -
         note_id: note_id.to_string(),
         format: Some("json".to_string()),
         ranges: None,
+        anchor: None,
     };
     let result = tools
         .note_read(Parameters(params))
@@ -51,6 +52,8 @@ fn make_note(id: &str, updated_at: &str) -> Note {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some("2025-01-01 00:00:00".to_string()),
         updated_at: Some(updated_at.to_string()),
         deleted_at: None,
@@ -138,13 +141,14 @@ async fn test_note_edit_rejects_stale_etag() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag: "deadbeef".to_string(),
+        etag: Some("deadbeef".to_string()),
         title: Some("Updated".to_string()),
         tags: None,
         project_ids: None,
         repo_ids: None,
         parent_id: None,
         idx: None,
+        status: None,
         patches: vec![],
     };
 
@@ -185,6 +189,7 @@ async fn test_note_read_rejects_empty_ranges() {
         note_id: "note0001".to_string(),
         format: None,
         ranges: Some(vec![]),
+        anchor: None,
     };
 
     let error = tools
@@ -221,13 +226,14 @@ async fn test_note_edit_error_payload_omits_expected_etag() {
 
     let params = EditNoteParams {
         note_id: "note0001".to_string(),
-        etag: "deadbeef".to_string(),
+        etag: Some("deadbeef".to_string()),
         title: Some("Updated".to_string()),
         tags: None,
         project_ids: None,
         repo_ids: None,
         parent_id: None,
         idx: None,
+        status: None,
         patches: vec![],
     };
 

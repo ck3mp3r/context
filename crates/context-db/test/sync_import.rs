@@ -2,9 +2,9 @@
 
 use crate::SqliteDatabase;
 use context_core::{
-    Database, HasProjects, HasRepos, HasSync, HasTaskLists, Note, Project, ProjectRepository, Repo,
-    RepoRepository, Skill, SkillAttachment, SyncRepository, Task, TaskListRepository,
-    TaskListStatus, TaskStatus, write_jsonl,
+    Database, HasProjects, HasRepos, HasSync, HasTaskLists, Note, NoteStatus, Project,
+    ProjectRepository, Repo, RepoRepository, Skill, SkillAttachment, SyncRepository, Task,
+    TaskListRepository, TaskListStatus, TaskStatus, write_jsonl,
 };
 use tempfile::TempDir;
 
@@ -430,6 +430,8 @@ fn write_full_replica(temp_dir: &TempDir, count: usize) {
             repo_ids: vec![format!("repofl{i:02}")],
             project_ids: vec![format!("projfl{i:02}")],
             subnote_count: None,
+            status: NoteStatus::Active,
+            archived_at: None,
             created_at: created_at.clone(),
             updated_at: updated_at.clone(),
             deleted_at: None,

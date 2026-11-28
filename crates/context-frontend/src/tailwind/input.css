@@ -183,29 +183,97 @@ body {
   margin-top: 2em;
   margin-bottom: 2em;
 }
-
-/* Task detail dialog - override thaw's max-width: 600px */
-.task-detail-dialog-surface {
-  width: 95vw !important;
-  max-width: 95vw !important;
-  height: 90vh !important;
-  overflow: hidden !important;
+/* === Inline surfaces (decision 12): a surface renders inside its tab wrapper, never under
+   document.body, and positions itself against the viewport with position: fixed. === */
+.inline-surface {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
 }
 
-/* Override Thaw's display:block with higher specificity (not !important, so CSSTransition can still hide via inline display:none) */
-.task-detail-dialog-surface.thaw-dialog-surface {
+/* A dialog centres its panel; a drawer pins it to the right edge at full height. */
+.inline-surface--modal {
+  align-items: center;
+  justify-content: center;
+}
+
+.inline-surface--drawer {
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+.inline-surface-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  animation: inline-surface-fade-in 0.15s ease-out;
+}
+
+.inline-surface-panel {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background: var(--ctp-base);
+  border: 1px solid var(--ctp-surface1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  outline: none;
 }
 
-/* Body fills the fixed surface height (90vh minus the 24px surface padding on each side). */
-.task-detail-dialog-surface .thaw-dialog-body {
-  flex: 1 !important;
-  min-height: 0 !important;
-  overflow: hidden !important;
-  display: flex !important;
-  flex-direction: column !important;
-  max-height: none !important;
+/* The task detail dialog keeps its two-pane frame: 95vw wide, 90vh tall. */
+.inline-surface-panel--modal {
+  width: 95vw;
+  max-width: 95vw;
+  height: 90vh;
+  max-height: 90vh;
+  border-radius: 0.5rem;
+  animation: inline-surface-fade-in 0.15s ease-out;
+}
+
+.inline-surface-panel--drawer {
+  height: 100%;
+  max-height: 100vh;
+  animation: inline-surface-slide-in-right 0.2s cubic-bezier(0, 0, 0.2, 1);
+}
+
+@keyframes inline-surface-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes inline-surface-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* === Update pill: the one update surface. Fixed to the bottom right, above the app chrome and
+   below an open inline surface (z-index 50), so a dialog always covers it. === */
+.update-pill {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(28rem, calc(100vw - 3rem));
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 0.5rem;
+  background: var(--ctp-surface0);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  font-size: 0.875rem;
+  color: var(--ctp-text);
 }
 
 /* Two-pane task detail: children left, task detail right */
@@ -244,86 +312,10 @@ body {
   }
 }
 
-/* Thaw UI OverlayDrawer custom styling */
-.note-detail-drawer {
-  width: 85vw !important;
-  max-width: 85vw !important;
-}
-
-/* Force the entire drawer structure to be non-scrollable and use flexbox */
-.note-detail-drawer,
-.note-detail-drawer > *,
-.note-detail-drawer .thaw-overlay-drawer__content,
-.note-detail-drawer .thaw-drawer-body {
-  height: 100% !important;
-  max-height: 100vh !important;
-  overflow: hidden !important;
-  display: flex !important;
-  flex-direction: column !important;
-}
-
-.note-detail-drawer .thaw-drawer-body {
-  padding: 0 !important;
-  flex: 1 !important;
-}
-
-.skill-detail-drawer {
-  width: 85vw !important;
-  max-width: 85vw !important;
-}
-
-/* Force the entire drawer structure to be non-scrollable and use flexbox */
-.skill-detail-drawer,
-.skill-detail-drawer > *,
-.skill-detail-drawer .thaw-overlay-drawer__content,
-.skill-detail-drawer .thaw-drawer-body {
-  height: 100% !important;
-  max-height: 100vh !important;
-  overflow: hidden !important;
-  display: flex !important;
-  flex-direction: column !important;
-}
-
-.skill-detail-drawer .thaw-drawer-body {
-  padding: 0 !important;
-  flex: 1 !important;
-}
-
-.task-list-detail-drawer {
-  width: 95vw !important;
-  max-width: 95vw !important;
-}
-
-/* Force the entire drawer structure to be non-scrollable and use flexbox */
-.task-list-detail-drawer,
-.task-list-detail-drawer > *,
-.task-list-detail-drawer .thaw-overlay-drawer__content,
-.task-list-detail-drawer .thaw-drawer-body {
-  height: 100% !important;
-  max-height: 100vh !important;
-  overflow: hidden !important;
-  display: flex !important;
-  flex-direction: column !important;
-}
-
-.task-list-detail-drawer .thaw-drawer-body {
-  padding: 0 !important;
-  flex: 1 !important;
-}
-
-/* Theme-aware drawer styling */
-.thaw-overlay-drawer {
-  background-color: var(--ctp-base) !important;
-}
-
-.thaw-drawer-header {
-  background-color: var(--ctp-mantle) !important;
-  border-bottom: 1px solid var(--ctp-surface0) !important;
-}
-
-.thaw-drawer-body {
-  background-color: var(--ctp-base) !important;
-  color: var(--ctp-text) !important;
+/* Each drawer surface sets the width its content needs. */
+.skill-detail-panel {
+  width: 85vw;
+  max-width: 85vw;
 }
 
 /* Task Card Stacked Effect - indicates parent task with subtasks */
@@ -843,5 +835,52 @@ body {
    breakpoint rule inside @layer utilities. */
 .container {
   max-width: none;
+}
+
+/* === Tab strip chips: the breadcrumb.
+   Row one reads as projects and row two as the children of the active project, so a project chip
+   and a child chip never share one base surface: the project's base keeps the raised middle
+   surface and the child's base stays on the lowest one, whatever the state. The states are
+   attribute selectors, so a chip's base colour never changes with them:
+   - `data-strip-active="true"` is the surface the user is on;
+   - `data-tab-ancestor="true"` is the project that owns the active task-list child, read as its
+     parent in the breadcrumb. It is a separate attribute on purpose, and it carries its own
+     underline so the location and its parent never look alike. */
+.tab-chip {
+  display: flex;
+  align-items: stretch;
+  border-radius: 0.5rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tab-chip--project {
+  background-color: var(--ctp-surface1);
+  color: var(--ctp-subtext1);
+}
+
+.tab-chip--project:hover {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+
+.tab-chip--child {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-subtext1);
+}
+
+.tab-chip--child:hover {
+  background-color: var(--ctp-surface1);
+  color: var(--ctp-text);
+}
+
+.tab-chip[data-strip-active="true"] {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+
+.tab-chip[data-tab-ancestor="true"] {
+  background-color: var(--ctp-surface2);
+  color: var(--ctp-text);
+  box-shadow: inset 0 -2px 0 0 var(--ctp-blue);
 }
 

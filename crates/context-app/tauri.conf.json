@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Context",
+  "mainBinaryName": "Context",
+  "identifier": "c5t.kemper.wtf",
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdGMTNEMzZBQ0RBRkFDQzMKUldURHJLL05hdE1UZjhlY3doVmFDYTN1bHNpaHV2Wno3TERhNGdvM0h4NHdMaTA1RFgzQU4xSXUK"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "createUpdaterArtifacts": true,
+    "externalBin": ["../../target/release/c5t"],
+    "category": "public.app-category.developer-tools",
+    "copyright": "GPL-2.0 — Copyright (c) Christian Kemper",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/Square30x30Logo.png",
+      "icons/Square44x44Logo.png",
+      "icons/Square71x71Logo.png",
+      "icons/Square89x89Logo.png",
+      "icons/Square107x107Logo.png",
+      "icons/Square142x142Logo.png",
+      "icons/Square150x150Logo.png",
+      "icons/Square284x284Logo.png",
+      "icons/Square310x310Logo.png",
+      "icons/StoreLogo.png"
+    ],
+    "macOS": {
+      "signingIdentity": "Developer ID Application: Christian Kemper (ZESFXRA4R8)",
+      "hardenedRuntime": true
+    }
+  }
+}

@@ -27,6 +27,11 @@
 # Common system files
 Icon?
 
+# Tauri app icons (the Icon? rule above also matches the `icons` directory
+# when core.ignorecase=true; re-include the generated icon set)
+!crates/context-app/icons/
+!crates/context-app/icons/**
+
 # VS Code
 .vscode/
 
@@ -49,6 +54,9 @@ __pycache__/
 # Rust/Cargo
 target/
 
+# Tauri generated ACL schemas
+crates/context-app/gen/schemas
+
 # Nix build result
 result
 
@@ -56,16 +64,16 @@ result
 tarpaulin-report.*
 coverage/
 
-# Pre-commit config (legacy, replaced by lefthook)
-.pre-commit-config.yaml
-
 # Database files
 data/db/
 
 # WASM build output
 dist/
 
+# Zola docs build output
+docs/public/
+
 # Auto-generated CSS files (Tailwind via Trunk pre-build hook)
-src/frontend/public/style.css
+crates/context-frontend/src/public/style.css
 
 .laio.yaml

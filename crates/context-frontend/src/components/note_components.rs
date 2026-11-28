@@ -1,6 +1,7 @@
 use crate::api::QueryBuilder;
 use crate::components::CopyableId;
 use crate::models::{Note, UpdateMessage};
+use crate::tabs::{TabKey, TabRegistry, TabTitles, open_from_card, should_refetch, surface_url};
 use crate::websocket::use_websocket_updates;
 use leptos::prelude::*;
 use pulldown_cmark::{Options, Parser, html};
@@ -11,8 +12,6 @@ pub fn NoteCard(
     note: Note,
     #[prop(optional)] on_click: Option<Callback<String>>,
     #[prop(optional)] project_id: Option<String>,
-    #[prop(optional)] current_query: Option<String>,
-    #[prop(optional)] breadcrumb_name: Option<String>,
 ) -> impl IntoView {
     // Create a preview of the content (first 300 chars for markdown, UTF-8 safe)
     let preview_content = if note.content.chars().count() > 300 {
@@ -34,16 +33,17 @@ pub fn NoteCard(
     // Check if note has subnotes for stacked effect
     let has_subnotes = note.subnote_count.unwrap_or(0) > 0;
 
-    let page_state = use_context::<crate::breadcrumb_state::BreadcrumbPageState>();
-
     let note_id = note.id.clone();
-    let href = if on_click.is_some() {
-        "#".to_string()
-    } else if let Some(proj_id) = project_id {
-        format!("/projects/{}/notes/{}", proj_id, note.id)
-    } else {
-        format!("/notes/{}", note.id)
-    };
+    let tabs = use_context::<TabRegistry>();
+    let titles = use_context::<TabTitles>();
+    // The project panel that hosts this card names its project, so that project's tab opens first
+    // and the note attaches to it (decision 8). A card outside a project panel names no project: its
+    // note opens in the notes bar, whatever projects the note itself links.
+    let owner = project_id.clone();
+    let key = TabKey::note(note.id.clone());
+    let href = surface_url(&key, owner.as_deref());
+    let note_for_click = key.clone();
+    let owner_for_click = owner.clone();
 
     view! {
         // Wrapper - natural sizing
@@ -63,17 +63,20 @@ pub fn NoteCard(
                  style={if has_subnotes { "z-index: 2; width: calc(100% - 8px); height: calc(100% - 8px);" } else { "z-index: 2; width: 100%; height: 100%;" }}>
             <a
                 href=href
+                data-note-card=note.id.clone()
                 on:click=move |ev| {
-                    // Store query state before navigation
-                    if let (Some(state), Some(query), Some(name)) =
-                        (page_state.as_ref(), &current_query, &breadcrumb_name) {
-                        state.set_query(name, query);
-                    }
-
-                    // Existing on_click logic
+                    ev.prevent_default();
                     if let Some(callback) = on_click {
-                        ev.prevent_default();
                         callback.run(note_id.clone());
+                        return;
+                    }
+                    if let (Some(registry), Some(titles)) = (tabs, titles) {
+                        open_from_card(
+                            registry,
+                            titles,
+                            note_for_click.clone(),
+                            owner_for_click.as_deref(),
+                        );
                     }
                 }
 
@@ -84,6 +87,14 @@ pub fn NoteCard(
                         <CopyableId id=note.id.clone()/>
                     </div>
                     <h3 class="flex-1 min-w-0 break-words text-xl font-semibold text-ctp-text">{note.title.clone()}</h3>
+                    {(note.status == "archived")
+                        .then(|| {
+                            view! {
+                                <span class="flex-shrink-0 bg-ctp-overlay0/20 text-ctp-overlay0 text-xs px-2 py-1 rounded">
+                                    "Archived"
+                                </span>
+                            }
+                        })}
                 </div>
 
             <div class="relative flex-grow mb-4">
@@ -166,20 +177,35 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
 
     let parent_id = parent_note.id.clone();
     let parent_id_for_fetch = parent_note.id.clone();
+    // The stack's root id, for the message match below.
+    let stack_root = parent_note.id.clone();
 
     // WebSocket updates - refetch trigger
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+    let (loaded, set_loaded) = signal(false);
     let ws_updates = use_websocket_updates();
 
-    // Watch for WebSocket note updates - refetch if any note in this stack changes
+    // Watch for WebSocket note updates and refetch only when the message names a note this stack
+    // holds: the parent, or a subnote it already lists. A created note names no parent, so the stack
+    // cannot attribute it and stays as it is (decision 15).
     Effect::new(move || {
-        if let Some(
-            UpdateMessage::NoteUpdated { note_id: _ }
-            | UpdateMessage::NoteDeleted { note_id: _ }
-            | UpdateMessage::NoteCreated { note_id: _ },
-        ) = ws_updates.get()
-        {
-            // Refetch the entire sidebar to catch any changes to subnotes
+        let Some(update) = ws_updates.get() else {
+            return;
+        };
+        let stack_ids: Vec<String> = subnotes
+            .get_untracked()
+            .iter()
+            .map(|note| note.id.clone())
+            .collect();
+        let names_this_stack = match &update {
+            UpdateMessage::NoteUpdated { note_id }
+            | UpdateMessage::NoteDeleted { note_id }
+            | UpdateMessage::NoteCreated { note_id } => {
+                *note_id == stack_root || stack_ids.contains(note_id)
+            }
+            _ => false,
+        };
+        if should_refetch(loaded.get_untracked(), false, names_this_stack) {
             web_sys::console::log_1(&"Note updated via WebSocket, refetching sidebar...".into());
             set_refetch_trigger.update(|n| *n = n.wrapping_add(1));
         }
@@ -203,6 +229,7 @@ pub fn NoteStackSidebar(parent_note: Note, on_note_select: Callback<String>) -> 
                 set_subnotes.set(paginated.items);
                 set_total_count.set(paginated.total);
             }
+            set_loaded.set(true);
         });
     });
 

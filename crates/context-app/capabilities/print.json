@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "print",
+  "description": "Grants the webview print command to the SPA origin the main window loads",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:8080", "http://127.0.0.1:3737"]
+  },
+  "permissions": ["core:webview:allow-print"]
+}

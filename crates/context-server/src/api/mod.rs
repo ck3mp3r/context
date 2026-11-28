@@ -30,10 +30,11 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-pub use state::AppState;
+pub use state::{AppState, RunningSettings};
 
 use context_core::Database;
 use context_core::get_data_dir;
+use context_core::update::UpdateFlow;
 
 #[cfg(debug_assertions)]
 const DEFAULT_API_PORT: u16 = 3738;
@@ -69,6 +70,8 @@ pub struct Config {
     pub enable_docs: bool,
     /// Skills cache directory (where attachments are extracted)
     pub skills_dir: PathBuf,
+    /// Whether this process binds a fixed host and ignores the stored host value (set by the runner)
+    pub host_fixed: bool,
 }
 
 impl Config {
@@ -83,6 +86,7 @@ impl Config {
                 Ok(dir) => PathBuf::from(dir),
                 Err(_) => get_data_dir().join("skills"),
             },
+            host_fixed: false,
         }
     }
 
@@ -101,6 +105,7 @@ impl Default for Config {
             verbosity: 0,
             enable_docs: false,
             skills_dir: get_data_dir().join("skills"),
+            host_fixed: false,
         }
     }
 }
@@ -124,19 +129,26 @@ fn init_tracing(verbosity: u8) {
 
 /// Run the API server with the given configuration and database.
 ///
-/// The caller is responsible for creating and migrating the database.
-/// This keeps the API layer agnostic of the concrete database implementation.
-pub async fn run<D: Database + 'static>(config: Config, db: D) -> Result<(), ApiError> {
+/// The caller is responsible for creating and migrating the database, and for
+/// handing in the notifier and the update flow. This keeps the API layer
+/// agnostic of the concrete database implementation, of who broadcasts, and of
+/// who runs the updater.
+pub async fn run<D: Database + 'static, U: UpdateFlow + 'static>(
+    config: Config,
+    db: D,
+    notifier: notifier::ChangeNotifier,
+    update_flow: U,
+) -> Result<(), ApiError> {
     init_tracing(config.verbosity);
 
     // Create sync manager (uses RealGit for production)
     let sync_manager = context_sync::SyncManager::new(context_sync::RealGit::new());
 
-    // Create change notifier for WebSocket pub/sub
-    let notifier = notifier::ChangeNotifier::new();
-
-    // Create application state
-    let state = AppState::new(db, sync_manager, notifier, config.skills_dir);
+    // Create application state: the config reaches the handlers as `running`
+    let running = RunningSettings::from_config(&config);
+    let state = AppState::new(db, sync_manager, notifier, config.skills_dir)
+        .with_update(update_flow)
+        .with_running(running);
 
     let app = routes::create_router(state, config.enable_docs).layer(TraceLayer::new_for_http());
 

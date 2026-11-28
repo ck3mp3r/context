@@ -57,18 +57,18 @@ The session is done when the frontier is empty: every branch of the design tree 
 
 As decisions are settled, persist them as c5t notes. Load the `context` skill for c5t note creation patterns and MCP tool usage.
 
-### Note Stack Structure
+### One Note: the Design Document
 
-- **One parent note per huddle session.** Create it at the start with the design tree overview and the huddle topic.
-- **Subnotes are max 1 level deep.** No sub-subnotes.
-- **Subnotes are earned, not automatic.** Create one only when the decision needs a re-readable spec: a real constraint, a live fork the user paused on, or facts worth keeping. If the decision and its rationale fit in one sentence, put that sentence on the parent's design tree instead — one subnote per round is capture error, not diligence.
-- **Titles carry the decision.** Never open the body by restating the title in a `Decision:` sentence. The body holds only what the title cannot: exact numbers, constraints, live alternatives, and why the winner won.
-- **Record only live alternatives.** An alternative is live when it was a serious candidate with a real objection actually overcome. Skip strawmen proposed and disposed within the same round — they add re-read cost with zero recall value.
-- **Keep the parent truthful.** Annotate each design-tree branch with its outcome as soon as it settles, so the parent is always the current overview. Never leave round-state placeholders ("round 1 in progress") once branches have settled.
-- **Format notes for scanning.** One `##` heading per concern, bullet lists for parallel items, numbered lists for sequences, fenced blocks for trees and file layouts, tables for constraint matrices. A run of `**Bold label:**` paragraphs is a missing heading — promote the labels.
-- **Write when something is decided, consolidate before closing.** Capture live as decisions settle, but run a consolidation pass before the huddle ends: merge micro-decision subnotes into one spec subnote (or into the tree), delete the now-redundant notes, and confirm a reader can recover the full state from the parent without fanning out.
-- **Facts are good subnotes.** Research findings — conventions, tool specifics, version constraints, source URLs — are dense, reusable beyond the huddle, and belong in a dedicated facts subnote.
-- **Update the parent note at session end** with the settled summary as tree annotations, not as a second copy of subnote content.
+- **ONE c5t note per huddle session.** Create it at the start with the huddle topic. All rounds, questions, answers, and facts are captured in THAT ONE note — no per-round notes, no subnote sprawl, no separate stack.
+- **The note is the design document.** Structure:
+  - `## Topic` — the design being settled, stated once.
+  - `## Design tree` — the branches; annotate each with its outcome as soon as it settles (e.g. `- **C. Tray reachability** — SETTLED (Q3): a Settings… item opens the window at the page`). Never leave placeholders ("round 1 in progress") once branches have settled.
+  - `## Owner directive on persistence` — when the owner dictates the capture format, record it verbatim.
+  - `## Decisions` — ONE table: `| # | Decision | Settled | Rationale / constraints |`. Append each settled question per round, keyed by its question number. Update live as answers land — never leave a pending row once a question settles.
+  - `## Facts` — fact-finding findings (mechanisms, version constraints, source-verified pointers) as a table or bullets, folded into the same note.
+- **Record only live alternatives.** Skip strawmen proposed and disposed within the same round — they add re-read cost with zero recall value.
+- "Yes" wording applies to the table: when the owner says "all recommendations", the recommendations land in the table settled in that round. Amend rows when the owner corrects them (annotate the amendment in the row, e.g. "AMENDED by owner").
+- **One full-read before every edit.** The note etag comes from a full read of the note (no ranges). Keep the design tree truthful without round-state placeholders; when a question is amended or withdrawn, fold it into the table and tree so the note never contradicts what is settled.
 
 ### Tags
 
@@ -80,8 +80,7 @@ As decisions are settled, persist them as c5t notes. Load the `context` skill fo
 If a huddle spans multiple conversations, find the existing parent note by:
 - Searching notes with the `huddle` tag via `c5t__note_list`
 - Using the note ID directly if known
-
-Continue adding subnotes to the existing parent note.
+Continue writing into the existing note (full-read for the etag, then edit).
 
 ## Writing Specs and Tasks
 

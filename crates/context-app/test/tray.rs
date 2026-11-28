@@ -1,0 +1,244 @@
+//! Tests for the tray menu labels.
+
+use super::*;
+
+#[cfg(debug_assertions)]
+#[test]
+fn debug_profile_mcp_label_names_the_dev_endpoint() {
+    assert_eq!(mcp_label(), "MCP: http://localhost:3738/mcp");
+}
+
+#[cfg(not(debug_assertions))]
+#[test]
+fn release_profile_mcp_label_names_the_production_endpoint() {
+    assert_eq!(mcp_label(), "MCP: http://localhost:3737/mcp");
+}
+
+#[test]
+fn mcp_label_matches_the_port_the_app_serves() {
+    assert!(
+        mcp_label().ends_with(&format!(":{}/mcp", crate::api_port())),
+        "label was: {}",
+        mcp_label()
+    );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn debug_profile_tray_tooltip_names_the_dev_build() {
+    assert_eq!(tray_tooltip(), "Context (dev)");
+}
+
+#[cfg(not(debug_assertions))]
+#[test]
+fn release_profile_tray_tooltip_keeps_the_production_name() {
+    assert_eq!(tray_tooltip(), "Context");
+}
+
+#[test]
+fn the_show_item_launches_the_gui_without_a_route() {
+    assert_eq!(action_for(SHOW_ITEM_ID), TrayAction::LaunchGui(None));
+}
+
+#[test]
+fn the_settings_item_deep_links_to_the_settings_page() {
+    assert_eq!(
+        action_for(SETTINGS_ITEM_ID),
+        TrayAction::LaunchGui(Some("/settings")),
+        "the settings item must open the SPA settings page"
+    );
+}
+
+#[test]
+fn the_quit_item_ends_the_service() {
+    assert_eq!(action_for(menu::QUIT_ITEM_ID), TrayAction::Quit);
+}
+
+#[test]
+fn the_informational_rows_route_nowhere() {
+    for id in [MCP_ITEM_ID, SYNC_ITEM_ID, UPDATE_ITEM_ID] {
+        assert_eq!(
+            action_for(id),
+            TrayAction::Ignore,
+            "{id} is disabled and must not route anywhere"
+        );
+    }
+}
+
+#[test]
+fn show_item_names_the_app() {
+    assert_eq!(SHOW_TEXT, "Show Context");
+}
+
+#[test]
+fn settings_item_carries_its_id_and_label() {
+    assert_eq!(SETTINGS_ITEM_ID, "settings");
+    assert_eq!(SETTINGS_TEXT, "Settings…");
+}
+
+fn parse_status(json: &str) -> SyncStatusResponse {
+    serde_json::from_str(json).expect("Status response should deserialize")
+}
+
+#[test]
+fn status_url_targets_the_port_the_app_serves() {
+    assert_eq!(
+        status_url(),
+        format!("http://127.0.0.1:{}/api/v1/sync/status", crate::api_port())
+    );
+}
+
+#[test]
+fn sync_row_is_absent_before_sync_is_initialized() {
+    let status = parse_status(
+        r#"{"status":"not_initialized","message":"Sync not initialized. Run init operation first.","data":{"initialized":false,"last_synced_at":null,"schema_version":1}}"#,
+    );
+
+    assert_eq!(sync_label(status.data.as_ref()), None);
+}
+
+#[test]
+fn sync_row_is_absent_when_the_response_carries_no_data() {
+    let status = parse_status(r#"{"status":"success","message":"Sync status retrieved"}"#);
+
+    assert_eq!(sync_label(status.data.as_ref()), None);
+}
+
+#[test]
+fn sync_row_reports_a_clean_tree_and_the_last_sync_time() {
+    let status = parse_status(
+        r#"{"status":"success","message":"Sync status retrieved","data":{"initialized":true,"remote_url":"git@example.com:c5t-sync.git","last_synced_at":"2026-11-22 18:00:00","git":{"clean":true,"status":"No changes"}}}"#,
+    );
+
+    assert_eq!(
+        sync_label(status.data.as_ref()).as_deref(),
+        Some("Sync: clean · 2026-11-22 18:00:00")
+    );
+}
+
+#[test]
+fn sync_row_reports_never_synced_without_a_timestamp() {
+    let status = parse_status(
+        r#"{"status":"success","message":"Sync status retrieved","data":{"initialized":true,"remote_url":null,"last_synced_at":null,"git":{"clean":true,"status":"No changes"}}}"#,
+    );
+
+    assert_eq!(
+        sync_label(status.data.as_ref()).as_deref(),
+        Some("Sync: never synced")
+    );
+}
+
+#[test]
+fn sync_row_reports_pending_changes_for_a_dirty_tree() {
+    let status = parse_status(
+        r#"{"status":"success","message":"Sync status retrieved","data":{"initialized":true,"last_synced_at":"2026-11-22 18:00:00","git":{"clean":false,"status":" M tasks.jsonl"}}}"#,
+    );
+
+    assert_eq!(
+        sync_label(status.data.as_ref()).as_deref(),
+        Some("Sync: pending changes")
+    );
+}
+
+fn parse_update(json: &str) -> UpdateStatusResponse {
+    serde_json::from_str(json).expect("Update status response should deserialize")
+}
+
+#[test]
+fn update_item_carries_its_id() {
+    assert_eq!(UPDATE_ITEM_ID, "update");
+}
+
+#[test]
+fn update_status_url_targets_the_port_the_app_serves() {
+    assert_eq!(
+        update_status_url(),
+        format!(
+            "http://127.0.0.1:{}/api/v1/update/status",
+            crate::api_port()
+        )
+    );
+}
+
+#[test]
+fn the_idle_row_reports_up_to_date() {
+    let status = parse_update(r#"{"current_version":"0.8.0","status":"idle"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: up to date");
+}
+
+#[test]
+fn a_missing_snapshot_maps_to_the_idle_text() {
+    assert_eq!(update_label(None), "Update: up to date");
+}
+
+#[test]
+fn the_checking_row_reports_the_check() {
+    let status = parse_update(r#"{"current_version":"0.8.0","status":"checking"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: checking…");
+}
+
+#[test]
+fn the_available_row_names_the_candidate() {
+    let status = parse_update(
+        r#"{"current_version":"0.8.0","status":"available","candidate_version":"0.9.0","candidate_is_prerelease":false}"#,
+    );
+
+    assert_eq!(update_label(Some(&status)), "Update: 0.9.0 available");
+}
+
+#[test]
+fn the_available_row_marks_a_pre_release_candidate() {
+    let status = parse_update(
+        r#"{"current_version":"0.8.0","status":"available","candidate_version":"0.9.0-b118f3a","candidate_is_prerelease":true}"#,
+    );
+
+    assert_eq!(
+        update_label(Some(&status)),
+        "Update: 0.9.0-b118f3a available (pre-release)"
+    );
+}
+
+#[test]
+fn the_downloading_row_names_the_candidate() {
+    let status = parse_update(
+        r#"{"current_version":"0.8.0","status":"downloading","candidate_version":"0.9.0"}"#,
+    );
+
+    assert_eq!(update_label(Some(&status)), "Update: downloading 0.9.0");
+}
+
+#[test]
+fn the_installing_row_reports_the_install() {
+    let status = parse_update(r#"{"current_version":"0.8.0","status":"installing"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: installing");
+}
+
+#[test]
+fn the_ready_row_reports_the_restart() {
+    let status = parse_update(r#"{"current_version":"0.9.0","status":"ready"}"#);
+
+    assert_eq!(
+        update_label(Some(&status)),
+        "Update: ready — restart to finish",
+        "the row must not claim a restart that waits for the user"
+    );
+}
+
+#[test]
+fn the_failed_row_reports_the_failure() {
+    let status = parse_update(
+        r#"{"current_version":"0.8.0","status":"failed","message":"The release offers no update for this platform"}"#,
+    );
+
+    assert_eq!(update_label(Some(&status)), "Update: failed");
+}
+
+#[test]
+fn an_unknown_status_reads_as_up_to_date() {
+    let status = parse_update(r#"{"current_version":"0.8.0","status":"mystery"}"#);
+
+    assert_eq!(update_label(Some(&status)), "Update: up to date");
+}

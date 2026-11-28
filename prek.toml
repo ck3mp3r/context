@@ -19,10 +19,19 @@ pass_filenames = false
 stages = ["pre-commit"]
 
 [[repos.hooks]]
+id = "rustfmt-frontend"
+name = "cargo fmt (frontend)"
+language = "system"
+entry = "cargo fmt --check --manifest-path crates/context-frontend/Cargo.toml"
+files = "crates/context-frontend/.*\\.rs$"
+pass_filenames = false
+stages = ["pre-commit"]
+
+[[repos.hooks]]
 id = "clippy"
 name = "cargo clippy"
 language = "system"
-entry = "cargo clippy --all-targets"
+entry = "sh -c 'case \"$(uname -s)\" in Darwin) cargo clippy --all-targets ;; *) cargo clippy --all-targets --workspace --exclude context ;; esac'"
 files = "\\.rs$"
 pass_filenames = false
 stages = ["pre-push"]
@@ -31,6 +40,6 @@ stages = ["pre-push"]
 id = "tests"
 name = "cargo nextest"
 language = "system"
-entry = "cargo nextest run --workspace --profile ci"
+entry = "sh -c 'case \"$(uname -s)\" in Darwin) cargo nextest run --workspace --profile ci ;; *) cargo nextest run --workspace --profile ci --exclude context ;; esac'"
 stages = ["pre-push"]
 pass_filenames = false

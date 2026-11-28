@@ -1,17 +1,25 @@
+pub mod entity_header;
+pub mod inline_surface;
 pub mod note_components;
 pub mod repo_components;
 pub mod search_input;
 pub mod skill_components;
 pub mod sort_controls;
+pub mod sync_indicator;
 pub mod task_components;
 pub mod theme_switcher;
 pub mod ui_components;
+pub mod update_pill;
 
+pub use entity_header::EntityHeader;
+pub use inline_surface::{InlineSurface, SurfaceLayout};
 pub use note_components::{MarkdownContent, NoteCard, NoteStackSidebar};
 pub use repo_components::RepoCard;
 pub use search_input::SearchInput;
 pub use skill_components::{SkillCard, SkillDetailModal};
 pub use sort_controls::SortControls;
-pub use task_components::{ExternalRefLink, TaskListCard, TaskListContent, TaskListDetailModal};
+pub use sync_indicator::SyncIndicator;
+pub use task_components::{ExternalRefLink, TaskListCard, TaskListContent};
 pub use theme_switcher::ThemeSwitcher;
-pub use ui_components::{Breadcrumb, BreadcrumbItem, CopyableId, Pagination};
+pub use ui_components::{CopyableId, Pagination};
+pub use update_pill::UpdatePill;

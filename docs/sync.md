@@ -343,7 +343,7 @@ drifts only by entities created after the last export.
 
 ```sh
 c5t sync init git@github.com:user/c5t-sync.git
-c5t task create --list-id abc123 --content "Fix bug"
+c5t task create --list-id abc123 --title "Fix bug"
 c5t sync export -m "End of day backup"
 c5t sync export --remote
 ```
@@ -362,7 +362,7 @@ c5t sync export -m "Initial sync" --remote
 ```sh
 c5t sync init git@github.com:user/c5t-sync.git
 c5t sync import --remote
-c5t task create --list-id abc123 --content "New feature"
+c5t task create --list-id abc123 --title "New feature"
 c5t sync export -m "Work from Machine B"
 c5t sync export --remote
 ```
@@ -371,14 +371,14 @@ c5t sync export --remote
 
 ```sh
 c5t sync import --remote
-c5t task update abc123 --status done
+c5t task transition abc123 done
 c5t sync export -m "Updates" --remote
 ```
 
 ### Recommended Workflow (Review Before Sharing)
 
 ```sh
-c5t task create --list-id abc123 --content "New task"
+c5t task create --list-id abc123 --title "New task"
 c5t sync export -m "Added new task"
 c5t sync status
 git -C ~/.local/share/c5t/sync log -1

@@ -3,8 +3,9 @@ use pulldown_cmark::{Options, Parser, html};
 use thaw::*;
 
 use crate::api::skills;
-use crate::components::CopyableId;
+use crate::components::{CopyableId, InlineSurface, SurfaceLayout};
 use crate::models::{Skill, UpdateMessage};
+use crate::tabs::should_refetch;
 use crate::websocket::use_websocket_updates;
 
 #[component]
@@ -108,6 +109,7 @@ pub fn SkillCard(
                  style="z-index: 2; width: 100%; height: 100%;">
             <a
                 href=href
+                data-skill-card=skill.id.clone()
                 on:click=move |ev| {
                     if let Some(callback) = on_click {
                         ev.prevent_default();
@@ -225,13 +227,19 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
     let ws_updates = use_websocket_updates();
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
 
-    // Watch for WebSocket updates for this specific skill
+    // Watch for WebSocket updates for this specific skill. The modal being open is the view being
+    // on screen, and a loaded body is the other half of the gate: another skill's message refetches
+    // nothing (decision 15).
     Effect::new(move || {
-        let current_skill_id = skill_id.get();
+        let current_skill_id = skill_id.get_untracked();
         if let Some(UpdateMessage::SkillUpdated {
             skill_id: updated_id,
         }) = ws_updates.get()
-            && updated_id == current_skill_id
+            && should_refetch(
+                skill_data.get_untracked().is_some(),
+                open.get_untracked(),
+                updated_id == current_skill_id,
+            )
         {
             web_sys::console::log_1(
                 &format!(
@@ -294,12 +302,14 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
     });
 
     view! {
-        <OverlayDrawer
-            open
-            position=DrawerPosition::Right
-            class="skill-detail-drawer"
+        <InlineSurface
+            name="skill-detail"
+            label="Skill detail"
+            layout=SurfaceLayout::RightDrawer
+            panel_class="skill-detail-panel"
+            open=open
         >
-            <DrawerBody class="h-full overflow-hidden p-0">
+            <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <div class="h-full">
                     {move || {
                         if loading.get() {
@@ -490,7 +500,7 @@ pub fn SkillDetailModal(skill_id: ReadSignal<String>, open: RwSignal<bool>) -> i
                         }
                     }}
                 </div>
-            </DrawerBody>
-        </OverlayDrawer>
+            </div>
+        </InlineSurface>
     }
 }

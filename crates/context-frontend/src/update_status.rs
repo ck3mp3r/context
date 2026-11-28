@@ -1,0 +1,69 @@
+//! Human phrases for the update status the pill shows.
+//!
+//! The pill is the only surface that reports an update, so the wording lives here once: a status
+//! string in, one sentence out. Nothing here imports the app or the view layer, which is what lets
+//! the host-compiled test binary include this file directly instead of linking the wasm lib.
+
+/// Phrase for a status the pill reports, or `None` when it reports nothing.
+///
+/// `idle` and every unrecognised status render nothing: the pill is invisible between updates.
+/// An `available` status names the candidate version when it has one.
+pub fn update_phrase(status: &str, candidate_version: Option<&str>) -> Option<String> {
+    let phrase = match status {
+        "checking" => "Checking for updates…".to_string(),
+        "downloading" => "Downloading update…".to_string(),
+        "installing" => "Finishing the update…".to_string(),
+        "ready" => "Update installed — restart to apply".to_string(),
+        "available" => {
+            match candidate_version
+                .map(str::trim)
+                .filter(|version| !version.is_empty())
+            {
+                Some(version) => format!("Update {version} available"),
+                None => "Update available".to_string(),
+            }
+        }
+        _ => return None,
+    };
+
+    Some(phrase)
+}
+
+/// Message for a failed update: the detail the flow recorded, or a plain fallback.
+///
+/// A message that is only whitespace counts as absent, so a half-written failure never renders an
+/// empty line where the reason belongs.
+pub fn update_failure(message: Option<&str>) -> String {
+    match message.map(str::trim) {
+        Some(text) if !text.is_empty() => text.to_string(),
+        _ => "The update failed.".to_string(),
+    }
+}
+
+/// Phrase for the outcome of a manual check: the failure detail, or the no-update sentence.
+///
+/// `failure` carries the detail of a rejected trigger or a failed status read. `None` means the
+/// check finished and found nothing newer, which is a result and must say so: an `idle` status
+/// renders no phrase, so without this sentence a successful check looks exactly like a failure the
+/// pill swallowed.
+pub fn check_outcome_phrase(failure: Option<&str>) -> String {
+    match failure {
+        Some(detail) => update_failure(Some(detail)),
+        None => "No update available.".to_string(),
+    }
+}
+
+/// Whether a dismissal hides the pill for this candidate version.
+///
+/// Only a named version is a key. The dismissal names one candidate version, so a different
+/// candidate — which is how a newer announcement arrives — brings the pill back. An empty key
+/// names nothing and therefore hides nothing: a payload that carries no candidate must not match
+/// the empty string, or one dismissal of a candidate-less view would hide every later payload that
+/// also carries none.
+pub fn update_dismissed(dismissed: Option<&str>, candidate_version: Option<&str>) -> bool {
+    let Some(key) = dismissed.filter(|key| !key.trim().is_empty()) else {
+        return false;
+    };
+
+    candidate_version == Some(key)
+}

@@ -36,6 +36,7 @@ fn counts(base: usize) -> EntityCounts {
 fn initialized_status() -> SyncStatus {
     SyncStatus {
         initialized: true,
+        enabled: true,
         remote_url: Some("git@example.com:test/repo.git".to_string()),
         git_status: Some(GitStatus {
             clean: true,

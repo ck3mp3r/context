@@ -4,6 +4,7 @@ mod project_detail;
 mod projects;
 mod repo_detail;
 mod repos;
+mod settings;
 mod skills;
 mod task_list_detail;
 
@@ -13,5 +14,6 @@ pub use project_detail::ProjectDetail;
 pub use projects::Projects;
 pub use repo_detail::RepoDetail;
 pub use repos::Repos;
+pub use settings::Settings;
 pub use skills::Skills;
 pub use task_list_detail::TaskListDetail;

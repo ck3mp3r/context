@@ -12,6 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::AppState;
 use crate::api::notifier::UpdateMessage;
+use context_core::update::UpdateFlow;
 use context_core::{
     Database, DbError, PageSort, Project, ProjectQuery, ProjectRepository, SortOrder,
 };
@@ -213,8 +214,8 @@ pub struct PaginatedProjects {
     )
 )]
 #[instrument(skip(state))]
-pub async fn list_projects<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn list_projects<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Query(query): Query<ListProjectsQuery>,
 ) -> Result<Json<PaginatedProjects>, (StatusCode, Json<ErrorResponse>)> {
     // Parse tags from comma-separated string
@@ -297,8 +298,8 @@ pub async fn list_projects<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get_project<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn get_project<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
     let project = state.db().projects().get(&id).await.map_err(|e| match e {
@@ -333,8 +334,8 @@ pub async fn get_project<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn create_project<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Json(req): Json<CreateProjectRequest>,
 ) -> Result<(StatusCode, Json<ProjectResponse>), (StatusCode, Json<ErrorResponse>)> {
     // Create project with placeholder values - repository will generate ID and timestamps
@@ -401,8 +402,8 @@ pub async fn create_project<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn update_project<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn update_project<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateProjectRequest>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -475,8 +476,8 @@ pub async fn update_project<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn patch_project<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn patch_project<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
     Json(req): Json<PatchProjectRequest>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -544,8 +545,8 @@ pub async fn patch_project<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete_project<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn delete_project<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     state
@@ -594,8 +595,8 @@ pub async fn delete_project<D: Database, G: GitOps + Send + Sync>(
     )
 )]
 #[instrument(skip(state))]
-pub async fn restore_project<D: Database, G: GitOps + Send + Sync>(
-    State(state): State<AppState<D, G>>,
+pub async fn restore_project<D: Database, G: GitOps + Send + Sync, U: UpdateFlow>(
+    State(state): State<AppState<D, G, U>>,
     Path(id): Path<String>,
 ) -> Result<Json<ProjectResponse>, (StatusCode, Json<ErrorResponse>)> {
     state

@@ -1,0 +1,353 @@
+//! Tests for the consent install sequence: the guards, the phase transitions,
+//! the restart command, and the fake-executor success and failure paths.
+//!
+//! The install takes no restart seam. Its only vocabulary is the executor and
+//! the publisher, so a swap ends at `ready` and cannot spawn the new service or
+//! exit the old process: the running binary keeps serving the staged bundle.
+
+use std::path::Path;
+use std::sync::Mutex;
+
+use super::install::{
+    BundleExecutor, InstallError, check_outcome, install, install_target, restart_command,
+    shell_quote,
+};
+use crate::update::releases::manifest_url;
+use context_core::update::{UpdateState, UpdateStatus, load as load_state, write as write_state};
+use tauri_plugin_updater::{Error, Update};
+use tempfile::TempDir;
+
+/// Executor that records what it was asked to swap and reports two phases.
+struct FakeExecutor {
+    result: Result<(), String>,
+    manifest: Mutex<Option<String>>,
+    phases: Mutex<Vec<String>>,
+}
+
+impl FakeExecutor {
+    fn succeeding() -> Self {
+        Self {
+            result: Ok(()),
+            manifest: Mutex::new(None),
+            phases: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn failing(message: &str) -> Self {
+        Self {
+            result: Err(message.to_string()),
+            ..Self::succeeding()
+        }
+    }
+
+    fn manifest(&self) -> Option<String> {
+        self.manifest.lock().expect("manifest lock").clone()
+    }
+}
+
+impl BundleExecutor for FakeExecutor {
+    fn swap(
+        &self,
+        manifest_url: &str,
+        on_phase: impl Fn(&str) + Send + Sync,
+    ) -> Result<(), String> {
+        *self.manifest.lock().expect("manifest lock") = Some(manifest_url.to_string());
+
+        for phase in ["downloading", "swapping"] {
+            self.phases
+                .lock()
+                .expect("phases lock")
+                .push(phase.to_string());
+            on_phase(phase);
+        }
+
+        self.result.clone()
+    }
+}
+
+/// Publisher that writes into `path` and records every status it writes.
+fn publisher<'a>(
+    path: &'a Path,
+    statuses: &'a Mutex<Vec<UpdateStatus>>,
+) -> impl Fn(UpdateState) -> Result<(), String> + 'a {
+    move |state| {
+        statuses.lock().expect("statuses lock").push(state.status);
+        write_state(path, &state).map_err(|error| error.to_string())
+    }
+}
+
+/// Available state with a candidate to install.
+fn available_state() -> UpdateState {
+    UpdateState {
+        status: UpdateStatus::Available,
+        current_version: "0.8.0".to_string(),
+        candidate_version: Some("0.9.0".to_string()),
+        candidate_tag: Some("v0.9.0".to_string()),
+        candidate_notes: Some("Release notes".to_string()),
+        candidate_is_prerelease: Some(false),
+        ..UpdateState::default()
+    }
+}
+
+/// State file inside a temp dir this test alone owns.
+fn state_file(state: &UpdateState) -> (TempDir, std::path::PathBuf) {
+    let dir = TempDir::new().expect("Failed to create test temp dir");
+    let path = dir.path().join("update.json");
+    write_state(&path, state).expect("the state file writes");
+
+    (dir, path)
+}
+
+#[test]
+fn an_available_state_names_the_manifest_to_install() {
+    let target = install_target(&available_state()).expect("an available state is installable");
+
+    assert_eq!(target, manifest_url("v0.9.0"));
+}
+
+#[test]
+fn mid_flight_states_are_busy() {
+    for status in [
+        UpdateStatus::Checking,
+        UpdateStatus::Downloading,
+        UpdateStatus::Installing,
+    ] {
+        let state = UpdateState {
+            status,
+            ..available_state()
+        };
+
+        assert!(
+            matches!(install_target(&state), Err(InstallError::Busy)),
+            "{status:?} must report a run in flight"
+        );
+    }
+}
+
+#[test]
+fn states_without_a_candidate_are_not_installable() {
+    for status in [
+        UpdateStatus::Idle,
+        UpdateStatus::Ready,
+        UpdateStatus::Failed,
+    ] {
+        let state = UpdateState {
+            status,
+            ..available_state()
+        };
+
+        assert!(
+            matches!(install_target(&state), Err(InstallError::NotAvailable)),
+            "{status:?} must have nothing to install"
+        );
+    }
+
+    let untagged = UpdateState {
+        candidate_tag: None,
+        ..available_state()
+    };
+    assert!(matches!(
+        install_target(&untagged),
+        Err(InstallError::NotAvailable)
+    ));
+}
+
+#[test]
+fn a_refused_install_leaves_the_state_file_alone() {
+    let (_dir, path) = state_file(&UpdateState::default());
+    let statuses = Mutex::new(Vec::new());
+
+    let outcome = install(
+        &FakeExecutor::succeeding(),
+        &path,
+        publisher(&path, &statuses),
+    );
+
+    assert!(matches!(outcome, Err(InstallError::NotAvailable)));
+    assert_eq!(
+        load_state(&path).expect("the state file loads").status,
+        UpdateStatus::Idle,
+        "a refused install must not write the state"
+    );
+}
+
+#[test]
+fn a_successful_swap_ends_ready_and_stages_the_bundle() {
+    let (_dir, path) = state_file(&available_state());
+    let statuses = Mutex::new(Vec::new());
+    let executor = FakeExecutor::succeeding();
+
+    let outcome = install(&executor, &path, publisher(&path, &statuses));
+
+    assert!(outcome.is_ok(), "the swap succeeds: {outcome:?}");
+    assert_eq!(
+        executor.manifest().as_deref(),
+        Some(manifest_url("v0.9.0").as_str()),
+        "the executor swaps the candidate's manifest"
+    );
+    assert_eq!(
+        *statuses.lock().expect("statuses lock"),
+        vec![
+            UpdateStatus::Downloading,
+            UpdateStatus::Downloading,
+            UpdateStatus::Installing,
+            UpdateStatus::Ready,
+        ],
+        "every phase goes through the publisher"
+    );
+
+    let stored = load_state(&path).expect("the state file loads");
+    assert_eq!(
+        stored.status,
+        UpdateStatus::Ready,
+        "ready is the install's terminal state: the bundle is staged, nothing restarts"
+    );
+    assert_eq!(stored.candidate_version.as_deref(), Some("0.9.0"));
+    assert_eq!(stored.candidate_tag.as_deref(), Some("v0.9.0"));
+    assert_eq!(stored.candidate_notes.as_deref(), Some("Release notes"));
+    assert_eq!(
+        stored.current_version, "0.9.0",
+        "the new bundle runs the candidate version, so reconciliation can settle"
+    );
+}
+
+#[test]
+fn a_failed_swap_ends_failed_without_restarting() {
+    let (_dir, path) = state_file(&available_state());
+    let statuses = Mutex::new(Vec::new());
+
+    let outcome = install(
+        &FakeExecutor::failing("the bundle could not be replaced"),
+        &path,
+        publisher(&path, &statuses),
+    );
+
+    assert!(matches!(outcome, Err(InstallError::Failed(_))));
+
+    let stored = load_state(&path).expect("the state file loads");
+    assert_eq!(stored.status, UpdateStatus::Failed);
+    assert!(
+        stored
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("the bundle could not be replaced")),
+        "the failure message names the plugin error, got: {:?}",
+        stored.message
+    );
+}
+
+#[test]
+fn restart_command_restarts_through_a_shell() {
+    let service = Path::new("/Applications/Context.app/Contents/MacOS/context-service");
+
+    let command = restart_command(service);
+
+    assert_eq!(
+        command.get_program().to_str(),
+        Some("/bin/sh"),
+        "the bootstrap runs through a shell"
+    );
+    let args: Vec<String> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        args,
+        vec![
+            "-c".to_string(),
+            "sleep 1; exec '/Applications/Context.app/Contents/MacOS/context-service'".to_string()
+        ],
+        "the shell waits for the old single-instance socket, then execs the new binary"
+    );
+}
+
+#[test]
+fn restart_command_quotes_a_path_that_carries_a_single_quote() {
+    let service = Path::new("/Users/o'brien/Context.app/Contents/MacOS/context-service");
+
+    let command = restart_command(service);
+
+    let args: Vec<String> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        args,
+        vec![
+            "-c".to_string(),
+            "sleep 1; exec '/Users/o'\\''brien/Context.app/Contents/MacOS/context-service'"
+                .to_string()
+        ],
+        "the quote must not end the quoted argument"
+    );
+
+    // The escaped form must hand the shell the exact path back.
+    let quoted = shell_quote(&service.display().to_string());
+    let output = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!("printf '%s' {quoted}"))
+        .output()
+        .expect("the shell runs");
+
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("the shell emits UTF-8"),
+        service.display().to_string(),
+        "the shell must read back the exact path"
+    );
+}
+
+/// Message a check outcome yields, failing when the outcome installs an update.
+fn check_message(outcome: Result<Update, String>) -> String {
+    match outcome {
+        Ok(_) => panic!("an installable update yields no message"),
+        Err(message) => message,
+    }
+}
+
+#[test]
+fn a_check_with_no_newer_release_names_the_version_and_not_the_platform() {
+    let message = check_message(check_outcome(Ok(None)));
+
+    assert_eq!(
+        message, "The manifest offers no release newer than the running version",
+        "Ok(None) reports a version comparison, not a missing artifact"
+    );
+    assert!(
+        !message.to_lowercase().contains("platform"),
+        "the plugin never reports a platform problem through Ok(None), got: {message}"
+    );
+}
+
+#[test]
+fn a_missing_artifact_names_the_target_keys_the_plugin_searched() {
+    let searched = Error::TargetsNotFound(vec![
+        "darwin-aarch64-app".to_string(),
+        "darwin-aarch64".to_string(),
+    ]);
+    let single = Error::TargetNotFound("darwin-aarch64-app".to_string());
+
+    assert_eq!(
+        check_message(check_outcome(Err(searched))),
+        "The release carries no artifact for this platform: the manifest has no entry for \
+         'darwin-aarch64-app' or 'darwin-aarch64'",
+        "the message names every target key the plugin searched, in its order"
+    );
+    assert_eq!(
+        check_message(check_outcome(Err(single))),
+        "The release carries no artifact for this platform: the manifest has no entry for \
+         'darwin-aarch64-app'",
+        "the single-target message names the key the plugin searched"
+    );
+}
+
+#[test]
+fn any_other_manifest_error_keeps_the_manifest_wording() {
+    let error = Error::ReleaseNotFound;
+    let expected = format!("Failed to read the update manifest: {error}");
+
+    assert_eq!(
+        check_message(check_outcome(Err(error))),
+        expected,
+        "an error the platform does not explain still blames the manifest"
+    );
+}

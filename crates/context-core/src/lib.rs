@@ -3,7 +3,9 @@ pub mod jsonl;
 pub mod models;
 pub mod paths;
 pub mod repository;
+pub mod settings;
 pub mod sync_types;
+pub mod update;
 pub mod utils;
 
 #[cfg(test)]
@@ -16,6 +18,12 @@ mod models_test;
 #[path = "../test/paths.rs"]
 mod paths_test;
 #[cfg(test)]
+#[path = "../test/settings.rs"]
+mod settings_test;
+#[cfg(test)]
+#[path = "../test/update.rs"]
+mod update_test;
+#[cfg(test)]
 #[path = "../test/utils.rs"]
 mod utils_test;
 
@@ -24,5 +32,9 @@ pub use jsonl::{JsonlError, JsonlReader, JsonlWriter, count_jsonl_lines, read_js
 pub use models::*;
 pub use paths::*;
 pub use repository::*;
+pub use settings::{Settings, SettingsError, SettingsResult, StoredSettings};
 pub use sync_types::*;
+pub use update::{
+    NoUpdateFlow, UpdateFlow, UpdateState, UpdateStateError, UpdateStateResult, UpdateStatus,
+};
 pub use utils::*;

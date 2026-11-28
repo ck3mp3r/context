@@ -39,6 +39,10 @@ pub enum SyncError {
     #[diagnostic(code(c5t::sync::not_initialized))]
     NotInitialized,
 
+    #[error("Sync is disabled on this machine")]
+    #[diagnostic(code(c5t::sync::disabled))]
+    SyncDisabled,
+
     #[error("IO error: {0}")]
     #[diagnostic(code(c5t::sync::io))]
     Io(#[from] std::io::Error),
@@ -175,6 +179,132 @@ impl<G: GitOps> SyncManager<G> {
         Ok(result)
     }
 
+    /// Report whether sync operations are enabled on this machine.
+    ///
+    /// Sync is enabled while the marker file is absent. The marker lives next
+    /// to the sync directory, not inside it, so it never reaches a commit and a
+    /// disable on one machine never propagates to another.
+    pub fn is_enabled(&self) -> bool {
+        !self.disabled_marker().exists()
+    }
+
+    /// Disable sync on this machine by writing the marker file.
+    ///
+    /// The disable is machine-local and non-destructive: the sync directory,
+    /// `.git`, the JSONL mirror, and `sync_meta.json` are left untouched. The
+    /// marker is a sibling of the sync directory, so it is never staged by
+    /// `git add` and `git status` never sees it. Deleting the marker by hand
+    /// re-enables sync, exactly like calling `enable`.
+    ///
+    /// Returns `Err(SyncError::NotInitialized)` when the sync directory holds no
+    /// git repository. Returns `Ok(())` unchanged when sync is already disabled.
+    pub fn disable(&self) -> Result<(), SyncError> {
+        if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
+            return Err(SyncError::NotInitialized);
+        }
+
+        if !self.is_enabled() {
+            tracing::debug!("Sync already disabled, nothing to write");
+            return Ok(());
+        }
+
+        let marker = self.disabled_marker();
+        tracing::debug!(path = %marker.display(), "Writing sync disabled marker");
+        std::fs::write(&marker, context_core::current_timestamp())?;
+        tracing::info!("Sync disabled on this machine");
+        Ok(())
+    }
+
+    /// Enable sync on this machine by removing the marker file.
+    ///
+    /// The enable is machine-local and non-destructive: no directory and no
+    /// file inside the sync directory is created or changed, so the next
+    /// export resumes from the existing local history.
+    ///
+    /// Returns `Err(SyncError::NotInitialized)` when the sync directory holds no
+    /// git repository. Returns `Ok(())` unchanged when sync is already enabled.
+    pub fn enable(&self) -> Result<(), SyncError> {
+        if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
+            return Err(SyncError::NotInitialized);
+        }
+
+        if self.is_enabled() {
+            tracing::debug!("Sync already enabled, nothing to remove");
+            return Ok(());
+        }
+
+        let marker = self.disabled_marker();
+        tracing::debug!(path = %marker.display(), "Removing sync disabled marker");
+        std::fs::remove_file(&marker)?;
+        tracing::info!("Sync enabled on this machine");
+        Ok(())
+    }
+
+    /// Replace the remote URL of the initialized sync repository.
+    ///
+    /// Adds `origin` when the repository has no remote yet, so a sync
+    /// initialized without a remote can gain one. Replacing the remote with
+    /// the URL it already carries is a no-op, so the operation is idempotent.
+    pub async fn set_remote(&self, url: String) -> Result<(), SyncError> {
+        if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
+            return Err(SyncError::NotInitialized);
+        }
+
+        if !self.is_enabled() {
+            tracing::error!("Sync is disabled");
+            return Err(SyncError::SyncDisabled);
+        }
+
+        match self.git.remote_get_url(&self.sync_dir, "origin") {
+            Err(_) => {
+                tracing::info!("Adding remote 'origin': {}", url);
+                self.git.add_remote(&self.sync_dir, "origin", &url)?;
+            }
+            Ok(_) => {
+                tracing::info!("Replacing remote 'origin': {}", url);
+                self.git.set_url(&self.sync_dir, "origin", &url)?;
+            }
+        }
+
+        tracing::info!("Remote 'origin' updated");
+        Ok(())
+    }
+
+    /// Remove the remote URL of the initialized sync repository.
+    ///
+    /// Only the `origin` config entry is deleted: the git history, the JSONL
+    /// mirror, and `sync_meta.json` stay intact. The repository keeps working
+    /// locally, because the pull and push paths skip a missing remote. Clearing
+    /// an already remote-less repository returns `Ok(())` without running a git
+    /// command, so the operation is idempotent.
+    pub fn clear_remote(&self) -> Result<(), SyncError> {
+        if !self.is_initialized() {
+            tracing::error!("Sync not initialized");
+            return Err(SyncError::NotInitialized);
+        }
+
+        if !self.is_enabled() {
+            tracing::error!("Sync is disabled");
+            return Err(SyncError::SyncDisabled);
+        }
+
+        match self.git.remote_get_url(&self.sync_dir, "origin") {
+            Err(_) => {
+                tracing::info!("Remote 'origin' already absent, nothing to remove");
+            }
+            Ok(_) => {
+                tracing::info!("Removing remote 'origin'");
+                self.git.remove_remote(&self.sync_dir, "origin")?;
+            }
+        }
+
+        tracing::info!("Remote 'origin' cleared");
+        Ok(())
+    }
+
     /// Export database to JSONL and optionally push to remote.
     ///
     /// # Parameters
@@ -221,6 +351,11 @@ impl<G: GitOps> SyncManager<G> {
         if !self.is_initialized() {
             tracing::error!("Sync not initialized");
             return Err(SyncError::NotInitialized);
+        }
+
+        if !self.is_enabled() {
+            tracing::error!("Sync is disabled");
+            return Err(SyncError::SyncDisabled);
         }
 
         // Capture the cutoff before the export query runs. The export writes
@@ -354,6 +489,11 @@ impl<G: GitOps> SyncManager<G> {
             return Err(SyncError::NotInitialized);
         }
 
+        if !self.is_enabled() {
+            tracing::error!("Sync is disabled");
+            return Err(SyncError::SyncDisabled);
+        }
+
         // Pull latest changes if requested
         if remote && self.has_remote()? {
             tracing::info!("Pulling latest changes from remote");
@@ -387,6 +527,7 @@ impl<G: GitOps> SyncManager<G> {
         if !self.is_initialized() {
             return Ok(SyncStatus {
                 initialized: false,
+                enabled: false,
                 remote_url: None,
                 git_status: None,
                 db_counts: None,
@@ -437,6 +578,7 @@ impl<G: GitOps> SyncManager<G> {
 
         Ok(SyncStatus {
             initialized: true,
+            enabled: self.is_enabled(),
             remote_url,
             git_status: Some(GitStatus {
                 clean: is_clean,
@@ -448,6 +590,15 @@ impl<G: GitOps> SyncManager<G> {
             last_synced_at,
             schema_version,
         })
+    }
+
+    /// Path of the machine-local disabled marker.
+    ///
+    /// The marker is a sibling of the sync directory, so it sits outside the git
+    /// repository: `git add` never stages it, `git status` never sees it, and it
+    /// never travels to another machine.
+    fn disabled_marker(&self) -> std::path::PathBuf {
+        self.sync_dir.with_file_name("sync_disabled")
     }
 
     /// Check if a remote is configured.
@@ -516,6 +667,8 @@ impl<G: GitOps> SyncManager<G> {
 #[derive(Debug)]
 pub struct SyncStatus {
     pub initialized: bool,
+    /// Whether sync operations are allowed; false after a disable.
+    pub enabled: bool,
     pub remote_url: Option<String>,
     pub git_status: Option<GitStatus>,
     pub db_counts: Option<EntityCounts>,

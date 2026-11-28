@@ -1,8 +1,63 @@
-use crate::cli::api_client::*;
+use super::*;
+
+use context_core::{clear_base_path, get_config_dir, get_config_path, set_base_path, settings};
+use serial_test::serial;
+use tempfile::TempDir;
+
+#[cfg(debug_assertions)]
+const PROFILE_PORT: u16 = 3738;
+#[cfg(not(debug_assertions))]
+const PROFILE_PORT: u16 = 3737;
 
 // Initialize crypto provider once for all tests
 fn init_crypto() {
     let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
+/// Base path this test alone owns, with the settings file written.
+fn base_with_config(contents: &str) -> TempDir {
+    let base = TempDir::new().expect("Failed to create base temp dir");
+    set_base_path(base.path().to_path_buf());
+
+    let config_dir = get_config_dir();
+    std::fs::create_dir_all(&config_dir).expect("config dir creates");
+    std::fs::write(get_config_path(), contents).expect("settings file writes");
+
+    base
+}
+
+/// `C5T_API_URL` state this test alone owns, restored when dropped.
+struct EnvUrlGuard(Option<String>);
+
+impl EnvUrlGuard {
+    fn clear() -> Self {
+        let previous = std::env::var("C5T_API_URL").ok();
+        unsafe { std::env::remove_var("C5T_API_URL") };
+        Self(previous)
+    }
+
+    fn set(value: &str) -> Self {
+        let previous = std::env::var("C5T_API_URL").ok();
+        unsafe { std::env::set_var("C5T_API_URL", value) };
+        Self(previous)
+    }
+}
+
+impl Drop for EnvUrlGuard {
+    fn drop(&mut self) {
+        match &self.0 {
+            Some(value) => unsafe { std::env::set_var("C5T_API_URL", value) },
+            None => unsafe { std::env::remove_var("C5T_API_URL") },
+        }
+    }
+}
+
+/// Put a variable back the way this test found it.
+fn restore_env(name: &str, previous: Option<std::ffi::OsString>) {
+    match previous {
+        Some(value) => unsafe { std::env::set_var(name, value) },
+        None => unsafe { std::env::remove_var(name) },
+    }
 }
 
 #[test]
@@ -58,3 +113,265 @@ async fn test_delete_method_exists() {
 }
 
 // Note: handle_response is tested via integration tests with real API
+
+// =============================================================================
+// Base URL precedence: --api-url > C5T_API_URL > stored port > profile port
+// =============================================================================
+
+#[test]
+#[serial]
+fn stored_port_is_the_base_url_when_no_override_is_set() {
+    init_crypto();
+    let _env = EnvUrlGuard::clear();
+    let base = base_with_config("host = \"0.0.0.0\"\nport = 4000\n");
+
+    let base_url = ApiClient::new(None).base_url().to_string();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, "http://localhost:4000");
+}
+
+#[test]
+#[serial]
+fn explicit_url_beats_the_stored_port() {
+    init_crypto();
+    let _env = EnvUrlGuard::clear();
+    let base = base_with_config("port = 4000\n");
+
+    let base_url = ApiClient::new(Some("http://x:1".to_string()))
+        .base_url()
+        .to_string();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, "http://x:1");
+}
+
+#[test]
+#[serial]
+fn env_url_beats_the_stored_port() {
+    init_crypto();
+    let _env = EnvUrlGuard::set("http://env:9");
+    let base = base_with_config("port = 4000\n");
+
+    let base_url = ApiClient::new(None).base_url().to_string();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, "http://env:9");
+}
+
+#[test]
+#[serial]
+fn absent_settings_file_uses_the_profile_port() {
+    init_crypto();
+    let _env = EnvUrlGuard::clear();
+    let base = TempDir::new().expect("Failed to create base temp dir");
+    set_base_path(base.path().to_path_buf());
+
+    let base_url = ApiClient::new(None).base_url().to_string();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, format!("http://localhost:{PROFILE_PORT}"));
+}
+
+#[test]
+#[serial]
+fn settings_file_without_port_uses_the_profile_port() {
+    init_crypto();
+    let _env = EnvUrlGuard::clear();
+    let base = base_with_config("verbosity = 2\n");
+
+    let base_url = ApiClient::new(None).base_url().to_string();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, format!("http://localhost:{PROFILE_PORT}"));
+}
+
+#[test]
+#[serial]
+fn corrupt_settings_file_uses_the_profile_port() {
+    init_crypto();
+    let _env = EnvUrlGuard::clear();
+    let base = base_with_config("port = \"not-a-number\"\n");
+
+    let base_url = ApiClient::new(None).base_url().to_string();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, format!("http://localhost:{PROFILE_PORT}"));
+}
+
+#[test]
+#[serial]
+fn invalid_stored_port_uses_the_profile_port() {
+    init_crypto();
+    let _env = EnvUrlGuard::clear();
+    let base = base_with_config("port = 0\n");
+
+    let base_url = ApiClient::new(None).base_url().to_string();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, format!("http://localhost:{PROFILE_PORT}"));
+}
+
+#[test]
+#[serial]
+fn missing_config_root_uses_the_profile_port() {
+    init_crypto();
+    let _env = EnvUrlGuard::clear();
+    clear_base_path();
+
+    let previous_home = std::env::var_os("HOME");
+    let previous_xdg = std::env::var_os("XDG_CONFIG_HOME");
+    unsafe {
+        std::env::remove_var("HOME");
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+    #[cfg(target_os = "windows")]
+    let previous_appdata = std::env::var_os("APPDATA");
+    #[cfg(target_os = "windows")]
+    unsafe {
+        std::env::remove_var("APPDATA");
+    };
+
+    let base_url = ApiClient::new(None).base_url().to_string();
+
+    restore_env("HOME", previous_home);
+    restore_env("XDG_CONFIG_HOME", previous_xdg);
+    #[cfg(target_os = "windows")]
+    restore_env("APPDATA", previous_appdata);
+
+    assert_eq!(
+        base_url,
+        format!("http://localhost:{PROFILE_PORT}"),
+        "a missing config root should fall back to the profile port"
+    );
+}
+
+// =============================================================================
+// Loud settings failures: an unreadable, unparsable or invalid file warns and
+// the client carries on. The absent and partial states stay silent.
+// =============================================================================
+
+#[test]
+#[serial]
+fn corrupt_settings_file_warns_with_the_path_and_the_parse_error() {
+    let base = base_with_config("port = \"not-a-number\"\n");
+    let path = get_config_path();
+    let path_text = path.display().to_string();
+    let load_error = settings::load(&path).expect_err("a corrupt file must not load");
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    let warning = warning.expect("a parse failure must produce a warning");
+    assert_eq!(
+        warning,
+        settings_warning(&path, &load_error),
+        "the returned warning must be the formatted warning"
+    );
+    assert!(
+        warning.contains(&path_text),
+        "the warning must name the file, got: {warning}"
+    );
+    assert!(
+        warning.contains("not-a-number") || warning.contains("invalid type"),
+        "the warning must name the parse error, got: {warning}"
+    );
+}
+
+#[test]
+#[serial]
+fn invalid_stored_value_warns_with_the_path() {
+    let base = base_with_config("port = 0\n");
+    let path = get_config_path();
+    let path_text = path.display().to_string();
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    let warning = warning.expect("an out-of-range value must produce a warning");
+    assert!(
+        warning.contains(&path_text),
+        "the warning must name the file, got: {warning}"
+    );
+    assert!(
+        warning.contains("port must be between"),
+        "the warning must name the validation error, got: {warning}"
+    );
+}
+
+#[test]
+#[serial]
+fn directory_where_the_settings_file_belongs_warns() {
+    let base = TempDir::new().expect("Failed to create base temp dir");
+    set_base_path(base.path().to_path_buf());
+    let path = get_config_path();
+    let path_text = path.display().to_string();
+    std::fs::create_dir_all(&path).expect("directory creates");
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    let warning = warning.expect("a read failure must produce a warning");
+    assert!(
+        warning.contains(&path_text),
+        "the warning must name the file, got: {warning}"
+    );
+}
+
+#[test]
+#[serial]
+fn absent_settings_file_is_silent() {
+    let base = TempDir::new().expect("Failed to create base temp dir");
+    set_base_path(base.path().to_path_buf());
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    assert_eq!(
+        warning, None,
+        "a missing settings file is the normal first run and stays silent"
+    );
+}
+
+#[test]
+#[serial]
+fn partial_settings_file_is_silent() {
+    let base = base_with_config("verbosity = 2\n");
+
+    let (base_url, warning) = stored_base_url();
+
+    clear_base_path();
+    drop(base);
+
+    assert_eq!(base_url, DEFAULT_API_URL);
+    assert_eq!(
+        warning, None,
+        "absent keys resolve to defaults without a warning"
+    );
+}

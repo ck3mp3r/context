@@ -1,0 +1,38 @@
+[package]
+name = "context"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+# Two binaries ship from this crate; the GUI is the bundle main.
+default-run = "context"
+
+[lints]
+workspace = true
+
+[lib]
+name = "context_app"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+context-server = { path = "../context-server", features = ["embed-frontend"] }
+context-core = { path = "../context-core" }
+context-db = { path = "../context-db" }
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
+serde.workspace = true
+serde_json.workspace = true
+semver = "1"
+chrono.workspace = true
+tauri-plugin-updater = "2"
+libc = "0.2"
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+tokio = { version = "1.53.2", features = ["full"] }
+
+[dev-dependencies]
+serial_test = "4.0.1"
+tempfile = "3.27.0"

@@ -2,8 +2,9 @@
 
 use crate::SqliteDatabase;
 use context_core::{
-    Database, HasNotes, HasProjects, HasSync, HasTaskLists, Note, NoteRepository, Project,
-    ProjectRepository, SyncRepository, TaskList, TaskListRepository, TaskListStatus, write_jsonl,
+    Database, HasNotes, HasProjects, HasSync, HasTaskLists, Note, NoteRepository, NoteStatus,
+    Project, ProjectRepository, SyncRepository, TaskList, TaskListRepository, TaskListStatus,
+    write_jsonl,
 };
 use tempfile::TempDir;
 
@@ -32,6 +33,8 @@ async fn test_import_preserves_timestamps() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some(original_created.to_string()),
         updated_at: Some(original_updated.to_string()),
         deleted_at: None,
@@ -59,6 +62,8 @@ async fn test_import_preserves_timestamps() {
         repo_ids: vec![],
         project_ids: vec![],
         subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
         created_at: Some(original_created.to_string()),
         updated_at: Some(modified_updated.to_string()),
         deleted_at: None,

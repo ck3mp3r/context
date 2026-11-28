@@ -2,9 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{ApiClientError, QueryBuilder};
-use crate::components::{
-    Breadcrumb, BreadcrumbItem, Pagination, SearchInput, SkillCard, SkillDetailModal, SortControls,
-};
+use crate::components::{Pagination, SearchInput, SkillCard, SkillDetailModal, SortControls};
 use crate::hooks::{use_pagination, use_search, use_sort};
 use crate::models::{Paginated, Skill, UpdateMessage};
 use crate::websocket::use_websocket_updates;
@@ -100,8 +98,6 @@ fn SkillsList() -> impl IntoView {
 
     view! {
         <div class="flex flex-col min-h-[calc(100vh-8rem)]">
-            <Breadcrumb items=vec![BreadcrumbItem::new("Skills")]/>
-
             <div class="container mx-auto p-6 flex-1">
                 // Search bar and sort controls
                 <div class="mb-6 flex gap-4 items-center">
