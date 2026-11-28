@@ -35,7 +35,7 @@ weight = 10
 [[extra.menu.main]]
 name = "Development"
 section = "development"
-url = "/development/"
+url = "/development/setup/"
 weight = 20
 
 [[extra.menu.social]]
