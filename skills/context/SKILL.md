@@ -407,7 +407,7 @@ note_create(
 1. `note_read(ranges=[{start, end}])` → get those lines and a per-range `etag`
 2. `note_edit(patches=[{start, end, etag: "<range etag>", content: "..."}])`
 
-Each patch targets exactly one of `(start AND end)` XOR `anchor` — never both, never neither. A patch without an `etag` requires the whole-note `etag` (from a full read). Metadata-only edits require the whole-note `etag`.
+Each patch targets exactly one of `(start AND end)` XOR `anchor` — never both, never neither. A patch without an `etag` requires the whole-note `etag` (from a full read). Metadata-only edits (empty `patches`) need no `etag`.
 
 **🚨 DANGER: Always batch multiple edits into a single `note_edit` call**
 
@@ -432,5 +432,5 @@ sync(operation="import")   — restore from git
 - Batching status updates instead of transitioning each task in real-time
 - Forgetting to promote a parent task to `in_progress` when you start subtask work
 - Linking a session note without a `project_ids` value — the note becomes unfindable
-- **Editing note metadata without a whole-note `etag` (metadata-only edits require the full-read etag; content patches can carry their own range/section etag or an anchor)**
+- **Sending content patches without an etag (content patches need the whole-note etag from full note_read, or a per-patch range/section etag; metadata-only edits need no etag and no prior read)**
 - **Making sequential `note_edit` calls instead of batching all patches in one call (causes line number misalignment)**

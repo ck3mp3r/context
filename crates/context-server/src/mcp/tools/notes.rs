@@ -334,7 +334,7 @@ pub struct EditNoteParams {
     #[schemars(description = "Note ID")]
     pub note_id: String,
     #[schemars(
-        description = "Whole-note ETag from note_read. Required for metadata-only edits; when every patch carries a range etag it may be omitted."
+        description = "Whole-note ETag from note_read. Optional for metadata-only edits (no patches); content patches require the whole-note etag or a per-patch range/section etag. A provided etag is still validated."
     )]
     pub etag: Option<String>,
     #[schemars(description = "Note title (optional)")]
@@ -680,7 +680,7 @@ impl<D: HasNotes + 'static> NoteTools<D> {
     }
 
     #[tool(
-        description = "Edit note. Requires a whole-note etag from note_read, or one range etag (range read) or section etag (anchor read) per patch. Each patch targets a line range or an anchor. Updates metadata and/or applies patches."
+        description = "Edit note. Metadata-only edits (empty patches) need no etag; a provided whole-note etag is still validated. Content patches require the whole-note etag from full note_read, or one range etag (range read) or section etag (anchor read) per patch. Each patch targets a line range or an anchor. Updates metadata and/or applies patches."
     )]
     pub async fn note_edit(
         &self,
@@ -698,7 +698,6 @@ impl<D: HasNotes + 'static> NoteTools<D> {
         let current_etag = compute_etag(current_note.updated_at.as_ref().unwrap_or(&String::new()));
 
         let provided_etag = params.0.etag.as_deref().unwrap_or("");
-        let has_patches = !params.0.patches.is_empty();
 
         // Resolve every patch target against the current content before any etag
         // validation. Exactly one target shape is allowed per patch.
@@ -734,16 +733,6 @@ impl<D: HasNotes + 'static> NoteTools<D> {
                 Some(serde_json::json!({
                     "note_id": params.0.note_id,
                     "provided_etag": provided_etag
-                })),
-            ));
-        }
-
-        // Metadata-only edits have no range to guard, so they need the whole-note etag
-        if !has_patches && provided_etag.is_empty() {
-            return Err(McpError::invalid_params(
-                "Editing note metadata requires the whole-note etag from note_read.",
-                Some(serde_json::json!({
-                    "note_id": params.0.note_id
                 })),
             ));
         }

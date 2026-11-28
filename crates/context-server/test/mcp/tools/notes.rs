@@ -404,24 +404,20 @@ async fn whole_note_etag_still_rejects_stale_metadata_edits() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn metadata_only_edit_requires_a_whole_note_etag() {
+async fn metadata_only_edit_without_an_etag_succeeds() {
     let (db, tools) = setup_tools().await;
     let note_id = create_note(&db, NINE_LINES).await;
 
     let mut params = edit_params(&note_id, None, vec![]);
-    params.title = Some("Renamed".to_string());
+    params.title = Some("New Title".to_string());
 
-    let error = tools
+    tools
         .note_edit(Parameters(params))
         .await
-        .expect_err("a metadata-only edit without an etag must be rejected");
+        .expect("a metadata-only edit without an etag must succeed");
 
-    assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
-    assert!(
-        error.message.contains("whole-note etag"),
-        "error must ask for the whole-note etag, got: {}",
-        error.message
-    );
+    let updated = db.notes().get(&note_id).await.expect("Get should succeed");
+    assert_eq!(updated.title, "New Title");
 }
 
 #[tokio::test(flavor = "multi_thread")]

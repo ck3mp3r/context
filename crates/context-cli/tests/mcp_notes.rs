@@ -275,6 +275,59 @@ async fn test_note_edit() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_note_edit_metadata_without_etag() {
+    let db = setup_db().await;
+    let db = Arc::new(db);
+    let tools = NoteTools::new(db.clone(), ChangeNotifier::new());
+
+    let note = Note {
+        id: "note0001".to_string(),
+        title: "Original".to_string(),
+        content: "Original content".to_string(),
+        tags: vec![],
+        parent_id: None,
+        idx: None,
+        repo_ids: vec![],
+        project_ids: vec![],
+        subnote_count: None,
+        status: NoteStatus::Active,
+        archived_at: None,
+        created_at: Some("2025-01-01 00:00:00".to_string()),
+        updated_at: Some("2025-01-01 00:00:00".to_string()),
+        deleted_at: None,
+    };
+    db.notes()
+        .create(&note)
+        .await
+        .expect("Create should succeed");
+
+    let params = EditNoteParams {
+        note_id: "note0001".to_string(),
+        etag: None,
+        title: Some("Updated".to_string()),
+        tags: None,
+        project_ids: None,
+        repo_ids: None,
+        parent_id: None,
+        idx: None,
+        status: None,
+        patches: vec![],
+    };
+
+    tools
+        .note_edit(Parameters(params))
+        .await
+        .expect("a metadata-only edit without an etag must succeed");
+
+    let updated = db
+        .notes()
+        .get("note0001")
+        .await
+        .expect("Get should succeed");
+    assert_eq!(updated.title, "Updated");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_note_edit_not_found() {
     let db = setup_db().await;
     let db = Arc::new(db);
