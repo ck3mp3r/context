@@ -927,3 +927,124 @@ async fn test_note_list_filters_by_status() {
         "status=archived must return only the archived note"
     );
 }
+
+#[test]
+fn test_note_json_tolerates_omitted_status() {
+    let payload = "{\"id\":\"note1234\",\"title\":\"T\",\"content\":\"C\",\"tags\":[],\"created_at\":\"2026-01-01 00:00:00\",\"updated_at\":\"2026-01-01 00:00:00\"}";
+    let note: Note = serde_json::from_str(payload).expect("Note JSON without status should parse");
+
+    assert_eq!(
+        note.status, "active",
+        "Omitted status must default to active"
+    );
+    assert_eq!(note.archived_at, None, "Omitted archived_at must stay None");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_note_get_json_surfaces_status_archived_at() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    let created = create_note(
+        &api_client,
+        CreateNoteRequest {
+            title: "Archivable Note".to_string(),
+            content: "Note used to verify archive fields in JSON output".to_string(),
+            tags: None,
+            parent_id: None,
+            idx: None,
+            project_ids: None,
+            repo_ids: None,
+        },
+    )
+    .await
+    .expect("Create should succeed");
+
+    let note_id = created
+        .split('(')
+        .nth(1)
+        .and_then(|s| s.split(')').next())
+        .map(|s| s.to_string())
+        .expect("Created output should contain the note ID");
+
+    let active_json = get_note(&api_client, &note_id, "json")
+        .await
+        .expect("Get active note should succeed");
+    let active: serde_json::Value =
+        serde_json::from_str(&active_json).expect("Get output should be valid JSON");
+    assert_eq!(
+        active["status"], "active",
+        "get --json must surface status active, got: {}",
+        active
+    );
+
+    update_note(
+        &api_client,
+        &note_id,
+        status_update_request(Some("archived")),
+    )
+    .await
+    .expect("Archive should succeed");
+
+    let archived_json = get_note(&api_client, &note_id, "json")
+        .await
+        .expect("Get archived note should succeed");
+    let archived: serde_json::Value =
+        serde_json::from_str(&archived_json).expect("Get output should be valid JSON");
+    assert_eq!(
+        archived["status"], "archived",
+        "get --json must surface status archived, got: {}",
+        archived
+    );
+    assert!(
+        !archived["archived_at"].is_null(),
+        "get --json must surface a non-null archived_at, got: {}",
+        archived
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_note_list_json_surfaces_status() {
+    let (url, _project_id, _handle) = spawn_test_server().await;
+    let api_client = ApiClient::new(Some(url));
+
+    create_note(
+        &api_client,
+        CreateNoteRequest {
+            title: "Listed Note".to_string(),
+            content: "Note used to verify list JSON status member".to_string(),
+            tags: None,
+            parent_id: None,
+            idx: None,
+            project_ids: None,
+            repo_ids: None,
+        },
+    )
+    .await
+    .expect("Create should succeed");
+
+    let listed = list_notes(
+        &api_client,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        PageParams::default(),
+        "json",
+    )
+    .await
+    .expect("List should succeed");
+    let notes: serde_json::Value = serde_json::from_str(&listed).expect("Valid JSON");
+    let items = notes.as_array().expect("List output should be an array");
+
+    assert!(!items.is_empty(), "List should contain the created note");
+    for item in items {
+        assert!(
+            item.get("status").is_some(),
+            "list --json must surface a status member on every note, got: {}",
+            item
+        );
+    }
+}
